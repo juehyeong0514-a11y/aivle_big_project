@@ -1,14 +1,47 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, User, Lock, ArrowRight, UserCheck, ShieldAlert, Mail, UserPlus, LogIn } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, UserCheck, ShieldAlert, Mail, UserPlus, LogIn, Eye } from 'lucide-react';
 
 export default function AuthPage() {
   const navigate = useNavigate();
-  const [authMode, setAuthMode] = useState('LOGIN');
+  const [authMode, setAuthMode] = useState('LOGIN'); // 'LOGIN' 또는 'SIGNUP'
+
+  // 3대 권한 상태: 'APPLICANT'(응시자), 'SUPERVISOR'(감독관), 'ADMIN'(관리자)
   const [role, setRole] = useState('APPLICANT');
-  const [formData, setFormData] = useState({ username: '', email: '', password: '', passwordConfirm: '' });
+
+  // 🌟 입력값은 비워두고(빈 문자열), placeholder로 예시가 보이도록 설정
+  const [formData, setFormData] = useState({
+    username: '',
+    email: '',
+    password: '',
+    passwordConfirm: ''
+  });
+
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // 권한별 기본 예시 계정 정보 (입력하지 않고 로그인 시 자동 적용용)
+  const defaultAccounts = {
+    APPLICANT: { email: 'applicant@aivle.com', password: '123' },
+    SUPERVISOR: { email: 'supervisor@aivle.com', password: '123' },
+    ADMIN: { email: 'admin@aivle.com', password: '123' }
+  };
+
+  // 권한 선택 시 상태 초기화 (입력창은 비워둠)
+  const handleRoleSelect = (selectedRole) => {
+    setRole(selectedRole);
+    setErrorMsg('');
+    setSuccessMsg('');
+    setFormData({ username: '', email: '', password: '', passwordConfirm: '' });
+  };
+
+  // 모드 변경 시 초기화
+  const handleModeSelect = (mode) => {
+    setAuthMode(mode);
+    setErrorMsg('');
+    setSuccessMsg('');
+    setFormData({ username: '', email: '', password: '', passwordConfirm: '' });
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -27,118 +60,184 @@ export default function AuthPage() {
       if (formData.password !== formData.passwordConfirm) {
         setErrorMsg('비밀번호가 일치하지 않습니다.'); return;
       }
-      alert(`[${role === 'APPLICANT' ? '응시자' : '관리자/감독관'}] 회원가입이 완료되었습니다!`);
+      const roleLabel = role === 'APPLICANT' ? '응시자' : role === 'SUPERVISOR' ? '감독관' : '시스템 관리자';
+      alert(`[${roleLabel}] 회원가입이 완료되었습니다!`);
       setSuccessMsg('회원가입 성공! 가입한 계정으로 로그인해주세요.');
-      setAuthMode('LOGIN');
-      setFormData((prev) => ({ ...prev, password: '', passwordConfirm: '' }));
+      handleModeSelect('LOGIN');
       return;
     }
 
     if (authMode === 'LOGIN') {
-      if (!formData.email || !formData.password) {
-        setErrorMsg('이메일과 비밀번호를 입력해주세요.'); return;
-      }
+      // 🌟 입력창이 비어있으면 해당 권한의 기본 예시 계정으로 자동 로그인 처리
+      const loginEmail = formData.email.trim() || defaultAccounts[role].email;
+      const loginPassword = formData.password.trim() || defaultAccounts[role].password;
+
+      // 로컬 스토리지에 권한 및 이메일 저장
       localStorage.setItem('userRole', role);
-      localStorage.setItem('userEmail', formData.email);
-      alert(`[${role === 'APPLICANT' ? '응시자' : '감독관/관리자'}] 계정으로 로그인되었습니다.`);
-      navigate('/home', { state: { role: role } });
+      localStorage.setItem('userEmail', loginEmail);
+      localStorage.setItem('userName', loginEmail.split('@')[0]);
+
+      const roleLabel = role === 'APPLICANT' ? '응시자' : role === 'SUPERVISOR' ? '감독관' : '시스템 관리자';
+      alert(`[${roleLabel}] 계정으로 로그인되었습니다.`);
+
+      // 권한별 맞춤 페이지로 리다이렉트
+      if (role === 'ADMIN') {
+        navigate('/home?tab=EXAM_CREATE');
+      } else if (role === 'SUPERVISOR') {
+        navigate('/home?tab=LIVE_MONITORING');
+      } else {
+        navigate('/');
+      }
     }
   };
 
+  // 🌟 현재 선택된 권한에 따른 placeholder 이메일 결정
+  const getPlaceholderEmail = () => {
+    if (role === 'APPLICANT') return 'applicant@aivle.com';
+    if (role === 'SUPERVISOR') return 'supervisor@aivle.com';
+    return 'admin@aivle.com';
+  };
+
   return (
-    <div className="auth-container">
-      <div className="auth-box">
+    <div className="auth-container" style={{minHeight: 'calc(100vh - 64px)', backgroundColor: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem'}}>
+      <div className="auth-box" style={{maxWidth: '480px', width: '100%', padding: '2.5rem', backgroundColor: '#ffffff', borderRadius: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05)'}}>
+
         {/* 상단 로고 및 타이틀 */}
-        <div className="auth-header">
-          <div className="logo-icon" style={{width: 60, height: 60, marginBottom: '0.75rem'}}>
-            <ShieldCheck color="#ffffff" size={36} />
+        <div className="auth-header" style={{textAlign: 'center', marginBottom: '1.75rem'}}>
+          <div className="logo-icon" style={{width: 52, height: 52, backgroundColor: '#2563EB', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem auto'}}>
+            <ShieldCheck color="#ffffff" size={30} />
           </div>
-          <h1 style={{fontSize: '1.4rem', margin: '0 0 0.25rem 0'}}>AI 리터러시 역량 테스트</h1>
-          <p style={{color: '#64748b', margin: 0, fontSize: '0.85rem'}}>실시간 지능형 감독 및 자동 평가 플랫폼</p>
+          <h1 style={{fontSize: '1.4rem', margin: '0 0 0.25rem 0', color: '#0f172a', fontWeight: 'bold'}}>AI 리터러시 역량 테스트 플랫폼</h1>
+          <p style={{color: '#64748b', margin: 0, fontSize: '0.85rem'}}>실시간 지능형 감독 및 자동 평가 시스템</p>
         </div>
 
-        {/* 모드 전환 탭 */}
-        <div className="mode-tab-container">
+        {/* 모드 전환 탭 (로그인 / 회원가입) */}
+        <div className="mode-tab-container" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem', backgroundColor: '#f1f5f9', padding: '0.35rem', borderRadius: '10px'}}>
           <button
             type="button"
             className={`mode-tab-btn ${authMode === 'LOGIN' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('LOGIN'); setErrorMsg(''); setSuccessMsg(''); }}
+            onClick={() => handleModeSelect('LOGIN')}
+            style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '0.6rem', border: 'none', borderRadius: '8px', backgroundColor: authMode === 'LOGIN' ? '#ffffff' : 'transparent', color: authMode === 'LOGIN' ? '#2563EB' : '#64748b', fontWeight: authMode === 'LOGIN' ? 'bold' : '500', cursor: 'pointer', boxShadow: authMode === 'LOGIN' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'}}
           >
-            <LogIn size={18} /><span>로그인</span>
+            <LogIn size={16} /><span>로그인</span>
           </button>
           <button
             type="button"
             className={`mode-tab-btn ${authMode === 'SIGNUP' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('SIGNUP'); setErrorMsg(''); setSuccessMsg(''); }}
+            onClick={() => handleModeSelect('SIGNUP')}
+            style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '0.6rem', border: 'none', borderRadius: '8px', backgroundColor: authMode === 'SIGNUP' ? '#ffffff' : 'transparent', color: authMode === 'SIGNUP' ? '#2563EB' : '#64748b', fontWeight: authMode === 'SIGNUP' ? 'bold' : '500', cursor: 'pointer', boxShadow: authMode === 'SIGNUP' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'}}
           >
-            <UserPlus size={18} /><span>회원가입</span>
+            <UserPlus size={16} /><span>회원가입</span>
           </button>
         </div>
 
-        {/* 권한 선택 탭 */}
-        <div className="role-tab-container">
+        {/* 3대 권한 선택 탭 (응시자 / 감독관 / 시스템 관리자) */}
+        <div className="role-tab-container" style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem', marginBottom: '1.5rem'}}>
           <button
             type="button"
-            className={`role-tab-btn ${role === 'APPLICANT' ? 'active' : ''}`}
-            onClick={() => { setRole('APPLICANT'); setErrorMsg(''); }}
+            onClick={() => handleRoleSelect('APPLICANT')}
+            style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '0.5rem 0.2rem', border: role === 'APPLICANT' ? '2px solid #2563EB' : '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: role === 'APPLICANT' ? '#eff6ff' : '#ffffff', color: role === 'APPLICANT' ? '#2563EB' : '#64748b', fontWeight: role === 'APPLICANT' ? 'bold' : '500', fontSize: '0.75rem', cursor: 'pointer'}}
           >
-            <UserCheck size={16} /><span>응시자 {authMode === 'LOGIN' ? '접속' : '가입'}</span>
+            <UserCheck size={16} /><span>응시자</span>
           </button>
           <button
             type="button"
-            className={`role-tab-btn ${role === 'ADMIN' ? 'active' : ''}`}
-            onClick={() => { setRole('ADMIN'); setErrorMsg(''); }}
+            onClick={() => handleRoleSelect('SUPERVISOR')}
+            style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '0.5rem 0.2rem', border: role === 'SUPERVISOR' ? '2px solid #16a34a' : '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: role === 'SUPERVISOR' ? '#f0fdf4' : '#ffffff', color: role === 'SUPERVISOR' ? '#16a34a' : '#64748b', fontWeight: role === 'SUPERVISOR' ? 'bold' : '500', fontSize: '0.75rem', cursor: 'pointer'}}
           >
-            <ShieldAlert size={16} /><span>감독관/관리자 {authMode === 'LOGIN' ? '접속' : '가입'}</span>
+            <Eye size={16} /><span>감독관</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRoleSelect('ADMIN')}
+            style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '0.5rem 0.2rem', border: role === 'ADMIN' ? '2px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: role === 'ADMIN' ? '#f5f3ff' : '#ffffff', color: role === 'ADMIN' ? '#7c3aed' : '#64748b', fontWeight: role === 'ADMIN' ? 'bold' : '500', fontSize: '0.75rem', cursor: 'pointer'}}
+          >
+            <ShieldAlert size={16} /><span>시스템 관리자</span>
           </button>
         </div>
 
         {/* 알림 메시지 */}
-        {errorMsg && <div className="alert-box alert-error">{errorMsg}</div>}
-        {successMsg && <div className="alert-box alert-success">{successMsg}</div>}
+        {errorMsg && <div className="alert-box alert-error" style={{padding: '0.75rem', marginBottom: '1rem', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px', fontSize: '0.85rem'}}>{errorMsg}</div>}
+        {successMsg && <div className="alert-box alert-success" style={{padding: '0.75rem', marginBottom: '1rem', backgroundColor: '#dcfce7', color: '#16a34a', borderRadius: '6px', fontSize: '0.85rem'}}>{successMsg}</div>}
 
         {/* 입력 폼 */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', gap: '1rem'}}>
           {authMode === 'SIGNUP' && (
-            <div className="input-group">
-              <label className="input-label">이름 (실명)</label>
-              <div className="input-wrapper">
-                <User size={18} color="#94a3b8" className="input-icon" />
-                <input type="text" name="username" placeholder="홍길동" value={formData.username} onChange={handleChange} className="form-input" />
+            <div className="input-group" style={{margin: 0}}>
+              <label className="input-label" style={{display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.35rem', color: '#334155'}}>이름 (실명)</label>
+              <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
+                <User size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
+                <input type="text" name="username" placeholder="홍길동" value={formData.username} onChange={handleChange} className="form-input" style={{width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.5rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem'}} />
               </div>
             </div>
           )}
 
-          <div className="input-group">
-            <label className="input-label">
-              {role === 'APPLICANT' ? '응시자 이메일 (또는 수험번호)' : '관리자 이메일'}
+          <div className="input-group" style={{margin: 0}}>
+            <label className="input-label" style={{display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.35rem', color: '#334155'}}>
+              {role === 'APPLICANT' ? '응시자 이메일' : role === 'SUPERVISOR' ? '감독관 이메일' : '관리자 이메일'}
             </label>
-            <div className="input-wrapper">
-              <Mail size={18} color="#94a3b8" className="input-icon" />
-              <input type="text" name="email" placeholder={role === 'APPLICANT' ? "applicant@test.com" : "admin@test.com"} value={formData.email} onChange={handleChange} className="form-input" />
+            <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
+              <Mail size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
+              {/* 🌟 value는 비워두고 placeholder로 안내 문구만 표시되도록 수정 */}
+              <input
+                type="text"
+                name="email"
+                placeholder={getPlaceholderEmail()}
+                value={formData.email}
+                onChange={handleChange}
+                className="form-input"
+                style={{width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.5rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem'}}
+              />
             </div>
           </div>
 
-          <div className="input-group">
-            <label className="input-label">비밀번호</label>
-            <div className="input-wrapper">
-              <Lock size={18} color="#94a3b8" className="input-icon" />
-              <input type="password" name="password" placeholder="••••••••" value={formData.password} onChange={handleChange} className="form-input" />
+          <div className="input-group" style={{margin: 0}}>
+            <label className="input-label" style={{display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.35rem', color: '#334155'}}>비밀번호</label>
+            <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
+              <Lock size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
+              {/* 🌟 value는 비워두고 placeholder로 '••••••••' 표시 */}
+              <input
+                type="password"
+                name="password"
+                placeholder="••••••••"
+                value={formData.password}
+                onChange={handleChange}
+                className="form-input"
+                style={{width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.5rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem'}}
+              />
             </div>
           </div>
 
           {authMode === 'SIGNUP' && (
-            <div className="input-group">
-              <label className="input-label">비밀번호 확인</label>
-              <div className="input-wrapper">
-                <Lock size={18} color="#94a3b8" className="input-icon" />
-                <input type="password" name="passwordConfirm" placeholder="••••••••" value={formData.passwordConfirm} onChange={handleChange} className="form-input" />
+            <div className="input-group" style={{margin: 0}}>
+              <label className="input-label" style={{display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.35rem', color: '#334155'}}>비밀번호 확인</label>
+              <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
+                <Lock size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
+                <input type="password" name="passwordConfirm" placeholder="••••••••" value={formData.passwordConfirm} onChange={handleChange} className="form-input" style={{width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.5rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem'}} />
               </div>
             </div>
           )}
 
-          <button type="submit" className="btn-primary" style={{width: '100%', marginTop: '0.5rem'}}>
-            <span>{authMode === 'LOGIN' ? '로그인 및 입장하기' : '회원가입 완료하기'}</span>
+          <button
+            type="submit"
+            className="btn-primary"
+            style={{
+              width: '100%',
+              marginTop: '0.75rem',
+              padding: '0.85rem',
+              backgroundColor: role === 'APPLICANT' ? '#2563EB' : role === 'SUPERVISOR' ? '#16a34a' : '#7c3aed',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              cursor: 'pointer'
+            }}
+          >
+            <span>{authMode === 'LOGIN' ? `${role === 'APPLICANT' ? '응시자' : role === 'SUPERVISOR' ? '감독관' : '관리자'} 로그인하기` : '회원가입 완료하기'}</span>
             <ArrowRight size={18} />
           </button>
         </form>
