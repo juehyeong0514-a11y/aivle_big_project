@@ -2,20 +2,16 @@ import React from 'react';
 import './styles/main.css';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
-import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import HomePage from './pages/HomePage';
 import ExamCheckPage from './pages/ExamCheckPage';
 import AdminRoute from './components/AdminRoute';
 
 function Layout({ children }) {
-  const location = useLocation();
-  const isLandingPage = location.pathname === '/';
-
   return (
     <div className="app-wrapper">
-      {!isLandingPage && <Header />}
-      <main>{children}</main>
+      <Header />
+      {children}
     </div>
   );
 }
@@ -25,7 +21,7 @@ export default function App() {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<AuthPage />} />
 
           {/* 🌟 회원가입/로그인을 안 하더라도 홈 화면의 탭과 카드 목록은 열람이 가능합니다 */}
