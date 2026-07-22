@@ -1,17 +1,26 @@
-import React, { useState } from 'react';
-import { Video, Monitor, AlertTriangle, Send, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Video, Monitor } from 'lucide-react';
+import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 export default function LiveMonitoringTab() {
-  const [examinees, setExaminees] = useState([
-    { id: 1, name: '김응시', status: 'NORMAL', statusText: '정상 응시 중', currentProb: '문제 2번' },
-    { id: 2, name: '이수험', status: 'WARNING', statusText: '시선 이탈 감지', currentProb: '문제 1번' },
-    { id: 3, name: '박개발', status: 'DANGER', statusText: '이어폰 착용 의심', currentProb: '문제 3번' },
-    { id: 4, name: '최코딩', status: 'NORMAL', statusText: '정상 응시 중', currentProb: '문제 4번 제출완료' },
-  ]);
+  const [examinees, setExaminees] = useState([]);
+  const [loadError, setLoadError] = useState('');
 
-  const handleSendWarning = (name) => {
-    const msg = prompt(`[${name}] 응시자에게 보낼 경고 메시지를 입력하세요:`);
-    if (msg) alert(`[전송 완료] ${name}님에게 경고 전송됨: "${msg}"`);
+  useEffect(() => {
+    api.get('/supervisor/examinees', { headers: authHeaders() })
+      .then(({ data }) => setExaminees(data))
+      .catch(() => setLoadError('관제 데이터를 불러오지 못했습니다. 다시 로그인한 뒤 시도해주세요.'));
+  }, []);
+
+  const sendWarning = async (examinee) => {
+    const message = prompt(`[${examinee.name}] 응시자에게 보낼 경고 메시지를 입력하세요:`);
+    if (!message) return;
+    try {
+      const { data } = await api.post(`/supervisor/examinees/${examinee.id}/warnings`, { message }, { headers: authHeaders() });
+      alert(`[전송 완료] ${examinee.name}님에게 ${data.message}`);
+    } catch (error) {
+      alert(apiErrorMessage(error, '경고를 전송하지 못했습니다.'));
+    }
   };
 
   return (
@@ -23,6 +32,7 @@ export default function LiveMonitoringTab() {
         </div>
       </div>
 
+      {loadError && <div className="alert-box alert-error">{loadError}</div>}
       {/* 멀티캠 그리드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
         {examinees.map((ex) => (
@@ -57,7 +67,7 @@ export default function LiveMonitoringTab() {
             <button
               className="btn-secondary"
               style={{ width: '100%', backgroundColor: '#fff1f2', color: '#e11d48', border: '1px solid #fda4af' }}
-              onClick={() => handleSendWarning(ex.name)}
+              onClick={() => sendWarning(ex)}
             >
               ⚠️ 경고 메시지 발송
             </button>

@@ -1,10 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { api } from '../api/client';
 
 export default function NoticeTab() {
-  const notices = [
-    { id: 1, title: '[필수 독려] 시험 응시 전 PC 크롬(Chrome) 브라우저 최신 업데이트 안내', date: '2026.07.18' },
-    { id: 2, title: '보조 카메라(스마트폰) 거치 각도 및 QR 연결 가이드라인', date: '2026.07.15' }
-  ];
+  const [notices, setNotices] = useState([]);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    api.get('/notices')
+      .then(({ data }) => setNotices(data))
+      .catch(() => setLoadError('공지사항을 불러오지 못했습니다. 서버가 실행 중인지 확인해주세요.'));
+  }, []);
+
+  if (loadError) return <div className="alert-box alert-error">{loadError}</div>;
 
   return (
     <div className="card" style={{ padding: 0 }}>

@@ -36,7 +36,10 @@ export default function Header() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('userName');
     alert('로그아웃되었습니다.');
     navigate('/login');
   };

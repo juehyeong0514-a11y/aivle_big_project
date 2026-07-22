@@ -1,18 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Clock, Award, ArrowRight } from 'lucide-react';
+import { api } from '../api/client';
 
 export default function ExamTab({ onProtectedAction }) {
-  const examList = [
-    {
-      id: 1,
-      title: '2026년 하반기 신입 공채 AI 리터러시 역량 평가',
-      category: '정규 평가 (Python / Java / C++)',
-      duration: '90분',
-      questions: '총 4문제',
-      status: 'AVAILABLE',
-      date: '2026.07.20 ~ 2026.07.22',
-    }
-  ];
+  const [examList, setExamList] = useState([]);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    api.get('/exams')
+      .then(({ data }) => setExamList(data))
+      .catch(() => setLoadError('시험 목록을 불러오지 못했습니다. 서버가 실행 중인지 확인해주세요.'));
+  }, []);
+
+  if (loadError) return <div className="alert-box alert-error">{loadError}</div>;
 
   return (
     <div className="cards-grid">
@@ -20,7 +20,7 @@ export default function ExamTab({ onProtectedAction }) {
         <div key={exam.id} className="prog-card">
           <div className="prog-card-top">
             <span className="prog-category">{exam.category}</span>
-            <span className="badge-status badge-available">응시 가능</span>
+            <span className="badge-status badge-available">{exam.status === 'AVAILABLE' ? '응시 가능' : exam.status}</span>
           </div>
           <h2 className="prog-title">{exam.title}</h2>
           <div className="prog-info-list">

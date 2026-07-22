@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
+import { api, authHeaders } from '../api/client';
 
 export default function UserMgmtTab() {
+  const [users, setUsers] = useState([]);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/users', { headers: authHeaders() })
+      .then(({ data }) => setUsers(data))
+      .catch(() => setLoadError('응시자 목록을 불러오지 못했습니다. 다시 로그인한 뒤 시도해주세요.'));
+  }, []);
+
   return (
     <div className="card" style={{ padding: '2.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
@@ -13,6 +23,7 @@ export default function UserMgmtTab() {
           <p className="text-muted" style={{ fontSize: '0.9rem', margin: 0 }}>시험 응시 대기자를 승인하고 실시간 접속 상태를 관리합니다.</p>
         </div>
       </div>
+      {loadError && <div className="alert-box alert-error">{loadError}</div>}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
           <thead>
@@ -24,12 +35,14 @@ export default function UserMgmtTab() {
             </tr>
           </thead>
           <tbody>
-            <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-              <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>홍길동</td>
-              <td style={{ padding: '0.75rem', color: '#64748b' }}>applicant1@aivle.com</td>
-              <td style={{ padding: '0.75rem' }}><span className="badge-status badge-available">승인 완료</span></td>
-              <td style={{ padding: '0.75rem' }}><button className="prog-action-btn btn-outline-blue" onClick={() => alert('상태 변경')}>권한 수정</button></td>
-            </tr>
+            {users.map((user) => (
+              <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{user.name}</td>
+                <td style={{ padding: '0.75rem', color: '#64748b' }}>{user.email}</td>
+                <td style={{ padding: '0.75rem' }}><span className="badge-status badge-available">{user.approvalStatus === 'APPROVED' ? '승인 완료' : user.approvalStatus}</span></td>
+                <td style={{ padding: '0.75rem' }}><span className="text-muted">응시자</span></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

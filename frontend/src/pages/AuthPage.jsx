@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, User, Lock, ArrowRight, UserCheck, ShieldAlert, Mail, UserPlus, LogIn, Eye } from 'lucide-react';
+import { api, apiErrorMessage } from '../api/client';
 
 export default function AuthPage() {
   const navigate = useNavigate();
@@ -48,7 +49,7 @@ export default function AuthPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
@@ -60,10 +61,19 @@ export default function AuthPage() {
       if (formData.password !== formData.passwordConfirm) {
         setErrorMsg('비밀번호가 일치하지 않습니다.'); return;
       }
-      const roleLabel = role === 'APPLICANT' ? '응시자' : role === 'SUPERVISOR' ? '감독관' : '시스템 관리자';
-      alert(`[${roleLabel}] 회원가입이 완료되었습니다!`);
-      setSuccessMsg('회원가입 성공! 가입한 계정으로 로그인해주세요.');
-      handleModeSelect('LOGIN');
+      try {
+        await api.post('/auth/signup', {
+          name: formData.username,
+          email: formData.email,
+          password: formData.password,
+          role,
+        });
+        setAuthMode('LOGIN');
+        setFormData({ username: '', email: formData.email, password: '', passwordConfirm: '' });
+        setSuccessMsg('회원가입 성공! 가입한 계정으로 로그인해주세요.');
+      } catch (error) {
+        setErrorMsg(apiErrorMessage(error, '회원가입 중 오류가 발생했습니다.'));
+      }
       return;
     }
 
@@ -72,21 +82,22 @@ export default function AuthPage() {
       const loginEmail = formData.email.trim() || defaultAccounts[role].email;
       const loginPassword = formData.password.trim() || defaultAccounts[role].password;
 
-      // 로컬 스토리지에 권한 및 이메일 저장
-      localStorage.setItem('userRole', role);
-      localStorage.setItem('userEmail', loginEmail);
-      localStorage.setItem('userName', loginEmail.split('@')[0]);
+      try {
+        const { data } = await api.post('/auth/login', {
+          email: loginEmail,
+          password: loginPassword,
+          role,
+        });
+        localStorage.setItem('accessToken', data.token);
+        localStorage.setItem('userRole', data.user.role);
+        localStorage.setItem('userEmail', data.user.email);
+        localStorage.setItem('userName', data.user.name);
 
-      const roleLabel = role === 'APPLICANT' ? '응시자' : role === 'SUPERVISOR' ? '감독관' : '시스템 관리자';
-      alert(`[${roleLabel}] 계정으로 로그인되었습니다.`);
-
-      // 권한별 맞춤 페이지로 리다이렉트
-      if (role === 'ADMIN') {
-        navigate('/home?tab=EXAM_CREATE');
-      } else if (role === 'SUPERVISOR') {
-        navigate('/home?tab=LIVE_MONITORING');
-      } else {
-        navigate('/');
+        if (role === 'ADMIN') navigate('/home?tab=EXAM_CREATE');
+        else if (role === 'SUPERVISOR') navigate('/home?tab=LIVE_MONITORING');
+        else navigate('/');
+      } catch (error) {
+        setErrorMsg(apiErrorMessage(error, '로그인 중 오류가 발생했습니다.'));
       }
     }
   };
