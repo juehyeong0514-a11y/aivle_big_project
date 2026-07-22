@@ -744,3 +744,312 @@ main {
   color: #ffffff;
   box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
 }
+
+/* =========================================================
+   8. 본인 인증 카드
+   ========================================================= */
+
+.identity-preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.identity-preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.identity-preview-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.identity-image-box {
+  width: 100%;
+  height: 120px;
+  background-color: #f1f5f9;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.identity-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.identity-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.identity-file-input {
+  display: none;
+}
+
+.identity-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.identity-upload-button,
+.identity-capture-button {
+  min-height: 42px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.identity-upload-button:hover,
+.identity-capture-button:hover {
+  background-color: #dbeafe;
+}
+
+.identity-status-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem 1rem;
+  padding: 0.85rem;
+  margin-bottom: 1rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.identity-status-box strong {
+  text-align: right;
+}
+
+@media (max-width: 600px) {
+  .identity-preview-grid,
+  .identity-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-image-box {
+    height: 160px;
+  }
+}
+
+/* =========================================================
+   시험 사전 점검 - 신분증/얼굴 인증
+   ========================================================= */
+
+.check-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.check-card-title h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+
+.identity-media-box {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  background-color: #f1f5f9;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.identity-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: #ffffff;
+}
+
+.identity-empty-state {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.identity-file-input {
+  display: none;
+}
+
+.identity-upload-button {
+  width: 100%;
+  min-height: 54px;
+  margin-top: auto;
+}
+
+.identity-simple-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.8rem;
+  padding: 0.8rem 0.9rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.identity-status-list {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.identity-status-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  color: #475569;
+  font-size: 0.82rem;
+}
+
+.identity-full-button {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 0.75rem;
+}
+
+.identity-full-button.btn-secondary {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.face-capture-thumbnail {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 78px;
+  height: 58px;
+  object-fit: cover;
+  background-color: #ffffff;
+  border: 3px solid #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.25);
+}
+
+.qr-connection-box {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+  background-color: #f1f5f9;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.qr-connection-box span {
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .identity-media-box,
+  .qr-connection-box,
+  .video-box {
+    height: 230px;
+  }
+
+  .footer-box {
+    align-items: stretch;
+  }
+
+  .footer-box > .btn-primary {
+    width: 100%;
+  }
+}
+
+/* 신분증 웹캠 촬영 가이드 */
+
+.identity-camera-box {
+  position: relative;
+}
+
+.id-card-guide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.id-card-guide-frame {
+  width: 78%;
+  height: 62%;
+  border: 3px solid #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 9999px rgba(15, 23, 42, 0.35),
+    0 0 15px rgba(0, 0, 0, 0.25);
+}
+
+.id-card-guide span {
+  padding: 0.4rem 0.75rem;
+  color: #ffffff;
+  background-color: rgba(15, 23, 42, 0.75);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.captured-image-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: #ffffff;
+}
