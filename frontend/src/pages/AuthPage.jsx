@@ -10,7 +10,7 @@ export default function AuthPage() {
   // 3대 권한 상태: 'APPLICANT'(응시자), 'SUPERVISOR'(감독관), 'ADMIN'(관리자)
   const [role, setRole] = useState('APPLICANT');
 
-  // 🌟 입력값은 비워두고(빈 문자열), placeholder로 예시가 보이도록 설정
+  // 입력값 상태 관리
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -21,14 +21,7 @@ export default function AuthPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // 권한별 기본 예시 계정 정보 (입력하지 않고 로그인 시 자동 적용용)
-  const defaultAccounts = {
-    APPLICANT: { email: 'applicant@aivle.com', password: '123' },
-    SUPERVISOR: { email: 'supervisor@aivle.com', password: '123' },
-    ADMIN: { email: 'admin@aivle.com', password: '123' }
-  };
-
-  // 권한 선택 시 상태 초기화 (입력창은 비워둠)
+  // 권한 선택 시 상태 초기화 (입력창 비우기)
   const handleRoleSelect = (selectedRole) => {
     setRole(selectedRole);
     setErrorMsg('');
@@ -78,14 +71,16 @@ export default function AuthPage() {
     }
 
     if (authMode === 'LOGIN') {
-      // 🌟 입력창이 비어있으면 해당 권한의 기본 예시 계정으로 자동 로그인 처리
-      const loginEmail = formData.email.trim() || defaultAccounts[role].email;
-      const loginPassword = formData.password.trim() || defaultAccounts[role].password;
+      // 🌟 로그인 모드에서도 이메일이나 비밀번호가 비어있으면 에러 발생
+      if (!formData.email.trim() || !formData.password.trim()) {
+        setErrorMsg('모든 항목을 빠짐없이 입력해주세요.');
+        return;
+      }
 
       try {
         const { data } = await api.post('/auth/login', {
-          email: loginEmail,
-          password: loginPassword,
+          email: formData.email.trim(),
+          password: formData.password.trim(),
           role,
         });
         localStorage.setItem('accessToken', data.token);
@@ -102,7 +97,7 @@ export default function AuthPage() {
     }
   };
 
-  // 🌟 현재 선택된 권한에 따른 placeholder 이메일 결정
+  // 현재 선택된 권한에 따른 placeholder 이메일 결정
   const getPlaceholderEmail = () => {
     if (role === 'APPLICANT') return 'applicant@aivle.com';
     if (role === 'SUPERVISOR') return 'supervisor@aivle.com';
@@ -189,7 +184,6 @@ export default function AuthPage() {
             </label>
             <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
               <Mail size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
-              {/* 🌟 value는 비워두고 placeholder로 안내 문구만 표시되도록 수정 */}
               <input
                 type="text"
                 name="email"
@@ -206,7 +200,6 @@ export default function AuthPage() {
             <label className="input-label" style={{display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.35rem', color: '#334155'}}>비밀번호</label>
             <div className="input-wrapper" style={{position: 'relative', display: 'flex', alignItems: 'center'}}>
               <Lock size={18} color="#94a3b8" style={{position: 'absolute', left: '12px'}} />
-              {/* 🌟 value는 비워두고 placeholder로 '••••••••' 표시 */}
               <input
                 type="password"
                 name="password"
