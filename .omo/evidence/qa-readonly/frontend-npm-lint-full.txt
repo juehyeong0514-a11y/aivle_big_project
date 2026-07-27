@@ -1,0 +1,13 @@
+COMMAND: cd frontend && npm run lint  
+
+> big-project@0.0.0 lint
+> oxlint
+
+src/applicant/ResultTab.jsx:2:17: warning eslint(no-unused-vars): Identifier 'CheckCircle2' is imported but never used. help: Consider removing this import.
+src/applicant/ResultTab.jsx:2:31: warning eslint(no-unused-vars): Identifier 'AlertTriangle' is imported but never used. help: Consider removing this import.
+src/manager/ManagerExamDetailPage.jsx:25:21: warning react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'load' help: Either include it or remove the dependency array.
+src/pages/ExamCheckPage.jsx:81:14: warning eslint(no-unused-vars): Catch parameter 'e' is caught but never used. help: Consider handling this error.
+src/pages/MobileProctoringPage.jsx:33:16: warning eslint(no-unused-vars): Catch parameter 'firstErr' is caught but never used. help: Consider handling this error.
+src/pages/MobileScanPage.jsx:7:9: warning eslint(no-unused-vars): Variable 'navigate' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.
+src/pages/MobileScanPage.jsx:46:14: warning eslint(no-unused-vars): Catch parameter 'err' is caught but never used. help: Consider handling this error.
+exitCode=0

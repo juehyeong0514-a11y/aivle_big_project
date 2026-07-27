@@ -1,0 +1,21 @@
+COMMAND: cd backend && npm test  
+
+> aivle-backend@1.0.0 test
+> node --test
+
+✔ serves public data and protects administration endpoints (729.2352ms)
+✔ registers managers for ADMIN approval before login (715.3243ms)
+✔ requires email verification before manager signup and rate-limits invalid codes (216.0539ms)
+✔ governs organization approval, manager scope, and one-time invitations (756.7723ms)
+✔ allows ADMIN to view the full exam directory without exam creation access (308.8549ms)
+✔ allows organization-code join approval and scopes monitoring by exam (963.4251ms)
+✔ removes plaintext passwords from an existing database (27.4719ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5341.9087
+exitCode=0

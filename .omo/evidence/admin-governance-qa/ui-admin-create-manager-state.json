@@ -1,0 +1,7 @@
+{
+  "newManagerEmail": "qa-manager-985133@example.com",
+  "newManagerName": "QA관리자985133",
+  "includesEmail": true,
+  "text": "AI 리터러시 역량 테스트 플랫폼\n조직 승인 및 배정\n시험 생성\n문제/정책 관리\n응시자 관리\n금지사항 관리\nAI 분석 설정\n관리자님 (ADMIN)\n로그아웃\nADMIN CONTROL CENTER\n조직 승인 및 관리자 배정\n\n플랫폼 전체 조직과 관리자 권한을 한 곳에서 검토합니다.\n\n전체 운영자\n관리자 계정을 생성했습니다. 조직 배정 전에는 시험 관리 권한이 없습니다.\n2\n전체 조직\n0\n승인 대기\n2\n관리자 계정\n1\n전체 응시자\n조직 승인 큐\n\n승인 후 관리자 계정을 배정해야 운영이 시작됩니다.\n\nA대학교 컴퓨터공학과\nAIVLE-CS · 관리자 1명\n승인 완료\n관리자 배정\n김관리자 (supervisor@aivle.com)\nQA관리자985133 (qa-manager-985133@example.com)\nB대학교 데이터사이언스센터\nB-DATA · 관리자 1명\n승인 완료\n관리자 배정\n김관리자 (supervisor@aivle.com)\nQA관리자985133 (qa-manager-985133@example.com)\n관리자 계정 생성\n\n아이디 대신 이메일로 생성하고, 조직은 별도로 배정합니다.\n\n이름\n이메일\n임시 비밀번호\n관리자 계정 생성",
+  "url": "http://127.0.0.1:5174/home"
+}

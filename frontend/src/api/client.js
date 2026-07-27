@@ -9,6 +9,11 @@ export const authHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+export const candidateAuthHeaders = () => {
+  const token = localStorage.getItem('candidateAccessToken');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 export const apiErrorMessage = (error, fallback) => (
   error.response?.data?.message ?? fallback
 );

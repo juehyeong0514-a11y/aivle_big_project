@@ -1,0 +1,194 @@
+{
+  "users": [
+    {
+      "id": "user-applicant",
+      "name": "응시자",
+      "email": "applicant@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "7ecd76c3-961f-4fc8-9e39-4ce356316acd:67c784c3a953ca06355f6e19ade1d4c39918a16cc489bea1de0e3fa5dbdeb6fd39cb6462b26ecbbeb070fb37762643fe672430d5f680057823e381af60aa8412"
+    },
+    {
+      "id": "user-supervisor",
+      "name": "김관리자",
+      "email": "supervisor@aivle.com",
+      "role": "MANAGER",
+      "approvalStatus": "APPROVED",
+      "organizationIds": [
+        "org-aivle-cs",
+        "org-data-lab"
+      ],
+      "passwordHash": "e13a75eb-7367-46ff-bc7b-20c0b540509d:03647d964d4e66b20a21928a8f8501ce230669a08b3f74d53cbbda67fe7ea06c042276f610314ce4c70b2e377569466443d2515f50ca1fe8bdfcd2550edbd95f"
+    },
+    {
+      "id": "user-admin",
+      "name": "관리자",
+      "email": "admin@aivle.com",
+      "role": "ADMIN",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "6d7ccf67-6b1b-443d-9371-7c940238f7fa:9b841b3be4edb6ab58c910f8595939c99aad33d0ddda7fb1b2510ffcbca0dca8e8d98f2ee669a4d2b6752e83231919b5b17bd7ee9dda62b90e82756f0127df35"
+    },
+    {
+      "id": "user-candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "5a88fa1a-a7f8-49df-951e-c5cbffb109c8:fc6dc51e16c373f323015d6bf7246b5fefdb5b396e6dc2ad938bbf5cf6725fa24776a7175876ab72f440874d5e7153b432bbf958dc2361d6db2acc94ea1d41cc"
+    }
+  ],
+  "exams": [
+    {
+      "id": "41ac4ad9-4513-4d31-8d33-7c2f0d04d409",
+      "title": "QA 초대 링크 시험",
+      "duration": "30분",
+      "questions": "1문제",
+      "date": "2026-07-24 10:00",
+      "category": "정규 평가",
+      "status": "AVAILABLE",
+      "organizationId": "org-aivle-cs"
+    },
+    {
+      "id": "exam-2026-second-half",
+      "title": "2026년 하반기 신입 공채 AI 리터러시 역량 평가",
+      "category": "정규 평가 (Python / Java / C++)",
+      "duration": "90분",
+      "questions": "총 4문제",
+      "status": "AVAILABLE",
+      "date": "2026.07.20 ~ 2026.07.22"
+    }
+  ],
+  "notices": [
+    {
+      "id": "notice-browser",
+      "title": "[필수 독려] 시험 응시 전 PC 크롬(Chrome) 브라우저 최신 업데이트 안내",
+      "date": "2026.07.18"
+    },
+    {
+      "id": "notice-camera",
+      "title": "보조 카메라(스마트폰) 거치 각도 및 QR 연결 가이드라인",
+      "date": "2026.07.15"
+    }
+  ],
+  "examinees": [
+    {
+      "id": "examinee-1",
+      "name": "김응시",
+      "organizationId": "org-aivle-cs",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 2번"
+    },
+    {
+      "id": "examinee-2",
+      "name": "이수험",
+      "organizationId": "org-aivle-cs",
+      "status": "WARNING",
+      "statusText": "시선 이탈 감지",
+      "currentProb": "문제 1번"
+    },
+    {
+      "id": "examinee-3",
+      "name": "박개발",
+      "organizationId": "org-data-lab",
+      "status": "DANGER",
+      "statusText": "이어폰 착용 의심",
+      "currentProb": "문제 3번"
+    },
+    {
+      "id": "examinee-4",
+      "name": "최코딩",
+      "organizationId": "org-data-lab",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 4번 제출완료"
+    }
+  ],
+  "warnings": [],
+  "organizations": [
+    {
+      "id": "org-aivle-cs",
+      "name": "A대학교 컴퓨터공학과",
+      "code": "AIVLE-CS",
+      "status": "APPROVED",
+      "requestedBy": "user-supervisor",
+      "managerIds": [
+        "user-supervisor"
+      ],
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "org-data-lab",
+      "name": "B대학교 데이터사이언스센터",
+      "code": "B-DATA",
+      "status": "APPROVED",
+      "requestedBy": "user-supervisor",
+      "managerIds": [
+        "user-supervisor"
+      ],
+      "createdAt": "2026-07-22T09:00:00.000Z"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "organizationId": "org-aivle-cs",
+      "candidateNumber": "AIVLE-1001",
+      "status": "REGISTERED",
+      "createdAt": "2026-07-20T09:10:00.000Z"
+    }
+  ],
+  "questions": [],
+  "assignments": [
+    {
+      "id": "assignment-1",
+      "examId": "exam-2026-second-half",
+      "candidateId": "candidate-1",
+      "status": "INVITED"
+    }
+  ],
+  "invitations": [
+    {
+      "id": "653786f7-567e-49a6-9f2a-86af76fe88b0",
+      "token": "adf5929e-8ac9-409f-b37c-1609a1d1ef10",
+      "examId": "41ac4ad9-4513-4d31-8d33-7c2f0d04d409",
+      "organizationId": "org-aivle-cs",
+      "candidateId": "candidate-1",
+      "candidateNumber": "AIVLE-1001",
+      "expiresAt": "2026-07-24T13:49:55.607Z",
+      "sentAt": "2026-07-23T13:49:55.607Z",
+      "usedAt": null
+    },
+    {
+      "id": "62f8237a-fd23-4f72-a8d0-ba78fbef337e",
+      "token": "46d89251-6fed-454e-8b8b-6654e8bc483a",
+      "examId": "41ac4ad9-4513-4d31-8d33-7c2f0d04d409",
+      "organizationId": "org-aivle-cs",
+      "candidateId": "candidate-1",
+      "candidateNumber": "AIVLE-1001",
+      "expiresAt": "2026-07-24T13:49:24.976Z",
+      "sentAt": "2026-07-23T13:49:24.976Z",
+      "usedAt": "2026-07-23T13:49:25.283Z"
+    }
+  ],
+  "systemPolicies": {
+    "invitationExpiryHours": 24,
+    "aiAnalysisEnabled": true
+  },
+  "sessions": [
+    {
+      "tokenHash": "f1a940285c3181d6b7cef9627d86b3abb2e76419e2d6454eae55656a20ec8735",
+      "userId": "user-admin",
+      "role": "ADMIN",
+      "expiresAt": "2026-07-23T21:48:29.821Z"
+    },
+    {
+      "tokenHash": "a371322a4722413cc6259472b56a8f6ab944d1d1c7bdd893fcce47c2aac75039",
+      "userId": "user-supervisor",
+      "role": "MANAGER",
+      "expiresAt": "2026-07-23T21:48:30.038Z"
+    }
+  ]
+}

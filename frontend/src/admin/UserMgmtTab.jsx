@@ -7,7 +7,7 @@ export default function UserMgmtTab() {
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    api.get('/admin/users', { headers: authHeaders() })
+    api.get('/admin/candidates', { headers: authHeaders() })
       .then(({ data }) => setUsers(data))
       .catch(() => setLoadError('응시자 목록을 불러오지 못했습니다. 다시 로그인한 뒤 시도해주세요.'));
   }, []);
@@ -19,8 +19,8 @@ export default function UserMgmtTab() {
           <Users size={24} />
         </div>
         <div>
-          <h2 className="card-title" style={{ margin: 0 }}>응시자 명단 및 권한 관리</h2>
-          <p className="text-muted" style={{ fontSize: '0.9rem', margin: 0 }}>시험 응시 대기자를 승인하고 실시간 접속 상태를 관리합니다.</p>
+          <h2 className="card-title" style={{ margin: 0 }}>전체 응시자 및 결과 조회</h2>
+          <p className="text-muted" style={{ fontSize: '0.9rem', margin: 0 }}>전체 조직의 응시자, 응시번호, 시험 배정과 결과 상태를 조회합니다.</p>
         </div>
       </div>
       {loadError && <div className="alert-box alert-error">{loadError}</div>}
@@ -30,8 +30,10 @@ export default function UserMgmtTab() {
             <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
               <th style={{ padding: '0.75rem' }}>응시자 이름</th>
               <th style={{ padding: '0.75rem' }}>이메일</th>
+              <th style={{ padding: '0.75rem' }}>조직</th>
+              <th style={{ padding: '0.75rem' }}>응시번호</th>
               <th style={{ padding: '0.75rem' }}>상태</th>
-              <th style={{ padding: '0.75rem' }}>관리</th>
+              <th style={{ padding: '0.75rem' }}>결과</th>
             </tr>
           </thead>
           <tbody>
@@ -39,8 +41,10 @@ export default function UserMgmtTab() {
               <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{user.name}</td>
                 <td style={{ padding: '0.75rem', color: '#64748b' }}>{user.email}</td>
+                <td style={{ padding: '0.75rem', color: '#64748b' }}>{user.organizationName}</td>
+                <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>{user.candidateNumber}</td>
                 <td style={{ padding: '0.75rem' }}><span className="badge-status badge-available">{user.approvalStatus === 'APPROVED' ? '승인 완료' : user.approvalStatus}</span></td>
-                <td style={{ padding: '0.75rem' }}><span className="text-muted">응시자</span></td>
+                <td style={{ padding: '0.75rem' }}><span className="text-muted">{user.assignments?.length ? user.assignments.map((assignment) => `${assignment.examTitle}: ${assignment.score ?? '미응시'}`).join(', ') : '미배정'}</span></td>
               </tr>
             ))}
           </tbody>

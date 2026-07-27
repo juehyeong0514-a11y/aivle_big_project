@@ -1,10 +1,7 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Cpu, ArrowRight, CheckCircle2, Code2, Eye, Lock, Monitor } from 'lucide-react';
+import { Cpu, CheckCircle2, Code2, Eye, Lock, Monitor } from 'lucide-react';
 
 export default function HomeTab() {
-  const navigate = useNavigate();
-
   return (
     <section className="hero-section" style={{ display: 'flex', alignItems: 'center', gap: '3rem', padding: '1rem 0', flexWrap: 'wrap' }}>
       <div className="hero-left" style={{ flex: '1 1 500px' }}>
@@ -22,16 +19,6 @@ export default function HomeTab() {
           실시간 지능형 감시 시스템과 자동 채점 파이프라인으로<br />
           공정하고 신뢰할 수 있는 개발자 역량 평가를 제공합니다.
         </p>
-
-        <div className="button-group" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-          <button className="btn-primary" onClick={() => navigate('/home?tab=EXAM')}>
-            <span>테스트 응시하기</span>
-            <ArrowRight size={18} />
-          </button>
-          <button className="btn-secondary" onClick={() => navigate('/home?tab=CHECK')}>
-            장비 점검하기
-          </button>
-        </div>
 
         <div className="feature-list" style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
           <div className="feature-item" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600', color: '#334155' }}>

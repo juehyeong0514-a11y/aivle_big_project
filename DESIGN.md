@@ -1,0 +1,111 @@
+# Aivle Proctoring Platform Design System
+
+## 0. Research Log
+
+- Existing UI extraction: reviewed `frontend/src/styles/main.css`, `Header.jsx`, `HomePage.jsx`, admin tabs, supervisor tabs, and applicant pages; preserved the current light operational-console language.
+- Embedded references: operational dashboard brief maps to the restrained `taste-skill` rules; no brand or screenshot reference was supplied, so no external brand system is copied.
+- Skipped lanes: lazyweb and Imagen were skipped because this is an existing product workflow extension, not a visual reference or marketing surface.
+
+## 1. Atmosphere & Identity
+
+A calm, trustworthy operations desk for high-stakes assessment. The signature is a bright workspace with clear role boundaries, compact status rails, and blue focus states that make the next safe action obvious. Information density is moderate: summaries stay scannable, while approval and invitation actions retain enough context to prevent mistakes.
+
+## 2. Color
+
+| Role | Token | Value | Usage |
+|------|-------|-------|-------|
+| Surface/primary | `--surface-primary` | `#f8fafc` | App background |
+| Surface/secondary | `--surface-secondary` | `#ffffff` | Cards and panels |
+| Surface/soft | `--surface-soft` | `#f1f5f9` | Input groups and muted rows |
+| Surface/accent-soft | `--surface-accent-soft` | `#eff6ff` | Selected organization and bulk-action controls |
+| Surface/danger-soft | `--surface-danger-soft` | `#fef2f2` | Destructive action confirmation and errors |
+| Surface/danger-hover | `--surface-danger-hover` | `#fee2e2` | Destructive action hover feedback |
+| Surface/success-soft | `--surface-success-soft` | `#f0fdf4` | Assigned and completed states |
+| Text/primary | `--text-primary` | `#0f172a` | Headings and body |
+| Text/secondary | `--text-secondary` | `#475569` | Supporting copy |
+| Text/muted | `--text-muted` | `#64748b` | Metadata and hints |
+| Border/default | `--border-default` | `#e2e8f0` | Panel boundaries |
+| Border/input | `--border-input` | `#cbd5e1` | Form controls |
+| Border/danger | `--border-danger` | `#fecaca` | Destructive action boundary |
+| Border/success | `--border-success` | `#bbf7d0` | Assigned state boundary |
+| Accent/primary | `--accent-primary` | `#2563eb` | Primary actions and focus |
+| Accent/hover | `--accent-hover` | `#1d4ed8` | Hover and active emphasis |
+| Status/success | `--status-success` | `#16a34a` | Approved and normal |
+| Status/warning | `--status-warning` | `#d97706` | Pending and caution |
+| Status/error | `--status-error` | `#dc2626` | Rejected and danger |
+| Status/info | `--status-info` | `#7c3aed` | Admin or AI configuration |
+
+Accent is reserved for interactive actions and current-state emphasis. Status colors are semantic and do not replace the primary accent.
+
+## 3. Typography
+
+| Level | Size | Weight | Line height | Usage |
+|------|------|--------|-------------|-------|
+| Page title | `28px` | 700 | 1.3 | Workspace heading |
+| Section title | `22px` | 700 | 1.4 | Panel heading |
+| Card title | `18px` | 700 | 1.4 | Organization/exam title |
+| Body | `16px` | 400 | 1.6 | Primary copy |
+| Body/sm | `14px` | 400 | 1.5 | Table and form copy |
+| Caption | `12px` | 600 | 1.4 | Status and metadata |
+
+Primary: `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`. Mono: `ui-monospace, SFMono-Regular, Consolas, monospace` for candidate numbers and tokens. Body copy never falls below 14px.
+
+## 4. Spacing & Layout
+
+Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 16, 20, 24, 32, and 40px. Workspace content uses a 1200px max width, 24px desktop gutters, and 16px mobile gutters. Breakpoints are 640px, 768px, 1024px, and 1280px.
+
+## 5. Components
+
+### Workspace shell
+
+- Structure: page header, role eyebrow, title, summary strip, tab navigation, content panels.
+- Variants: `admin`, `manager`, `applicant-invite`.
+- States: default, loading, empty, error.
+- Accessibility: semantic `main`, labelled navigation, visible focus, keyboard-reachable tabs.
+
+### Status badge
+
+- Structure: inline `span` with semantic label.
+- Variants: `PENDING`, `APPROVED`, `REJECTED`, `SUSPENDED`, `NORMAL`, `WARNING`, `DANGER`.
+- States: default and compact.
+- Accessibility: status text remains visible; color is never the only signal.
+
+### Data panel
+
+- Structure: heading row, supporting text, list/table body, action row.
+- Variants: organization list, candidate list, invitation preview, exam assignment.
+- States: loading skeleton, populated, empty, error.
+- Accessibility: labelled controls, table headers where tabular, action buttons with explicit labels.
+
+### Exam management row
+
+- Structure: selectable exam row with title, organization/date metadata, question count, and status.
+- States: default, selected, disabled while loading.
+- Accessibility: full row is a semantic button with visible selected state.
+
+### Primary action
+
+- Structure: semantic `button` or `a` with Lucide icon and text.
+- States: default, hover, active, focus, disabled, loading.
+- Motion: 120ms color/transform feedback; no layout animation.
+
+## 6. Motion & Interaction
+
+Use 120ms ease-out for button feedback and 240ms ease-in-out for tab/panel state changes. Animate only `transform` and `opacity`; respect `prefers-reduced-motion`. Toasts and confirmation copy should explain the completed action without blocking the next task.
+
+## 7. Depth & Surface
+
+Strategy: mixed. White panels use a 1px `--border-default` and a restrained tinted shadow from the existing UI. Elevated confirmation surfaces may use the default 0 4px 12px rgba(15, 23, 42, 0.06) shadow. Avoid stacking cards inside cards unless hierarchy requires it.
+
+## 8. Accessibility Constraints & Accepted Debt
+
+- WCAG 2.2 AA target; body contrast 4.5:1 minimum and large text 3:1 minimum.
+- All new controls use semantic elements, labels, keyboard focus, and non-color status text.
+- Candidate numbers and invite tokens use readable monospace text with copy affordances.
+- Respect `prefers-reduced-motion` for non-essential transitions.
+- Role navigation is account-derived; login never asks the user to self-select ADMIN or manager.
+
+| Item | Location | Why accepted | Owner / Exit |
+|------|----------|--------------|--------------|
+| Provider-neutral invitation preview | manager workspace | SMTP credentials and provider policy are not available in this repository | Backend integration owner / replace preview adapter before production mail launch |
+| Existing inline styles and legacy `SUPERVISOR` labels | existing tabs | unrelated legacy surface; compatibility is required for this feature | Frontend owner / consolidate during dedicated UI refactor |

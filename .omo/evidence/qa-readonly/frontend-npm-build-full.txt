@@ -1,0 +1,60 @@
+COMMAND: cd frontend && npm run build -- --outDir ..\.omo\evidence\qa-readonly\frontend-dist  
+
+> big-project@0.0.0 build
+> vite build --outDir ..\.omo\evidence\qa-readonly\frontend-dist
+
+[36mvite v8.1.4 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...✓ 1867 modules transformed.
+[33m
+[1m(!)[22m outDir [37m[2mC:\Users\User\Desktop\aivle_big_project\.omo\evidence\qa-readonly\frontend-dist[22m[33m is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+[39m
+rendering chunks...
+computing gzip size...
+../.omo/evidence/qa-readonly/frontend-dist/index.html                                     0.55 kB │ gzip:  0.33 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/index-B0LSoiOC.css                     36.38 kB │ gzip:  7.26 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/plus-DJL2V6tR.js                        0.14 kB │ gzip:  0.14 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/arrow-left-BdYirZvI.js                  0.15 kB │ gzip:  0.15 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/arrow-right-CNuBeaSv.js                 0.15 kB │ gzip:  0.15 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/clock-D2QuI1VJ.js                       0.15 kB │ gzip:  0.15 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/circle-check-BKG9HiQ6.js                0.16 kB │ gzip:  0.16 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/mail-B7SDZZmD.js                        0.20 kB │ gzip:  0.19 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/x-B7aTXmtg.js                           0.21 kB │ gzip:  0.17 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/book-open-u6driL7s.js                   0.26 kB │ gzip:  0.19 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/send-B7vCn5T8.js                        0.27 kB │ gzip:  0.22 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/save-D3hww8Jk.js                        0.31 kB │ gzip:  0.21 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/camera-uOG5pjCA.js                      0.32 kB │ gzip:  0.24 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/AdminRoute-axEtfO7P.js                  0.34 kB │ gzip:  0.32 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/calendar-days-CZpLgNxU.js               0.48 kB │ gzip:  0.25 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/CheckTab-DFusNlH9.js                    0.74 kB │ gzip:  0.53 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ExamTab-B94vneHW.js                     0.77 kB │ gzip:  0.52 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/NoticeTab-9OaL9Yff.js                   0.79 kB │ gzip:  0.54 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/FaqTab-5uXrM2ws.js                      0.95 kB │ gzip:  0.66 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/PracticeTab-DatRCTh7.js                 1.18 kB │ gzip:  0.68 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/PolicyMgmtTab-C0Z0WFCp.js               1.97 kB │ gzip:  1.03 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/AdminExamsTab-B3ut42UI.js               2.01 kB │ gzip:  0.91 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/CheatLogsTab-BDU0l2jG.js                2.09 kB │ gzip:  0.96 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/AiConfigTab-DuILAdm8.js                 2.16 kB │ gzip:  1.07 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ExamStatusTab-CbHWpk3U.js               2.19 kB │ gzip:  0.96 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ReportsTab-B52DCYMv.js                  2.29 kB │ gzip:  1.00 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/UserMgmtTab-D8ad1rSx.js                 2.66 kB │ gzip:  1.11 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ManagerExamCreatePage-B48ER_o2.js       2.66 kB │ gzip:  1.22 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/InvitePage-gRW5_kP7.js                  2.87 kB │ gzip:  1.34 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ExamSessionPage-BWsOD5it.js             2.97 kB │ gzip:  1.34 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/CheatMgmtTab-C5907bmz.js                3.00 kB │ gzip:  1.28 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ManagerExamManagementTab-BrnWUiHk.js    3.02 kB │ gzip:  1.31 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/LiveMonitoringTab-BBqUjM5F.js           3.79 kB │ gzip:  1.65 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/MobileProctoringPage-o6PlY9Em.js        3.87 kB │ gzip:  1.74 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/MobileScanPage-AkR7En1q.js              3.99 kB │ gzip:  1.94 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/AdminGovernanceTab-D6_C0zjh.js          5.06 kB │ gzip:  1.72 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/HomePage-CLJL8spM.js                    5.06 kB │ gzip:  2.05 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/StaffAuthPage-JORSG_TW.js               5.18 kB │ gzip:  2.09 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/HomeTab-8OaeCTCt.js                     6.13 kB │ gzip:  2.04 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ManagerExamDetailPage-Chc0ZDVe.js       6.22 kB │ gzip:  2.09 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ManagerWorkspaceTab-DrwrZGd6.js         7.55 kB │ gzip:  2.37 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/jsx-runtime-n5LQ9ujS.js                 8.53 kB │ gzip:  3.26 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/ExamCheckPage-DZ4819E4.js              27.34 kB │ gzip:  9.51 kB
+../.omo/evidence/qa-readonly/frontend-dist/assets/index-BBJ0unNp.js                     284.60 kB │ gzip: 93.50 kB
+
+[32m✓ built in 7.34s[39m
+exitCode=0

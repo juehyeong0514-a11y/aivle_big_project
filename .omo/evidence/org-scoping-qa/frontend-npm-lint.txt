@@ -1,0 +1,3 @@
+﻿surface: frontend lint
+exact invocation: cd frontend; npm run lint
+exitCode: 0

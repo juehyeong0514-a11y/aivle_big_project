@@ -1,0 +1,13 @@
+﻿HTTP/1.1 200 OK
+X-Powered-By: Express
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Methods: GET,POST,PATCH,OPTIONS
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 581
+ETag: W/"245-vuuLbWFum61IVsMejvRAoAtLpS8"
+Date: Thu, 23 Jul 2026 13:49:24 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+[{"id":"org-aivle-cs","name":"A대학교 컴퓨터공학과","code":"AIVLE-CS","status":"APPROVED","requestedBy":"user-supervisor","managerIds":["user-supervisor"],"createdAt":"2026-07-20T09:00:00.000Z","managers":[{"id":"user-supervisor","name":"김관리자","email":"supervisor@aivle.com","role":"MANAGER","approvalStatus":"APPROVED","organizationIds":["org-aivle-cs"]}]},{"id":"org-data-lab","name":"B대학교 데이터사이언스센터","code":"B-DATA","status":"PENDING","requestedBy":"user-supervisor","managerIds":[],"createdAt":"2026-07-22T09:00:00.000Z","managers":[]}]

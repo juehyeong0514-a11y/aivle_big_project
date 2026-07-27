@@ -1,0 +1,215 @@
+HTTP governance QA transcript 2026-07-23T17:07:41.7868271+09:00
+Surface: backend API at http://localhost:3000/api
+Invocation channel: curl.exe -i
+
+
+--- S0 health ---
+Invocation: curl.exe -i -sS http://localhost:3000/api/health
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Headers: Content-Type, Authorization
+Content-Type: application/json; charset=utf-8
+Content-Length: 15
+ETag: W/"f-VaSQ4oDUiZblZNAEkkN+sX+q3Sg"
+Date: Thu, 23 Jul 2026 08:07:43 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"status":"ok"}
+
+--- S1 applicant self-signup forbidden ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/auth/signup -H Content-Type: application/json --data-raw {"name":"QA Applicant","email":"qa-applicant@example.com","password":"safe-password","role":"APPLICANT"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:44 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S2 applicant role login forbidden ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/auth/login -H Content-Type: application/json --data-raw {"email":"applicant@aivle.com","password":"123","role":"APPLICANT"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:45 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S3 admin login ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/auth/login -H Content-Type: application/json --data-raw {"email":"admin@aivle.com","password":"123","role":"ADMIN"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:46 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S4 admin overview ---
+Invocation: curl.exe -i -sS http://localhost:3000/api/admin/overview -H Authorization: Bearer 
+HTTP/1.1 401 Unauthorized
+X-Powered-By: Express
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Headers: Content-Type, Authorization
+Content-Type: application/json; charset=utf-8
+Content-Length: 43
+ETag: W/"2b-/GrV85n+fCIxZ+7gLakssM9JeAg"
+Date: Thu, 23 Jul 2026 08:07:46 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"로그인이 필요합니다."}
+
+--- S5 admin creates manager ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/admin/managers -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"name":"QA Manager 20260723170741","email":"qa-manager-20260723170741@example.com","password":"12345678"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:46 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S6 new manager login ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/auth/login -H Content-Type: application/json --data-raw {"email":"qa-manager-20260723170741@example.com","password":"12345678","role":"MANAGER"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:47 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S7 manager requests organization ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/organizations -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"name":"QA Organization 20260723170741","code":"QA-20260723170741"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:47 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S8 manager cannot create candidate before approval/assignment ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/candidates -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"organizationId":"","name":"Pre Approval Candidate","email":"pre-20260723170741@example.com"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:47 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S9 admin approves organization ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/admin/organizations//approve -H Authorization: Bearer 
+HTTP/1.1 404 Not Found
+X-Powered-By: Express
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Headers: Content-Type, Authorization
+Content-Security-Policy: default-src 'none'
+X-Content-Type-Options: nosniff
+Content-Type: text/html; charset=utf-8
+Content-Length: 172
+Date: Thu, 23 Jul 2026 08:07:48 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot POST /api/admin/organizations//approve</pre>
+</body>
+</html>
+
+--- S10 admin assigns manager ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/admin/organizations//assign-manager -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"managerId":""}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:48 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S11 manager creates scoped candidate ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/candidates -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"organizationId":"","name":"QA Candidate 20260723170741","email":"candidate-20260723170741@example.com"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:49 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S12 manager creates scoped exam ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/exams -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"organizationId":"","title":"QA Exam 20260723170741","duration":"60분","questions":"총 3문제","date":"2026.08.01 10:00"}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:49 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S13 manager assigns candidate to exam ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/exams//assign -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"candidateIds": [""]}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:51 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}
+
+--- S14 manager sends one-time invitation preview ---
+Invocation: curl.exe -i -sS -X POST http://localhost:3000/api/manager/exams//invitations/send -H Content-Type: application/json -H Authorization: Bearer  --data-raw {"candidateIds": [""]}
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 50
+ETag: W/"32-wzRbu/tXncsrWqOiHwHKpwBPngY"
+Date: Thu, 23 Jul 2026 08:07:52 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"message":"서버 오류가 발생했습니다."}

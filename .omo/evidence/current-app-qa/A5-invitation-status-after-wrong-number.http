@@ -1,0 +1,13 @@
+﻿HTTP/1.1 200 OK
+X-Powered-By: Express
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Methods: GET,POST,PATCH,OPTIONS
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 138
+ETag: W/"8a-/HpWi414kdx9f5QDbvhYHrG1/Tw"
+Date: Thu, 23 Jul 2026 13:49:56 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"examName":"QA 초대 링크 시험","schedule":"2026-07-24 10:00","candidateNumber":"AIVLE-1001","expiresAt":"2026-07-24T13:49:55.607Z"}

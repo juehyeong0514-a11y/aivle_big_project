@@ -1,0 +1,215 @@
+{
+  "users": [
+    {
+      "id": "user-applicant",
+      "name": "응시자",
+      "email": "applicant@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "d8753b55-cd2d-4b4c-9971-e860359f6462:4fcb452e68a64b01a7ae5b770ca4e4dee6d9e76245a4c9eab11be37e4791425b25d19bc5019777815351df355d17f666a929f74a231bbd397e74f990876102da"
+    },
+    {
+      "id": "user-supervisor",
+      "name": "김관리자",
+      "email": "supervisor@aivle.com",
+      "role": "MANAGER",
+      "approvalStatus": "APPROVED",
+      "organizationIds": [
+        "org-aivle-cs"
+      ],
+      "passwordHash": "c6ecb517-81e6-4346-9ea0-3d4f5aa3fa36:d04bb6f0f6014dfd643d17d817c9ea2511223b90b94bfc8b50e62092450801bcf9466f373e8983f8f0ba3a0de24706574dbfcaafa1b91dc3a87a0255b9024a77"
+    },
+    {
+      "id": "user-admin",
+      "name": "관리자",
+      "email": "admin@aivle.com",
+      "role": "ADMIN",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "86b0b5a3-09ec-43e4-88a9-ed08d8e29282:8eacbcb9c6ef1833edd5ec02b69e74b0b1d9baa686c01009e3317ab1837329f8d29429823fb7d2b01efaccb4f81ee18358a1a7341e981d3070f11b44f531581c"
+    },
+    {
+      "id": "user-candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "4ffc461c-c170-47a5-a111-f0f5bd93bccd:1086eb8e7e4497202b32fe1d7d85b959607c2bade49bc050e0bfeff70290f56db0594466ebf97aacd870e15ae18c7f3a5da74cfe36e598dcaf54dd5d650d0879"
+    }
+  ],
+  "exams": [
+    {
+      "id": "exam-2026-second-half",
+      "title": "2026년 하반기 신입 공채 AI 리터러시 역량 평가",
+      "category": "정규 평가 (Python / Java / C++)",
+      "duration": "90분",
+      "questions": "총 4문제",
+      "status": "AVAILABLE",
+      "date": "2026.07.20 ~ 2026.07.22",
+      "organizationId": "org-aivle-cs"
+    }
+  ],
+  "notices": [
+    {
+      "id": "notice-browser",
+      "title": "[필수 독려] 시험 응시 전 PC 크롬(Chrome) 브라우저 최신 업데이트 안내",
+      "date": "2026.07.18"
+    },
+    {
+      "id": "notice-camera",
+      "title": "보조 카메라(스마트폰) 거치 각도 및 QR 연결 가이드라인",
+      "date": "2026.07.15"
+    }
+  ],
+  "examinees": [
+    {
+      "id": "examinee-1",
+      "name": "김응시",
+      "organizationId": "org-aivle-cs",
+      "examId": "exam-2026-second-half",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 2번"
+    },
+    {
+      "id": "examinee-2",
+      "name": "이수험",
+      "organizationId": "org-aivle-cs",
+      "examId": "exam-2026-second-half",
+      "status": "WARNING",
+      "statusText": "시선 이탈 감지",
+      "currentProb": "문제 1번"
+    },
+    {
+      "id": "examinee-3",
+      "name": "박개발",
+      "organizationId": "org-data-lab",
+      "status": "DANGER",
+      "statusText": "이어폰 착용 의심",
+      "currentProb": "문제 3번"
+    },
+    {
+      "id": "examinee-4",
+      "name": "최코딩",
+      "organizationId": "org-data-lab",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 4번 제출완료"
+    }
+  ],
+  "warnings": [],
+  "organizations": [
+    {
+      "id": "org-aivle-cs",
+      "name": "A대학교 컴퓨터공학과",
+      "code": "AIVLE-CS",
+      "status": "APPROVED",
+      "requestedBy": "user-supervisor",
+      "managerIds": [
+        "user-supervisor"
+      ],
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "org-data-lab",
+      "name": "B대학교 데이터사이언스센터",
+      "code": "B-DATA",
+      "status": "PENDING",
+      "requestedBy": "user-supervisor",
+      "managerIds": [],
+      "createdAt": "2026-07-22T09:00:00.000Z"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "organizationId": "org-aivle-cs",
+      "candidateNumber": "AIVLE-1001",
+      "status": "REGISTERED",
+      "createdAt": "2026-07-20T09:10:00.000Z"
+    },
+    {
+      "id": "2ee738e5-71b4-4456-964b-77a45644c46a",
+      "name": "Review Candidate",
+      "email": "review-candidate@example.com",
+      "organizationId": "org-aivle-cs",
+      "candidateNumber": "AIVLE-1002",
+      "status": "REGISTERED",
+      "createdAt": "2026-07-23T16:18:43.348Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "question-seed-1",
+      "examId": "exam-2026-second-half",
+      "prompt": "2 + 2 = ?",
+      "options": [
+        "3",
+        "4",
+        "5"
+      ],
+      "answer": "4",
+      "createdAt": "2026-07-20T09:20:00.000Z"
+    },
+    {
+      "id": "question-seed-2",
+      "examId": "exam-2026-second-half",
+      "prompt": "JavaScript에서 불변 배열을 만들 때 사용하는 메서드는?",
+      "options": [
+        "map",
+        "push",
+        "splice"
+      ],
+      "answer": "map",
+      "createdAt": "2026-07-20T09:21:00.000Z"
+    }
+  ],
+  "assignments": [
+    {
+      "id": "assignment-1",
+      "examId": "exam-2026-second-half",
+      "candidateId": "candidate-1",
+      "status": "INVITED"
+    },
+    {
+      "id": "554069c0-2b6c-44ce-88f9-aa6275c16b98",
+      "examId": "exam-2026-second-half",
+      "candidateId": "2ee738e5-71b4-4456-964b-77a45644c46a",
+      "status": "ASSIGNED"
+    }
+  ],
+  "invitations": [
+    {
+      "id": "db54e84f-401f-4c11-955b-153ce6c9ae3c",
+      "token": "9af2e719-fb04-4f26-8336-5ec05f055714",
+      "examId": "exam-2026-second-half",
+      "organizationId": "org-aivle-cs",
+      "candidateId": "2ee738e5-71b4-4456-964b-77a45644c46a",
+      "candidateNumber": "AIVLE-1002",
+      "expiresAt": "2026-07-24T16:18:43.380Z",
+      "sentAt": "2026-07-23T16:18:43.381Z",
+      "usedAt": null,
+      "revokedAt": null
+    }
+  ],
+  "systemPolicies": {
+    "invitationExpiryHours": 24,
+    "aiAnalysisEnabled": true,
+    "cheatDetection": {
+      "gazeWarningEnabled": true,
+      "audioDetectionEnabled": true,
+      "tabSwitchSubmitEnabled": true
+    }
+  },
+  "emailVerifications": [],
+  "organizationJoinRequests": [],
+  "sessions": [
+    {
+      "tokenHash": "0100451d401789b45a824396ca4f5d4a7526c1d3e8dae73ccd3ecb3c1c919bf1",
+      "userId": "user-supervisor",
+      "role": "MANAGER",
+      "expiresAt": "2026-07-24T00:18:43.287Z"
+    }
+  ]
+}

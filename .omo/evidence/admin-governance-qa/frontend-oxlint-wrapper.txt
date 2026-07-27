@@ -1,0 +1,3 @@
+COMMAND: cd frontend && node_modules/oxlint/bin/oxlint .
+EXIT_CODE: 
+OUTPUT: no lint findings

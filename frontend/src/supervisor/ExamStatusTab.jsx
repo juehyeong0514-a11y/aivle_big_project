@@ -1,56 +1,60 @@
-import React from 'react';
-import { Users, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BarChart3, Building2 } from 'lucide-react';
+import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 export default function ExamStatusTab() {
-  const statusList = [
-    { id: 1, name: '김응시', email: 'applicant1@aivle.com', deviceCheck: '완료', examState: '응시 중', submitState: '미제출' },
-    { id: 2, name: '이수험', email: 'applicant2@aivle.com', deviceCheck: '완료', examState: '응시 중', submitState: '미제출' },
-    { id: 3, name: '박개발', email: 'applicant3@aivle.com', deviceCheck: '완료', examState: '응시 중', submitState: '미제출' },
-    { id: 4, name: '최코딩', email: 'applicant4@aivle.com', deviceCheck: '완료', examState: '시험 종료', submitState: '제출 완료' },
-  ];
+  const [organizations, setOrganizations] = useState([]);
+  const [organizationId, setOrganizationId] = useState('');
+  const [exams, setExams] = useState([]);
+  const [selectedExamId, setSelectedExamId] = useState('');
+  const [examinees, setExaminees] = useState([]);
+  const [error, setError] = useState('');
 
-  return (
-    <div className="card" style={{ padding: '2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        <Users size={24} color="#2563EB" />
-        <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0, color: '#0f172a' }}>응시자 접속 및 제출 현황</h2>
-          <p style={{ color: '#64748b', margin: 0, fontSize: '0.85rem' }}>현재 세션에 참여 중인 응시자의 장비 점검 및 답안 제출 상태를 조회합니다.</p>
-        </div>
-      </div>
+  useEffect(() => {
+    api.get('/manager/organizations', { headers: authHeaders() })
+      .then(({ data }) => {
+        const managedOrganizations = data.filter((organization) => organization.status === 'APPROVED' && organization.canManage);
+        setOrganizations(managedOrganizations);
+        setOrganizationId((current) => managedOrganizations.some((organization) => organization.id === current)
+          ? current
+          : managedOrganizations[0]?.id || '');
+      })
+      .catch((reason) => setError(apiErrorMessage(reason, '조회할 조직 목록을 불러오지 못했습니다.')));
+  }, []);
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
-              <th style={{ padding: '0.75rem' }}>응시자 성명</th>
-              <th style={{ padding: '0.75rem' }}>이메일</th>
-              <th style={{ padding: '0.75rem' }}>사전 장비 점검</th>
-              <th style={{ padding: '0.75rem' }}>시험 상태</th>
-              <th style={{ padding: '0.75rem' }}>답안 제출 여부</th>
-            </tr>
-          </thead>
-          <tbody>
-            {statusList.map((item) => (
-              <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '1rem 0.75rem', fontWeight: 'bold', color: '#0f172a' }}>{item.name}</td>
-                <td style={{ padding: '1rem 0.75rem', color: '#64748b' }}>{item.email}</td>
-                <td style={{ padding: '1rem 0.75rem' }}><span style={{ color: '#16a34a', fontWeight: '600' }}>{item.deviceCheck}</span></td>
-                <td style={{ padding: '1rem 0.75rem' }}><span style={{ color: '#2563EB', fontWeight: '600' }}>{item.examState}</span></td>
-                <td style={{ padding: '1rem 0.75rem' }}>
-                  <span style={{
-                    padding: '4px 8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold',
-                    backgroundColor: item.submitState === '제출 완료' ? '#dcfce7' : '#f1f5f9',
-                    color: item.submitState === '제출 완료' ? '#16a34a' : '#64748b'
-                  }}>
-                    {item.submitState}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    if (!organizationId) {
+      setExams([]);
+      setSelectedExamId('');
+      return;
+    }
+    api.get(`/supervisor/exams?organizationId=${encodeURIComponent(organizationId)}`, { headers: authHeaders() })
+      .then(({ data }) => {
+        setExams(data);
+        setSelectedExamId(data[0]?.id || '');
+      })
+      .catch((reason) => setError(apiErrorMessage(reason, '조직 시험 목록을 불러오지 못했습니다.')));
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!organizationId || !selectedExamId) {
+      setExaminees([]);
+      return;
+    }
+    api.get(`/supervisor/examinees?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() })
+      .then(({ data }) => setExaminees(data))
+      .catch((reason) => setError(apiErrorMessage(reason, '응시자 현황을 불러오지 못했습니다.')));
+  }, [organizationId, selectedExamId]);
+
+  const changeOrganization = (nextOrganizationId) => {
+    setError('');
+    setExams([]);
+    setSelectedExamId('');
+    setExaminees([]);
+    setOrganizationId(nextOrganizationId);
+  };
+
+  const selectedOrganization = organizations.find((organization) => organization.id === organizationId);
+
+  return <section className="workspace-shell"><div className="workspace-heading"><div><span className="workspace-eyebrow">EXAM STATUS</span><h1>응시자 접속 및 제출 현황</h1><p>현재 작업 조직의 선택한 시험 응시자 상태를 확인합니다.</p></div><BarChart3 size={22} color="#2563eb" /></div>{error && <div className="workspace-alert error">{error}</div>}<div className="data-panel organization-switcher"><label><span>조회 조직</span><select value={organizationId} onChange={(event) => changeOrganization(event.target.value)}><option value="">조회할 조직을 선택하세요</option>{organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}</select></label><span className="organization-scope-note"><Building2 size={15} /> {selectedOrganization ? `${selectedOrganization.name} 소속 시험만 표시` : '배정된 승인 조직만 표시합니다.'}</span></div><div className="data-panel organization-switcher"><label><span>조회 시험</span><select value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)} disabled={!organizationId}><option value="">시험을 선택하세요</option>{exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></label></div><div className="data-panel" style={{ overflowX: 'auto' }}><table className="status-table"><thead><tr><th>응시자</th><th>상태</th><th>현재 문제</th><th>시험</th></tr></thead><tbody>{examinees.map((examinee) => <tr key={examinee.id}><td>{examinee.name}</td><td>{examinee.statusText || examinee.status}</td><td>{examinee.currentProb || '-'}</td><td>{exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td></tr>)}</tbody></table>{!organizationId && <p className="empty-state">조회할 조직을 선택해주세요.</p>}{organizationId && !exams.length && <p className="empty-state">선택한 조직에 등록된 시험이 없습니다.</p>}{selectedExamId && !examinees.length && <p className="empty-state">선택한 시험의 응시자가 없습니다.</p>}</div></section>;
 }

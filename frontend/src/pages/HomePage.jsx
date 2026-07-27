@@ -1,27 +1,29 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 // 🌟 관리자 전용 탭 컴포넌트 임포트
-import ExamCreateTab from '../admin/ExamCreateTab';
-import PolicyMgmtTab from '../admin/PolicyMgmtTab';
-import UserMgmtTab from '../admin/UserMgmtTab';
-import CheatMgmtTab from '../admin/CheatMgmtTab';
-import AiConfigTab from '../admin/AiConfigTab';
+const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
+const AdminExamsTab = lazy(() => import('../admin/AdminExamsTab'));
+const PolicyMgmtTab = lazy(() => import('../admin/PolicyMgmtTab'));
+const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
+const CheatMgmtTab = lazy(() => import('../admin/CheatMgmtTab'));
+const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
+const ManagerWorkspaceTab = lazy(() => import('../manager/ManagerWorkspaceTab'));
+const ManagerExamManagementTab = lazy(() => import('../manager/ManagerExamManagementTab'));
 
 // 🌟 응시자 전용 탭 컴포넌트 임포트
-import HomeTab from '../applicant/HomeTab';
-import ExamTab from '../applicant/ExamTab';
-import CheckTab from '../applicant/CheckTab';
-import PracticeTab from '../applicant/PracticeTab';
-import NoticeTab from '../applicant/NoticeTab';
-import FaqTab from '../applicant/FaqTab';
-import ResultTab from '../applicant/ResultTab';
+const HomeTab = lazy(() => import('../applicant/HomeTab'));
+const ExamTab = lazy(() => import('../applicant/ExamTab'));
+const CheckTab = lazy(() => import('../applicant/CheckTab'));
+const PracticeTab = lazy(() => import('../applicant/PracticeTab'));
+const NoticeTab = lazy(() => import('../applicant/NoticeTab'));
+const FaqTab = lazy(() => import('../applicant/FaqTab'));
 
 // 🌟 감독관 전용 탭 컴포넌트 임포트
-import LiveMonitoringTab from '../supervisor/LiveMonitoringTab';
-import CheatLogsTab from '../supervisor/CheatLogsTab';
-import ExamStatusTab from '../supervisor/ExamStatusTab';
-import SupervisorReportsTab from '../supervisor/ReportsTab';
+const LiveMonitoringTab = lazy(() => import('../supervisor/LiveMonitoringTab'));
+const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
+const ExamStatusTab = lazy(() => import('../supervisor/ExamStatusTab'));
+const SupervisorReportsTab = lazy(() => import('../supervisor/ReportsTab'));
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -31,17 +33,18 @@ export default function HomePage() {
   const userRole = location.state?.role || localStorage.getItem('userRole') || 'GUEST';
 
   const isAdmin = userRole === 'ADMIN';
-  const isSupervisor = userRole === 'SUPERVISOR'; // 🌟 감독관 권한 체크 변수 추가
+  const isSupervisor = userRole === 'SUPERVISOR' || userRole === 'MANAGER';
 
   // 🌟 권한별 기본 탭 설정
-  const getDefaultTab = () => {
-    if (isAdmin) return 'EXAM_CREATE';
-    if (isSupervisor) return 'LIVE_MONITORING';
-    return 'HOME';
-  };
+  const getDefaultTab = () => 'HOME';
 
   const defaultTab = getDefaultTab();
-  const activeTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
+  const requestedTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
+  const protectedGuestTabs = new Set(['EXAM', 'CHECK', 'PRACTICE']);
+  const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(requestedTab)
+    ? defaultTab
+    : requestedTab === 'RESULT' ? defaultTab : requestedTab === 'EXAM_CREATE' ? 'EXAMS' : requestedTab;
+  const showHome = activeTab === 'HOME';
 
   const handleProtectedAction = (actionRoute) => {
     if (userRole === 'GUEST') {
@@ -55,16 +58,18 @@ export default function HomePage() {
   return (
     <div style={{ backgroundColor: '#f8fafc', minHeight: 'calc(100vh - 64px)', padding: '2.5rem 0' }}>
       <main className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem' }}>
+        <Suspense fallback={<div className="workspace-loading">화면을 불러오는 중입니다...</div>}>
 
         {/* =========================================================================
             🛡️ [관리자(ADMIN) 전용 탭 라우팅 허브]
             ========================================================================= */}
-        {isAdmin && (
+        {isAdmin && !showHome && (
           <div>
-            {activeTab === 'EXAM_CREATE' && <ExamCreateTab />}
-            {activeTab === 'POLICY_MGMT' && <PolicyMgmtTab />}
-            {activeTab === 'USER_MGMT' && <UserMgmtTab />}
-            {activeTab === 'CHEAT_MGMT' && <CheatMgmtTab />}
+            {activeTab === 'GOVERNANCE' && <AdminGovernanceTab />} 
+            {activeTab === 'EXAMS' && <AdminExamsTab />} 
+            {activeTab === 'POLICY_MGMT' && <PolicyMgmtTab />} 
+            {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
+            {activeTab === 'CHEAT_MGMT' && <CheatMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
           </div>
         )}
@@ -72,19 +77,24 @@ export default function HomePage() {
         {/* =========================================================================
             👁️ [감독관(SUPERVISOR) 전용 탭 라우팅 허브] 🌟 새로 추가됨
             ========================================================================= */}
-        {isSupervisor && (
+        {isSupervisor && !showHome && (
           <div>
+            {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
+            {activeTab === 'EXAMS' && <ManagerExamManagementTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}
             {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
           </div>
         )}
+        </Suspense>
 
         {/* =========================================================================
             👤 [일반 응시자 / 게스트 전용 탭 라우팅 허브]
             ========================================================================= */}
-        {!isAdmin && !isSupervisor && (
+        {showHome && <HomeTab />}
+
+        {!isAdmin && !isSupervisor && !showHome && (
           <>
             {/* 타이틀 및 비회원 경고 바 (HOME이 아닐 때만 렌더링) */}
             {activeTab !== 'HOME' && (
@@ -93,13 +103,12 @@ export default function HomePage() {
                   {activeTab === 'EXAM' && '평가 목록'}
                   {activeTab === 'CHECK' && '사전 환경 점검 안내'}
                   {activeTab === 'PRACTICE' && '연습문제 목록'}
-                  {activeTab === 'RESULT' && '역량 평가 결과 조회'}
                   {activeTab === 'NOTICE' && '공지사항'}
                   {activeTab === 'FAQ' && '자주 묻는 질문 (FAQ)'}
                 </h1>
                 {userRole === 'GUEST' && (
                   <span className="badge-status alert-error" style={{ display: 'inline-block', marginTop: '0.5rem' }}>
-                    ⚠️ 비회원 상태입니다. 상세 기능 이용 시 로그인이 요구됩니다.
+                    비회원에게는 공지사항과 FAQ만 제공됩니다. 시험 기능은 초대받은 응시자만 이용할 수 있습니다.
                   </span>
                 )}
               </div>
@@ -110,7 +119,6 @@ export default function HomePage() {
             {activeTab === 'EXAM' && <ExamTab onProtectedAction={handleProtectedAction} />}
             {activeTab === 'CHECK' && <CheckTab onProtectedAction={handleProtectedAction} />}
             {activeTab === 'PRACTICE' && <PracticeTab onProtectedAction={handleProtectedAction} />}
-            {activeTab === 'RESULT' && <ResultTab />}
             {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'FAQ' && <FaqTab />}
           </>

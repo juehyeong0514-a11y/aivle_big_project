@@ -1,0 +1,13 @@
+﻿HTTP/1.1 200 OK
+X-Powered-By: Express
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Methods: GET,POST,PATCH,OPTIONS
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 624
+ETag: W/"270-vqYNEO5i3xsDYKmxjlH6JstoE2U"
+Date: Thu, 23 Jul 2026 13:49:24 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+[{"id":"examinee-1","name":"김응시","organizationId":"org-aivle-cs","status":"NORMAL","statusText":"정상 응시 중","currentProb":"문제 2번"},{"id":"examinee-2","name":"이수험","organizationId":"org-aivle-cs","status":"WARNING","statusText":"시선 이탈 감지","currentProb":"문제 1번"},{"id":"examinee-3","name":"박개발","organizationId":"org-data-lab","status":"DANGER","statusText":"이어폰 착용 의심","currentProb":"문제 3번"},{"id":"examinee-4","name":"최코딩","organizationId":"org-data-lab","status":"NORMAL","statusText":"정상 응시 중","currentProb":"문제 4번 제출완료"}]

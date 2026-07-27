@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
+import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 
 export default function ExamCheckPage() {
   const navigate = useNavigate();
@@ -45,9 +46,13 @@ export default function ExamCheckPage() {
   // 🌟 동적 QR 토큰 상태 추가
   const [qrToken, setQrToken] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [examSession, setExamSession] = useState(null);
 
   useEffect(() => {
     generateNewToken();
+    api.get('/applicant/session', { headers: candidateAuthHeaders() })
+      .then(({ data }) => setExamSession(data))
+      .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
     // 🌟 모바일 페이지(MobileScanPage 등)에서 보낸 연동 완료 신호 수신 리스너
     const channel = new BroadcastChannel('exam_qr_channel');
@@ -245,6 +250,7 @@ export default function ExamCheckPage() {
       <p className="sub-description" style={{ marginBottom: '2rem' }}>
         공정하고 안정적인 테스트 응시를 위해 본인 인증, PC 장비 및 보조 카메라 연결 상태를 확인합니다.
       </p>
+      {examSession && <div className="workspace-alert">응시 시험: {examSession.exam.title} · 응시번호: {examSession.candidate.candidateNumber}</div>}
 
       {errorMsg && (
         <div className="alert-box alert-error">
@@ -425,7 +431,7 @@ export default function ExamCheckPage() {
           </span>
         </div>
 
-        <button type="button" className="btn-primary" disabled={!isAllReady} onClick={() => navigate('/exam/session')}>
+        <button type="button" className="btn-primary" disabled={!isAllReady || !examSession} onClick={() => navigate('/exam/session')}>
           {isAllReady ? '코딩 테스트 응시 시작' : '모든 점검 항목을 완료해주세요'}
         </button>
       </div>
