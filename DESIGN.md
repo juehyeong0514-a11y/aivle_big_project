@@ -34,6 +34,13 @@ A calm, trustworthy operations desk for high-stakes assessment. The signature is
 | Status/warning | `--status-warning` | `#d97706` | Pending and caution |
 | Status/error | `--status-error` | `#dc2626` | Rejected and danger |
 | Status/info | `--status-info` | `#7c3aed` | Admin or AI configuration |
+| Coding/surface | `--coding-surface` | `#263b4c` | Candidate coding workspace and statement pane |
+| Coding/surface-raised | `--coding-surface-raised` | `#2e4659` | Editor toolbar, active result tab, controls |
+| Coding/surface-deep | `--coding-surface-deep` | `#1c2e3e` | Header, examples, and result footer |
+| Coding/border | `--coding-border` | `#172938` | Coding workspace dividers |
+| Coding/text | `--coding-text` | `#e8f0f7` | Coding workspace primary text |
+| Coding/text-muted | `--coding-text-muted` | `#a9c0d2` | Coding workspace supporting copy |
+| Coding/accent | `--coding-accent` | `#b9d7f0` | Editor focus and candidate-time emphasis |
 
 Accent is reserved for interactive actions and current-state emphasis. Status colors are semantic and do not replace the primary accent.
 
@@ -83,11 +90,26 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - States: default, selected, disabled while loading.
 - Accessibility: full row is a semantic button with visible selected state.
 
+### Exam detail tabs
+
+- Structure: a compact labelled `nav` directly below the exam summary, with buttons for problem authoring, applicant management, and invitations; each includes a muted count pill.
+- States: default, selected, hover, keyboard focus, and wrapped mobile layout.
+- Interaction: selecting a tab shows only its operating panel, keeping unrelated forms and tables out of the vertical flow.
+- Accessibility: tabs are native buttons with `aria-pressed`, a visible selected state, and an `aria-label`led navigation landmark.
+
 ### Primary action
 
 - Structure: semantic `button` or `a` with Lucide icon and text.
 - States: default, hover, active, focus, disabled, loading.
 - Motion: 120ms color/transform feedback; no layout animation.
+
+### Candidate coding workspace
+
+- Structure: the global service header is suppressed during an exam; the exam uses its own fixed dark header, a narrow scrollable navigation pane with remaining time and numbered problem titles, a separate scrollable problem statement pane, code editor pane, and execution-result pane with persistent footer controls.
+- Variants: one coding question, multiple coding questions with a numbered title list in the navigation pane, public example list, run notice, and submission result.
+- States: code empty, editing, selected problem, selected result tab, run-server unavailable notice, submission error.
+- Accessibility: problem selector and result tabs are keyboard reachable; editor has an explicit label; the bottom controls repeat execution and submission actions without relying on the header.
+- Responsive behavior: at 900px the statement pane stacks above the editor; on small screens control labels stay readable and examples become one column.
 
 ## 6. Motion & Interaction
 

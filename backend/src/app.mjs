@@ -34,6 +34,19 @@ const loginLockoutMs = 15 * 60 * 1000;
 const loginFailureLimit = 5;
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
+const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
+const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
+const normalizeTestCases = (testCases, requireAtLeastOne = false) => {
+  if (!Array.isArray(testCases)) return undefined;
+  const normalized = testCases.map((testCase) => ({
+    input: typeof testCase?.input === "string" ? testCase.input.trim() : "",
+    expectedOutput: typeof testCase?.expectedOutput === "string" ? testCase.expectedOutput.trim() : "",
+    explanation: typeof testCase?.explanation === "string" ? testCase.explanation.trim() : ""
+  }));
+  if ((requireAtLeastOne && normalized.length === 0) || normalized.some((testCase) => !testCase.input || !testCase.expectedOutput)) return undefined;
+  return normalized;
+};
+const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJudgeCode, ...question }) => question;
 
 const requestUser = (sessions, users, removeSession) => (request, response, next) => {
   const token = request.header("authorization")?.replace("Bearer ", "");
@@ -214,7 +227,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
-    const questions = store.questions.filter((question) => question.examId === exam.id).map(({ answer, ...question }) => question);
+    const questions = store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, questions });
   });
   app.post("/api/applicant/exam/submit", authenticateApplicant, async (request, response, next) => {
@@ -224,6 +237,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const questions = store.questions.filter((question) => question.examId === exam.id);
       if (questions.length === 0) return response.status(409).json({ message: "시험 문제가 아직 등록되지 않았습니다." });
       if (invitation.submittedAt) return response.status(409).json({ message: "이 시험은 이미 제출되었습니다." });
+      if (questions.some((question) => question.type === "CODING")) return response.status(503).json({ message: "코딩 문제 채점 서버가 아직 연결되지 않았습니다. 답안은 저장하거나 제출 처리되지 않았습니다." });
       const correctCount = questions.filter((question) => answers[question.id] === question.answer).length;
       const score = Math.round((correctCount / questions.length) * 100);
       const assignment = store.assignments.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
@@ -477,6 +491,24 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   app.post("/api/manager/exams/:id/questions", authenticate, requireManager, async (request, response, next) => {
     try {
       if (!scopedExam(request, request.params.id)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
+      if (request.body.type === "CODING") {
+        const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
+        const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
+        const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
+        const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
+        const normalizedReferenceSolutions = Object.fromEntries(Object.entries(referenceSolutions && typeof referenceSolutions === "object" ? referenceSolutions : {}).filter(([language, source]) => codingLanguages.has(language) && isNonEmptyText(source)).map(([language, source]) => [language, source.trim()]));
+        if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 숨김 테스트를 모두 입력해주세요." });
+        if (judgeMode === "NUMERIC_TOLERANCE" && (!Number.isFinite(numericTolerance) || numericTolerance < 0)) return response.status(400).json({ message: "숫자 오차 허용 범위를 입력해주세요." });
+        if (judgeMode === "CUSTOM" && !isNonEmptyText(customJudgeCode)) return response.status(400).json({ message: "별도 채점 코드를 입력해주세요." });
+        const question = {
+          id: randomUUID(), examId: request.params.id, type: "CODING", title: title.trim(), prompt: description.trim(), description: description.trim(),
+          languages: normalizedLanguages, inputFormat: inputFormat.trim(), outputFormat: outputFormat.trim(), constraints: constraints.trim(),
+          publicExamples: normalizedPublicExamples, hiddenTestCases: normalizedHiddenTestCases, judgeMode, numericTolerance: judgeMode === "NUMERIC_TOLERANCE" ? numericTolerance : undefined,
+          customJudgeCode: judgeMode === "CUSTOM" ? customJudgeCode.trim() : undefined, referenceSolutions: normalizedReferenceSolutions, createdAt: new Date().toISOString()
+        };
+        await store.addQuestion(question);
+        return response.status(201).json(question);
+      }
       const { prompt, options, answer } = request.body;
       if (!isNonEmptyText(prompt) || !Array.isArray(options) || options.length < 2 || !isNonEmptyText(answer)) return response.status(400).json({ message: "문제, 선택지, 정답을 입력해주세요." });
       const normalizedOptions = [...new Set(options.map((option) => String(option).trim()).filter(Boolean))];
@@ -486,6 +518,31 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const question = { id: randomUUID(), examId: request.params.id, prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, createdAt: new Date().toISOString() };
       await store.addQuestion(question);
       return response.status(201).json(question);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/manager/exams/:examId/questions/:questionId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
+      const current = store.questions.find((question) => question.id === request.params.questionId && question.examId === request.params.examId);
+      if (!current) return response.status(404).json({ message: "문제를 찾을 수 없습니다." });
+      if (current.type !== "CODING" || request.body.type !== "CODING") return response.status(400).json({ message: "코딩 문제만 이 화면에서 수정할 수 있습니다." });
+      const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
+      const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
+      const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
+      const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
+      const normalizedReferenceSolutions = Object.fromEntries(Object.entries(referenceSolutions && typeof referenceSolutions === "object" ? referenceSolutions : {}).filter(([language, source]) => codingLanguages.has(language) && isNonEmptyText(source)).map(([language, source]) => [language, source.trim()]));
+      if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 숨김 테스트를 모두 입력해주세요." });
+      if (judgeMode === "NUMERIC_TOLERANCE" && (!Number.isFinite(numericTolerance) || numericTolerance < 0)) return response.status(400).json({ message: "숫자 오차 허용 범위를 입력해주세요." });
+      if (judgeMode === "CUSTOM" && !isNonEmptyText(customJudgeCode)) return response.status(400).json({ message: "별도 채점 코드를 입력해주세요." });
+      const question = await store.updateQuestion(current.id, {
+        title: title.trim(), prompt: description.trim(), description: description.trim(), languages: normalizedLanguages,
+        inputFormat: inputFormat.trim(), outputFormat: outputFormat.trim(), constraints: constraints.trim(), publicExamples: normalizedPublicExamples, hiddenTestCases: normalizedHiddenTestCases,
+        judgeMode, numericTolerance: judgeMode === "NUMERIC_TOLERANCE" ? numericTolerance : undefined, customJudgeCode: judgeMode === "CUSTOM" ? customJudgeCode.trim() : undefined,
+        referenceSolutions: normalizedReferenceSolutions, updatedAt: new Date().toISOString()
+      });
+      return response.json(question);
     } catch (error) {
       return next(error);
     }

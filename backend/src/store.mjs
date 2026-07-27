@@ -200,6 +200,13 @@ export const createStore = async (filePath) => {
       data.questions.push(question);
       await queuedSave();
     },
+    updateQuestion: async (id, patch) => {
+      const question = data.questions.find((candidate) => candidate.id === id);
+      if (!question) return undefined;
+      Object.assign(question, patch);
+      await queuedSave();
+      return question;
+    },
     addAssignment: async (assignment) => {
       data.assignments.push(assignment);
       await queuedSave();
