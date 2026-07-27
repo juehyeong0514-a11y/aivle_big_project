@@ -94,7 +94,7 @@ test("requires email verification before manager signup and rate-limits invalid 
   assert.equal(locked.status, 429);
 });
 
-test("governs organization approval, manager scope, and one-time invitations", async (context) => {
+test("governs organization approval, manager scope, and invitations reusable before submission", async (context) => {
   const { baseUrl, directory, server } = await startServer();
   context.after(() => server.close());
   const login = async (email, role, password = "123") => {
@@ -156,6 +156,7 @@ test("governs organization approval, manager scope, and one-time invitations", a
   assert.equal(invitation.count, 1);
   assert.equal(invitation.deliveryStatus, "PREVIEW");
   assert.equal(invitation.mailPreviews[0].oneTimeToken, undefined);
+  assert.equal(Date.parse(invitation.mailPreviews[0].expiresAt), new Date(2026, 7, 1, 11, 0).getTime());
   const entryUrl = new URL(invitation.mailPreviews[0].entryLink);
   assert.equal(entryUrl.pathname, "/exam/enter");
   const token = entryUrl.searchParams.get("token");
@@ -169,6 +170,10 @@ test("governs organization approval, manager scope, and one-time invitations", a
   const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
   assert.equal(verified.status, 200);
   const applicantToken = (await verified.json()).accessToken;
+  const revisit = await fetch(`${baseUrl}/api/invitations/${token}`);
+  assert.equal(revisit.status, 200);
+  const reverified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
+  assert.equal(reverified.status, 200);
   const applicantSession = await fetch(`${baseUrl}/api/applicant/session`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   assert.equal(applicantSession.status, 200);
   const applicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });

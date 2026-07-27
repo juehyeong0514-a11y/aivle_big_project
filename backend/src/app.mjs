@@ -10,6 +10,14 @@ const isManagerRole = (role) => role === "MANAGER" || role === "SUPERVISOR";
 const sessionTtlMs = 8 * 60 * 60 * 1000;
 const applicantSessionTtlMs = 4 * 60 * 60 * 1000;
 const hashToken = (token) => createHash("sha256").update(token).digest("hex");
+const scheduledExamEndsAt = (exam) => {
+  const schedule = String(exam.date ?? "").trim().match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  const durationMinutes = Number.parseInt(String(exam.duration ?? "").match(/\d+/)?.[0] ?? "", 10);
+  if (!schedule || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
+  const [, year, month, day, hour, minute] = schedule;
+  const startsAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  return Number.isNaN(startsAt.getTime()) ? undefined : new Date(startsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
+};
 const managerOrganizationIds = (user, organizations) => organizations
   .filter((organization) => user.approvalStatus === "APPROVED" && organization.status === "APPROVED" && (organization.managerIds?.includes(user.id) || user.organizationIds?.includes(organization.id)))
   .map((organization) => organization.id);
@@ -509,7 +517,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       if (candidates.length !== candidateIds.length) return response.status(403).json({ message: "같은 조직의 응시자만 배정 해제할 수 있습니다." });
       const submittedCandidateIds = new Set([
         ...store.assignments.filter((assignment) => assignment.examId === exam.id && candidateIds.includes(assignment.candidateId) && assignment.status === "SUBMITTED").map((assignment) => assignment.candidateId),
-        ...store.invitations.filter((invitation) => invitation.examId === exam.id && candidateIds.includes(invitation.candidateId) && invitation.usedAt).map((invitation) => invitation.candidateId)
+        ...store.invitations.filter((invitation) => invitation.examId === exam.id && candidateIds.includes(invitation.candidateId) && invitation.submittedAt).map((invitation) => invitation.candidateId)
       ]);
       if (submittedCandidateIds.size > 0) return response.status(409).json({ message: "제출이 완료된 응시자의 배정은 삭제할 수 없습니다." });
       const assignedCandidateIds = new Set(store.assignments
@@ -528,14 +536,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       if (!exam || candidateIds.length === 0) return response.status(400).json({ message: "시험과 초대할 응시자를 확인해주세요." });
       const eligibleCandidateIds = candidateIds.filter((candidateId) => store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidateId));
       if (eligibleCandidateIds.length !== candidateIds.length) return response.status(409).json({ message: "시험 대상자로 먼저 배정한 응시자만 초대할 수 있습니다." });
-      const expiresAt = new Date(Date.now() + (Number(request.body.expiresInHours) || store.systemPolicies.invitationExpiryHours) * 60 * 60 * 1000).toISOString();
+      const expiresAt = scheduledExamEndsAt(exam) ?? new Date(Date.now() + (Number(request.body.expiresInHours) || store.systemPolicies.invitationExpiryHours) * 60 * 60 * 1000).toISOString();
       const previews = [];
       const createdInvitationIds = [];
       for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
-        const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.usedAt && !item.revokedAt);
+        const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.submittedAt && !item.revokedAt);
         await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString() })));
         const token = randomUUID();
-      const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), usedAt: null, revokedAt: null };
+      const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null };
         await store.addInvitation(invitation);
         createdInvitationIds.push(invitation.id);
         previews.push({ to: candidate.email, examName: exam.title, schedule: exam.date, entryLink: new URL("/exam/enter?token=" + encodeURIComponent(token), publicWebOrigin).toString(), candidateNumber: candidate.candidateNumber, notice: "시험 시작 전 웹캠, 마이크, 화면 공유를 점검해주세요.", expiresAt, oneTimeToken: token });
@@ -562,6 +570,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   });
   app.get("/api/invitations/:token", (request, response) => {
     const invitation = invitationForToken(store.invitations, request.params.token);
+    if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
     if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
@@ -570,6 +579,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
       const invitation = invitationForToken(store.invitations, request.params.token);
+      if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
       if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
       const failureKey = `${request.ip}:${invitation.id}`;
       const failure = candidateFailures.get(failureKey);
@@ -586,9 +596,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       else await store.addExaminee({ id: randomUUID(), candidateId: invitation.candidateId, name: store.candidates.find((candidate) => candidate.id === invitation.candidateId)?.name ?? "응시자", organizationId: invitation.organizationId, examId: invitation.examId, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
       const accessToken = randomUUID();
       const session = { tokenHash: hashToken(accessToken), role: "APPLICANT", invitationId: invitation.id, expiresAt: new Date(Date.now() + applicantSessionTtlMs).toISOString() };
-      const usedAt = new Date().toISOString();
       sessions.set(session.tokenHash, session);
-      await store.updateInvitation(invitation.id, { usedAt });
+      await store.updateInvitation(invitation.id, { verifiedAt: invitation.verifiedAt ?? new Date().toISOString() });
       await store.addSession(session);
       return response.json({ accessToken, examId: invitation.examId, candidateNumber: invitation.candidateNumber });
     } catch (error) {

@@ -79,6 +79,11 @@ export const createStore = async (filePath) => {
       data = { ...data, invitations: migratedInvitations };
       shouldSave = true;
     }
+    const migratedInvitationUses = data.invitations.map(({ usedAt, ...invitation }) => usedAt ? { ...invitation, verifiedAt: invitation.verifiedAt ?? usedAt } : invitation);
+    if (migratedInvitationUses.some((invitation, index) => Object.hasOwn(data.invitations[index], "usedAt") || invitation.verifiedAt !== data.invitations[index].verifiedAt)) {
+      data = { ...data, invitations: migratedInvitationUses };
+      shouldSave = true;
+    }
     if (data.questions.length === 0 && data.exams.some((exam) => exam.id === "exam-2026-second-half")) {
       data = { ...data, questions: clone(seedData.questions) };
       shouldSave = true;
