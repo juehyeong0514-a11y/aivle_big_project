@@ -33,7 +33,7 @@ export const seedData = {
     { id: "org-data-lab", name: "B대학교 데이터사이언스센터", code: "B-DATA", status: "PENDING", requestedBy: "user-supervisor", managerIds: [], createdAt: "2026-07-22T09:00:00.000Z" }
   ],
   candidates: [
-    { id: "candidate-1", name: "홍길동", email: "applicant1@aivle.com", organizationId: "org-aivle-cs", candidateNumber: "AIVLE-1001", status: "REGISTERED", createdAt: "2026-07-20T09:10:00.000Z" }
+    { id: "candidate-1", name: "홍길동", email: "applicant1@aivle.com", birthDate: "2000-01-01", organizationId: "org-aivle-cs", candidateNumber: "AIVLE-1001", status: "REGISTERED", createdAt: "2026-07-20T09:10:00.000Z" }
   ],
   questions: [
     { id: "question-seed-1", examId: "exam-2026-second-half", prompt: "2 + 2 = ?", options: ["3", "4", "5"], answer: "4", createdAt: "2026-07-20T09:20:00.000Z" },

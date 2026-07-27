@@ -185,6 +185,13 @@ export const createStore = async (filePath) => {
       data.candidates.push(candidate);
       await queuedSave();
     },
+    updateCandidate: async (id, patch) => {
+      const candidate = data.candidates.find((item) => item.id === id);
+      if (!candidate) return undefined;
+      Object.assign(candidate, patch);
+      await queuedSave();
+      return candidate;
+    },
     addExaminee: async (examinee) => {
       data.examinees.push(examinee);
       await queuedSave();

@@ -84,6 +84,12 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - States: loading skeleton, populated, empty, error.
 - Accessibility: labelled controls, table headers where tabular, action buttons with explicit labels.
 
+### Candidate intake and editing
+
+- Structure: manual applicant form with name, email, and birth date; a CSV upload action; newly registered applicants are automatically assigned to the current exam, while an applicant registered for another exam is reused and assigned instead of treated as a duplicate; invitation-panel search; and an inline edit panel selected from an applicant row.
+- States: empty, search filtered, birth date missing, detailed file validation error (type, header, row number, field), normalized birth-date input, CSV registration preview with available/error counts and five visible rows before scrolling, upload complete, and edit saving. The invitation-tab compact count is registered candidates / active invitations, so registration alone never increases the sent-invitation count.
+- Accessibility: file format requirements are text-visible; date and search inputs are labelled; edit controls are native buttons and never rely on row click alone.
+
 ### Exam management row
 
 - Structure: selectable exam row with title, organization/date metadata, question count, and status.
