@@ -1344,3 +1344,69 @@ main {
 .auth-header .logo-icon {
   margin: 0 auto;
 }
+
+/* =========================================================
+   ManagerWorkspaceTab 전용 보완 스타일
+   ========================================================= */
+.workspace-next-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 18px 24px;
+}
+
+.workspace-next-step strong {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.workspace-next-step span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .workspace-next-step {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* =========================================================
+   워크스페이스 및 매니저 탭 폰트/스타일 일치화 보완
+   ========================================================= */
+.workspace-heading h1 {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  color: var(--text-primary, #0f172a) !important;
+  letter-spacing: -0.5px;
+}
+
+.panel-heading h2 {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary, #0f172a) !important;
+}
+
+.workspace-heading p,
+.panel-heading p {
+  font-size: 13.5px !important;
+  color: var(--text-muted, #64748b) !important;
+}
+
+.organization-row strong,
+.exam-invite-row strong {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary, #0f172a) !important;
+}
+
+.organization-row span {
+  font-size: 12.5px !important;
+  color: var(--text-muted, #64748b) !important;
+}
