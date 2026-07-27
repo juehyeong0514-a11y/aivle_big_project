@@ -33,6 +33,12 @@ const maxVerificationAttempts = 5;
 const loginLockoutMs = 15 * 60 * 1000;
 const loginFailureLimit = 5;
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const isValidBirthDate = (value) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day && date <= new Date();
+};
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
 const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
 const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
@@ -425,11 +431,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   });
   const createCandidate = async (request, organizationId, candidateInput) => {
     if (!scopedOrganization(request, organizationId)) return { error: { status: 403, message: "배정된 승인 조직만 관리할 수 있습니다." } };
-    const { name, email } = candidateInput;
-    if (![name, email].every(isNonEmptyText)) return { error: { status: 400, message: "응시자 이름과 이메일을 입력해주세요." } };
+    const { name, email, birthDate } = candidateInput;
+    if (![name, email, birthDate].every(isNonEmptyText) || !isValidBirthDate(birthDate)) return { error: { status: 400, message: "응시자 이름, 이메일, 올바른 생년월일을 입력해주세요." } };
     const normalizedEmail = email.trim().toLowerCase();
     if (store.candidates.some((candidate) => candidate.organizationId === organizationId && candidate.email === normalizedEmail)) return { error: { status: 409, message: "해당 조직에 이미 등록된 이메일입니다." } };
-    const candidate = { id: randomUUID(), name: name.trim(), email: normalizedEmail, organizationId, candidateNumber: `AIVLE-${1000 + store.candidates.length + 1}`, status: "REGISTERED", createdAt: new Date().toISOString() };
+    const candidate = { id: randomUUID(), name: name.trim(), email: normalizedEmail, birthDate, organizationId, candidateNumber: `AIVLE-${1000 + store.candidates.length + 1}`, status: "REGISTERED", createdAt: new Date().toISOString() };
     await store.addCandidate(candidate);
     return { candidate };
   };
@@ -446,7 +452,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
     try {
       const { organizationId, candidates } = request.body;
       if (!Array.isArray(candidates) || candidates.length === 0) return response.status(400).json({ message: "일괄 등록할 응시자 목록을 입력해주세요." });
-      const emails = candidates.map((candidate) => candidate?.email?.trim().toLowerCase()).filter(Boolean);
+      if (!scopedOrganization(request, organizationId)) return response.status(403).json({ message: "배정된 승인 조직만 관리할 수 있습니다." });
+      if (candidates.some((candidate) => !isNonEmptyText(candidate?.name) || !isNonEmptyText(candidate?.email) || !isValidBirthDate(candidate?.birthDate))) return response.status(400).json({ message: "모든 행에 이름, 이메일, 올바른 생년월일을 입력해주세요." });
+      const emails = candidates.map((candidate) => candidate.email.trim().toLowerCase());
       if (new Set(emails).size !== emails.length || emails.some((email) => store.candidates.some((candidate) => candidate.organizationId === organizationId && candidate.email === email))) return response.status(409).json({ message: "중복된 응시자 이메일이 포함되어 있습니다." });
       const created = [];
       for (const candidateInput of candidates) {
@@ -455,6 +463,20 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
         created.push(result.candidate);
       }
       return response.status(201).json(created);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/manager/candidates/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const candidate = store.candidates.find((item) => item.id === request.params.id);
+      if (!candidate) return response.status(404).json({ message: "응시자를 찾을 수 없습니다." });
+      if (!scopedOrganization(request, candidate.organizationId)) return response.status(403).json({ message: "배정된 승인 조직의 응시자만 수정할 수 있습니다." });
+      const { name, email, birthDate } = request.body;
+      if (![name, email, birthDate].every(isNonEmptyText) || !isValidBirthDate(birthDate)) return response.status(400).json({ message: "응시자 이름, 이메일, 올바른 생년월일을 입력해주세요." });
+      const normalizedEmail = email.trim().toLowerCase();
+      if (store.candidates.some((item) => item.id !== candidate.id && item.organizationId === candidate.organizationId && item.email === normalizedEmail)) return response.status(409).json({ message: "해당 조직에 이미 등록된 이메일입니다." });
+      return response.json(await store.updateCandidate(candidate.id, { name: name.trim(), email: normalizedEmail, birthDate }));
     } catch (error) {
       return next(error);
     }

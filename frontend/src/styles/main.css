@@ -1219,8 +1219,32 @@ main {
 .icon-action.approve { color: var(--status-success); }
 .icon-action.reject { color: var(--status-error); }
 .form-panel { display: flex; flex-direction: column; gap: 12px; }
+.candidate-upload-control { display: inline-flex !important; align-items: center; justify-content: center; align-self: flex-start; gap: 7px; min-height: 40px; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 14px; background: var(--surface-soft); color: var(--text-secondary); cursor: pointer; font-size: 13px; font-weight: 700; }
+.candidate-upload-control input { position: absolute; width: 1px !important; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+.candidate-upload-error { margin: 0; padding: 10px 12px; border: 1px solid var(--border-danger); border-radius: 8px; background: var(--surface-danger-soft); color: var(--status-error); font-size: 13px; font-weight: 700; line-height: 1.5; }
+.candidate-search-control { display: flex; align-items: center; gap: 8px; margin: 12px 0; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-muted); }
+.candidate-search-control input { width: 100%; min-height: 40px; border: 0; background: transparent; color: var(--text-primary); font: inherit; outline: 0; }
+.candidate-edit-panel { display: grid; gap: 12px; margin: 12px 0; padding: 16px; border: 1px solid var(--border-input); border-radius: 10px; background: var(--surface-accent-soft); }
+.candidate-edit-panel label { display: flex; flex-direction: column; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.candidate-edit-panel input { width: 100%; min-height: 40px; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; }
 .form-panel label, .organization-switcher label, .invite-form label, .staff-login-form label { display: flex; flex-direction: column; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 .form-hint { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.candidate-upload-preview { display: grid; gap: 12px; margin-top: 8px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fbff; }
+.candidate-upload-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.candidate-upload-preview-heading > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.candidate-upload-preview-heading strong { overflow: hidden; color: var(--text-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-upload-preview-heading span { color: var(--text-muted); font-size: 12px; }
+.candidate-upload-preview-heading b { color: var(--accent-primary); }
+.candidate-upload-preview-heading .candidate-upload-error-count { color: var(--status-error); }
+.candidate-upload-preview ul { display: grid; gap: 0; max-height: 480px; margin: 0; padding: 0; overflow-y: auto; list-style: none; border-top: 1px solid #dbeafe; }
+.candidate-upload-preview li { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid #dbeafe; }
+.candidate-upload-preview li > b { display: inline-flex; flex: 0 0 24px; align-items: center; justify-content: center; min-height: 24px; border-radius: 50%; background: #dbeafe; color: var(--accent-primary); font-size: 12px; }
+.candidate-upload-preview li span { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.candidate-upload-preview li strong { color: var(--text-primary); font-size: 13px; }
+.candidate-upload-preview li small { overflow: hidden; color: var(--text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-upload-preview li.has-error { background: var(--surface-danger-soft); }
+.candidate-upload-preview li.has-error > b { background: #fee2e2; color: var(--status-error); }
+.candidate-upload-preview li em { color: var(--status-error); font-size: 12px; font-style: normal; font-weight: 700; }
 .auth-home-button { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13px; font-weight: 700; }
 .form-panel input, .form-panel select, .form-panel textarea, .invite-form input, .staff-login-form input { width: 100%; min-height: 40px; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-primary); color-scheme: light; font: inherit; font-weight: 400; }
 .form-panel textarea { min-height: 96px; padding-block: 10px; resize: vertical; line-height: 1.5; }
@@ -1237,7 +1261,7 @@ main {
 .organization-switcher label { flex: 1; max-width: 460px; }
 .organization-switcher > span { color: var(--text-muted); font-size: 13px; }
 .organization-scope-note { display: inline-flex; align-items: center; gap: 6px; }
-.candidate-check-list { max-height: 220px; overflow-y: auto; margin-bottom: 12px; }
+.candidate-check-list { max-height: 440px; overflow-y: auto; margin-bottom: 12px; }
 .candidate-check-list label { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border-default); padding: 11px 0; color: var(--text-primary); font-size: 13px; cursor: pointer; }
 .candidate-check-list input { accent-color: var(--accent-primary); }
 .candidate-check-list span { display: flex; flex-direction: column; gap: 3px; }

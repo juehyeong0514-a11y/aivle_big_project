@@ -124,9 +124,9 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const organizations = await fetch(`${baseUrl}/api/admin/organizations`, { headers: { Authorization: `Bearer ${admin.token}` } });
   const managedOrganization = (await organizations.json()).find((candidate) => candidate.id === organization.id);
   assert.equal(managedOrganization.managers.length, 1);
-  const outOfScopeCandidate = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: "org-aivle-cs", name: "범위 밖 응시자", email: "outside@example.com" }) });
+  const outOfScopeCandidate = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: "org-aivle-cs", name: "범위 밖 응시자", email: "outside@example.com", birthDate: "2000-01-01" }) });
   assert.equal(outOfScopeCandidate.status, 403);
-  const candidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "초대 응시자", email: "invitee@example.com" }) });
+  const candidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "초대 응시자", email: "invitee@example.com", birthDate: "2000-01-01" }) });
   const candidate = await candidateResponse.json();
   assert.match(candidate.candidateNumber, /^AIVLE-/);
   const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: "2026.08.01 10:00" }) });
@@ -161,7 +161,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const secondExamCandidates = await fetch(`${baseUrl}/api/manager/exams/${secondExam.id}/candidates`, { headers: { Authorization: `Bearer ${manager.token}` } });
   assert.equal(secondExamCandidates.status, 200);
   assert.deepEqual(await secondExamCandidates.json(), []);
-  const removableCandidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "Remove Before Invite", email: "remove-before-invite@example.com" }) });
+  const removableCandidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "Remove Before Invite", email: "remove-before-invite@example.com", birthDate: "2000-01-01" }) });
   const removableCandidate = await removableCandidateResponse.json();
   const removableAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [removableCandidate.id] }) });
   assert.equal(removableAssignment.status, 201);
