@@ -63,6 +63,7 @@ main {
   z-index: 50;
   white-space: nowrap;
   min-width: 0;
+  overflow: visible !important; /* 스크롤바/잘림 방지 */
 }
 
 /* 로고와 탭 메뉴를 옆으로 나란히 묶고 시원한 간격 부여 */
@@ -73,6 +74,7 @@ main {
   height: 100%;
   min-width: 0;
   flex: 1;
+  overflow: visible !important;
 }
 
 .logo-area {
@@ -108,8 +110,7 @@ main {
   gap: 0.5rem;
   height: 100%;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: visible !important; /* 드롭다운 잘림 방지 */
 }
 
 .header-nav::-webkit-scrollbar { display: none; }
@@ -141,6 +142,69 @@ main {
   color: #2563EB;
   font-weight: 700;
   border-bottom: 3px solid #2563EB;
+}
+
+/* 탭 그룹 (호버 시 하위 목록이 펼쳐지는 드롭다운) */
+.header-nav-group {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.header-nav-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  padding: 0.4rem;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 100;
+  white-space: nowrap;
+}
+
+.header-nav-group:hover .header-nav-dropdown,
+.header-nav-group:focus-within .header-nav-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.header-nav-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  background-color: transparent;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.header-nav-dropdown-item:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.header-nav-dropdown-item.active {
+  background-color: #eff6ff;
+  color: #2563EB;
 }
 
 /* 우측 유저 배지 및 버튼 */

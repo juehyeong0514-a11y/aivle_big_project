@@ -2,9 +2,77 @@ import React from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
-  Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3
+  Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
+  Building2, Settings, UserPlus, Send, Award, ClipboardCheck, PlusSquare, PieChart
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
+
+// 1. 관리자 전용 카테고리 그룹 정의
+const ADMIN_GROUPS = [
+  {
+    label: '조직·관리자', icon: Building2,
+    items: [
+      { key: 'GOVERNANCE', label: '조직 승인 및 관리자 관리', icon: ShieldCheck },
+      { key: 'USER_MGMT', label: '응시자 관리', icon: Users }
+    ]
+  },
+  {
+    label: '시험 및 정책', icon: ClipboardList,
+    items: [
+      { key: 'EXAMS', label: '전체 시험 관리', icon: ClipboardList },
+      { key: 'POLICY_MGMT', label: '문제/정책 관리', icon: FileText },
+      { key: 'CHEAT_MGMT', label: '금지사항 관리', icon: ShieldAlert },
+      { key: 'AI_CONFIG', label: 'AI 분석 설정', icon: Cpu }
+    ]
+  }
+];
+
+// 2. 감독관(매니저) 전용 카테고리 그룹 정의
+const SUPERVISOR_GROUPS = [
+  {
+    label: '조직 및 시험 운영', icon: Users,
+    items: [
+      { key: 'MANAGER_WORKSPACE', label: '조직 운영', icon: Users },
+      { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
+      { key: 'EXAM_STATUS', label: '응시자 현황 관리', icon: BarChart3 }
+    ]
+  },
+  {
+    label: '실시간 관제 및 검토', icon: Monitor,
+    items: [
+      { key: 'LIVE_MONITORING', label: '실시간 화상 관제', icon: Monitor },
+      { key: 'CHEAT_LOGS', label: '부정행위 감지 로그', icon: AlertTriangle },
+      { key: 'AI_REPORTS', label: '응시자 AI 리포트 검토', icon: FileText }
+    ]
+  }
+];
+
+// 카테고리별 드롭다운 그룹 컴포넌트 (마우스 호버 지원)
+function NavGroup({ group, currentTab, onSelect }) {
+  const GroupIcon = group.icon;
+  const isGroupActive = group.items.some((item) => item.key === currentTab);
+
+  return (
+    <div className="header-nav-group" style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
+      <button type="button" className={`header-tab-btn ${isGroupActive ? 'active' : ''}`}>
+        <GroupIcon size={16} style={{ marginRight: 6 }} /> {group.label}
+        <ChevronDown size={14} style={{ marginLeft: 4 }} />
+      </button>
+      <div className="header-nav-dropdown">
+        {group.items.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            className={`header-nav-dropdown-item ${currentTab === key ? 'active' : ''}`}
+            onClick={(event) => { event.currentTarget.blur(); onSelect(key); }}
+          >
+            <Icon size={16} /> {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Header() {
   const navigate = useNavigate();
@@ -19,9 +87,7 @@ export default function Header() {
   const isSupervisor = userRole === 'SUPERVISOR' || userRole === 'MANAGER';
 
   // 권한별 기본 탭 설정
-  const getDefaultTab = () => {
-    return 'HOME';
-  };
+  const getDefaultTab = () => 'HOME';
 
   const defaultTab = getDefaultTab();
   const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAM_MANAGEMENT' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
@@ -55,12 +121,11 @@ export default function Header() {
   };
 
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
-
   const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : '/';
 
   return (
-    <header className="header">
-      <div className="header-left-group">
+    <header className="header" style={{ overflow: 'visible' }}>
+      <div className="header-left-group" style={{ overflow: 'visible' }}>
         <div className="logo-area" onClick={() => navigate(homeRoute)}>
           <div className="logo-icon" style={{ width: 34, height: 34 }}>
             <ShieldCheck color="#ffffff" size={20} />
@@ -69,62 +134,33 @@ export default function Header() {
         </div>
 
         {!isAuthPage && (
-          <nav className="header-nav">
+          <nav className="header-nav" style={{ overflow: 'visible' }}>
             {isAdmin ? (
-              /* ================= 1. 관리자 전용 탭 5개 ================= */
+              /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
               <>
-                <button className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
+                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
                   <Monitor size={16} style={{ marginRight: 6 }} /> 홈
                 </button>
-                <button className={`header-tab-btn ${currentTab === 'GOVERNANCE' ? 'active' : ''}`} onClick={() => handleTabClick('GOVERNANCE')}>
-                  <ShieldCheck size={16} style={{ marginRight: 6 }} /> 조직 승인 및 관리자 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'EXAMS' ? 'active' : ''}`} onClick={() => handleTabClick('EXAMS')}>
-                  <ClipboardList size={16} style={{ marginRight: 6 }} /> 전체 시험 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'POLICY_MGMT' ? 'active' : ''}`} onClick={() => handleTabClick('POLICY_MGMT')}>
-                  <FileText size={16} style={{ marginRight: 6 }} /> 문제/정책 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'USER_MGMT' ? 'active' : ''}`} onClick={() => handleTabClick('USER_MGMT')}>
-                  <Users size={16} style={{ marginRight: 6 }} /> 응시자 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'CHEAT_MGMT' ? 'active' : ''}`} onClick={() => handleTabClick('CHEAT_MGMT')}>
-                  <ShieldAlert size={16} style={{ marginRight: 6 }} /> 금지사항 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'AI_CONFIG' ? 'active' : ''}`} onClick={() => handleTabClick('AI_CONFIG')}>
-                  <Cpu size={16} style={{ marginRight: 6 }} /> AI 분석 설정
-                </button>
+                {ADMIN_GROUPS.map((group) => (
+                  <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
+                ))}
               </>
             ) : isSupervisor ? (
-              /* ================= 2. 감독관 전용 탭 3개 ================= */
+              /* ================= 2. 감독관 전용 (그룹 드롭다운) ================= */
               <>
-                <button className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
+                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
                   <Monitor size={16} style={{ marginRight: 6 }} /> 홈
                 </button>
-                <button className={`header-tab-btn ${currentTab === 'MANAGER_WORKSPACE' ? 'active' : ''}`} onClick={() => handleTabClick('MANAGER_WORKSPACE')}>
-                  <Users size={16} style={{ marginRight: 6 }} /> 조직 운영
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'EXAM_MANAGEMENT' ? 'active' : ''}`} onClick={() => handleTabClick('EXAM_MANAGEMENT')}>
-                  <ClipboardList size={16} style={{ marginRight: 6 }} /> 시험 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'LIVE_MONITORING' ? 'active' : ''}`} onClick={() => handleTabClick('LIVE_MONITORING')}>
-                  <Monitor size={16} style={{ marginRight: 6 }} /> 실시간 화상 관제
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'CHEAT_LOGS' ? 'active' : ''}`} onClick={() => handleTabClick('CHEAT_LOGS')}>
-                  <AlertTriangle size={16} style={{ marginRight: 6 }} /> 부정행위 감지 로그
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'EXAM_STATUS' ? 'active' : ''}`} onClick={() => handleTabClick('EXAM_STATUS')}>
-                  <BarChart3 size={16} style={{ marginRight: 6 }} /> 응시자 현황 관리
-                </button>
-                <button className={`header-tab-btn ${currentTab === 'AI_REPORTS' ? 'active' : ''}`} onClick={() => handleTabClick('AI_REPORTS')}>
-                  <FileText size={16} style={{ marginRight: 6 }} /> 응시자 AI 리포트 검토
-                </button>
+                {SUPERVISOR_GROUPS.map((group) => (
+                  <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
+                ))}
               </>
             ) : (
+              /* ================= 3. 일반 사용자/게스트 전용 ================= */
               <>
-                <button className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>홈</button>
-                <button className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} onClick={() => handleTabClick('NOTICE')}>공지사항</button>
-                <button className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} onClick={() => handleTabClick('FAQ')}>FAQ</button>
+                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>홈</button>
+                <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} onClick={() => handleTabClick('NOTICE')}>공지사항</button>
+                <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} onClick={() => handleTabClick('FAQ')}>FAQ</button>
               </>
             )}
           </nav>
@@ -140,13 +176,13 @@ export default function Header() {
                 {userName}님 ({isAdmin ? 'ADMIN' : isSupervisor ? '관리자' : '응시자'})
               </span>
             </div>
-            <button className="logout-btn header-logout-btn" onClick={handleLogout}>
+            <button type="button" className="logout-btn header-logout-btn" onClick={handleLogout}>
               <LogOut size={15} />
               <span>로그아웃</span>
             </button>
           </div>
         ) : (
-          <button className="nav-action-btn" onClick={() => navigate('/login')}>
+          <button type="button" className="nav-action-btn" onClick={() => navigate('/login')}>
             <LogIn size={15} style={{ marginRight: 4 }} />
             <span>로그인 / 회원가입</span>
           </button>
