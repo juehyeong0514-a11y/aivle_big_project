@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
   Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
-  Building2, Settings, UserPlus, Send, Award, ClipboardCheck, PlusSquare, PieChart
+  Building2
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
 
@@ -120,7 +120,6 @@ export default function Header() {
     navigate('/login');
   };
 
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
   const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : '/';
 
   return (
@@ -133,38 +132,37 @@ export default function Header() {
           <span className="logo-title">AI 리터러시 역량 테스트 플랫폼</span>
         </div>
 
-        {!isAuthPage && (
-          <nav className="header-nav" style={{ overflow: 'visible' }}>
-            {isAdmin ? (
-              /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
-              <>
-                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
-                  <Monitor size={16} style={{ marginRight: 6 }} /> 홈
-                </button>
-                {ADMIN_GROUPS.map((group) => (
-                  <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
-                ))}
-              </>
-            ) : isSupervisor ? (
-              /* ================= 2. 감독관 전용 (그룹 드롭다운) ================= */
-              <>
-                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
-                  <Monitor size={16} style={{ marginRight: 6 }} /> 홈
-                </button>
-                {SUPERVISOR_GROUPS.map((group) => (
-                  <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
-                ))}
-              </>
-            ) : (
-              /* ================= 3. 일반 사용자/게스트 전용 ================= */
-              <>
-                <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>홈</button>
-                <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} onClick={() => handleTabClick('NOTICE')}>공지사항</button>
-                <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} onClick={() => handleTabClick('FAQ')}>FAQ</button>
-              </>
-            )}
-          </nav>
-        )}
+        {/* 로그인/회원가입 페이지에서도 네비게이션이 보이도록 제어 조건(!isAuthPage) 제거 */}
+        <nav className="header-nav" style={{ overflow: 'visible' }}>
+          {isAdmin ? (
+            /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
+            <>
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
+                <Monitor size={16} style={{ marginRight: 6 }} /> 홈
+              </button>
+              {ADMIN_GROUPS.map((group) => (
+                <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
+              ))}
+            </>
+          ) : isSupervisor ? (
+            /* ================= 2. 감독관 전용 (그룹 드롭다운) ================= */
+            <>
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
+                <Monitor size={16} style={{ marginRight: 6 }} /> 홈
+              </button>
+              {SUPERVISOR_GROUPS.map((group) => (
+                <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
+              ))}
+            </>
+          ) : (
+            /* ================= 3. 일반 사용자/게스트 전용 ================= */
+            <>
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>홈</button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} onClick={() => handleTabClick('NOTICE')}>공지사항</button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} onClick={() => handleTabClick('FAQ')}>FAQ</button>
+            </>
+          )}
+        </nav>
       </div>
 
       <div className="nav-right">
