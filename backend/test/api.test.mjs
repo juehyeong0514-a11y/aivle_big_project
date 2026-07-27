@@ -208,6 +208,34 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const scopedExaminees = await fetch(`${baseUrl}/api/supervisor/examinees`, { headers: { Authorization: `Bearer ${manager.token}` } });
   assert.equal(scopedExaminees.status, 200);
   assert.equal((await scopedExaminees.json()).some((examinee) => examinee.candidateId === candidate.id), true);
+  const codingQuestionResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions`, {
+    method: "POST",
+    headers: managerHeaders,
+    body: JSON.stringify({
+      type: "CODING", title: "두 수의 합", languages: ["Python", "JavaScript"],
+      description: "두 정수 A와 B를 입력받아 합을 출력하세요.", inputFormat: "첫째 줄에 정수 A와 B가 공백으로 주어집니다.", outputFormat: "A와 B의 합을 출력합니다.", constraints: "1 ≤ A, B ≤ 100",
+      publicExamples: [{ input: "3 5", expectedOutput: "8", explanation: "두 수를 더합니다." }],
+      hiddenTestCases: [{ input: "1 2", expectedOutput: "3" }], judgeMode: "IGNORE_WHITESPACE", referenceSolutions: { Python: "a, b = map(int, input().split())\nprint(a + b)" }
+    })
+  });
+  assert.equal(codingQuestionResponse.status, 201);
+  const codingQuestion = await codingQuestionResponse.json();
+  assert.equal(codingQuestion.hiddenTestCases.length, 1);
+  assert.equal(codingQuestion.difficulty, undefined);
+  assert.equal(codingQuestion.timeLimitSeconds, undefined);
+  assert.equal(codingQuestion.memoryLimitMb, undefined);
+  const codingQuestionUpdate = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions/${codingQuestion.id}`, {
+    method: "PATCH",
+    headers: managerHeaders,
+    body: JSON.stringify({ ...codingQuestion, type: "CODING", title: "두 수의 합 (수정)", hiddenTestCases: [{ input: "10 20", expectedOutput: "30" }] })
+  });
+  assert.equal(codingQuestionUpdate.status, 200);
+  assert.equal((await codingQuestionUpdate.json()).title, "두 수의 합 (수정)");
+  const codingApplicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });
+  const codingApplicantQuestion = (await codingApplicantExam.json()).questions.find((item) => item.id === codingQuestion.id);
+  assert.equal(codingApplicantQuestion.hiddenTestCases, undefined);
+  assert.equal(codingApplicantQuestion.referenceSolutions, undefined);
+  assert.equal(codingApplicantQuestion.publicExamples[0].expectedOutput, "8");
 });
 
 test("allows ADMIN to view the full exam directory without exam creation access", async (context) => {
