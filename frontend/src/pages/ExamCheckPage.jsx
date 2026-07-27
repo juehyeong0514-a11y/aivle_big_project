@@ -43,10 +43,12 @@ export default function ExamCheckPage() {
   const [displayReady, setDisplayReady] = useState(false);
   const [qrConnected, setQrConnected] = useState(false);
 
-  // 🌟 동적 QR 토큰 상태 추가
-  const [qrToken, setQrToken] = useState('');
+  // 동적 토큰 상태들
+  const [idScanToken, setIdScanToken] = useState(''); // 신분증 스캔용 토큰
+  const [auxCamToken, setAuxCamToken] = useState(''); // 보조 카메라용 토큰
   const [errorMsg, setErrorMsg] = useState('');
   const [examSession, setExamSession] = useState(null);
+
 
   useEffect(() => {
     generateNewToken();
@@ -55,10 +57,15 @@ export default function ExamCheckPage() {
       .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
     // 🌟 모바일 페이지(MobileScanPage 등)에서 보낸 연동 완료 신호 수신 리스너
-    const channel = new BroadcastChannel('exam_qr_channel');
+    const channel = new BroadcastChannel('exam_qr_channel'); // 채널 이름 통일
     channel.onmessage = (event) => {
-      if (event.data && event.data.type === 'QR_CONNECTED') {
+      if (!event.data) return;
+      if (event.data.type === 'QR_CONNECTED' && event.data.token === auxCamToken) {
         setQrConnected(true);
+      }
+      if (event.data.type === 'ID_CARD_CAPTURED' && event.data.token === idScanToken) {
+        setIdCardImage(event.data.image);
+        setIdentityReady(false); // 재인증 필요
       }
     };
 
@@ -69,20 +76,18 @@ export default function ExamCheckPage() {
     };
   }, []);
 
-  // 🌟 토큰 생성 함수
+  // 토큰 생성 함수
   const generateNewToken = () => {
-    let newToken;
-    try {
-      if (window.crypto && window.crypto.randomUUID) {
-        newToken = window.crypto.randomUUID();
-      } else {
-        newToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-      }
-    } catch (e) {
-      newToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    }
-    setQrToken(newToken);
+    const generate = () => window.crypto.randomUUID ? window.crypto.randomUUID() : `${Math.random().toString(36).substring(2)}-${Date.now().toString(36)}`;
+    setIdScanToken(generate());
+    setAuxCamToken(generate());
+
+    // 상태 초기화
+    setIdCardImage('');
+    setFaceImage('');
+    setIdentityReady(false);
     setQrConnected(false);
+    setErrorMsg('');
   };
 
   /**
@@ -270,18 +275,28 @@ export default function ExamCheckPage() {
             {idCardImage && <CheckCircle2 color="#16a34a" />}
           </div>
 
-          <div className="video-box identity-camera-box">
-            <video ref={idVideoRef} autoPlay playsInline muted className="video-stream" />
-            {!webcamReady && <span className="video-placeholder">카메라가 연결되지 않았습니다.</span>}
-            {webcamReady && !idCardImage && (
-              <div className="id-card-guide">
-                <div className="id-card-guide-frame" />
-                <span>신분증을 가이드 안에 맞춰주세요.</span>
-              </div>
+          <div className="qr-connection-box">
+            {idCardImage ? (
+              <img src={idCardImage} alt="촬영한 신분증" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
+            ) : (
+              <>
+                <QRCodeCanvas value={`${window.location.origin}/mobile/id-scan?token=${idScanToken}`} size={120} />
+                <span style={{ marginTop: '10px' }}>휴대폰으로 QR코드를 스캔하여<br/>신분증을 촬영해주세요.</span>
+              </>
             )}
-            {idCardImage && <img src={idCardImage} alt="촬영한 신분증" className="captured-image-overlay" />}
           </div>
 
+          <div className="identity-status-list">
+            <div>
+              <span>신분증 촬영</span>
+              <strong className={idCardImage ? 'text-success' : 'text-danger'}>{idCardImage ? '완료' : '대기'}</strong>
+            </div>
+          </div>
+
+          <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
+            <RefreshCw size={18} /> {idCardImage ? '신분증 다시 촬영' : 'QR 코드 새로고침'}
+          </button>
+          {/*
           <div className="identity-status-list">
             <div>
               <span>웹캠 연결</span>
@@ -301,7 +316,7 @@ export default function ExamCheckPage() {
             <button type="button" className="btn-primary identity-full-button" onClick={captureIdCard}>
               <Camera size={18} /> {idCardImage ? '신분증 다시 촬영' : '신분증 촬영'}
             </button>
-          )}
+          )} */}
         </div>
 
         {/* 2. 얼굴 촬영 및 본인 인증 */}
@@ -395,10 +410,10 @@ export default function ExamCheckPage() {
           </div>
 
           <div className="qr-connection-box" style={{ flexDirection: 'column', gap: '8px' }}>
-            {/* 🌟 MobileScanPage로 바로 연결되는 QR 주소 생성 */}
-            <QRCodeCanvas value={`${window.location.origin}/mobile/scan?token=${qrToken}`} size={120} />
+            {/* MobileScanPage로 바로 연결되는 QR 주소 생성 */}
+            <QRCodeCanvas value={`${window.location.origin}/mobile/scan?token=${auxCamToken}`} size={120} />
             <span style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center', wordBreak: 'break-all', padding: '0 5px' }}>
-              토큰: {qrToken ? `${qrToken.slice(0, 8)}...` : '생성 중'}
+              토큰: {auxCamToken ? `${auxCamToken.slice(0, 8)}...` : '생성 중'}
             </span>
           </div>
 

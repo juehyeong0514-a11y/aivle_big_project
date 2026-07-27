@@ -1102,13 +1102,21 @@ main {
 }
 
 .id-card-guide-frame {
-  width: 78%;
-  height: 62%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%); /* 정확히 화면 중앙에 위치 */
+  
+  width: 68%;
+  aspect-ratio: 85.6 / 54; /* 세로 높이 대신 비율 사용 */
+  
   border: 3px solid #ffffff;
   border-radius: 12px;
   box-shadow:
     0 0 0 9999px rgba(15, 23, 42, 0.35),
     0 0 15px rgba(0, 0, 0, 0.25);
+  
+  z-index: 10; /* 비디오 태그보다 위에 올라오도록 지정 */
 }
 
 .id-card-guide span {
@@ -1307,106 +1315,4 @@ main {
 .invite-form input { min-height: 46px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 16px; letter-spacing: .06em; }
 .invite-success { padding-top: 20px; color: var(--status-success); text-align: center; }
 .invite-success h2 { color: var(--text-primary); font-size: 20px; }
-.invite-success p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
-
-@media (max-width: 900px) { .workspace-grid.two-columns { grid-template-columns: 1fr; } .workspace-shell { padding-inline: 16px; } }
-@media (max-width: 640px) { .workspace-heading, .organization-switcher { flex-direction: column; } .metric-grid { grid-template-columns: 1fr 1fr; } .organization-row, .exam-invite-row, .admin-exam-row { align-items: flex-start; flex-direction: column; } .organization-actions { flex-wrap: wrap; } .form-row { grid-template-columns: 1fr; } .invite-card { padding: 24px; } .admin-exam-meta { justify-content: flex-start; } }
-@media (max-width: 1280px) { .header-left-group { gap: 12px; } .header-tab-btn { padding-inline: 10px; font-size: 12px; } .logo-title { font-size: 14px; } }
-@media (max-width: 900px) { .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-height: 64px; height: auto; gap: 8px 12px; padding-block: 10px; } .header-left-group { display: contents; } .logo-area { grid-column: 1; grid-row: 1; min-width: 0; } .header-nav { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 38px; overflow-x: auto; } .nav-right { grid-column: 2; grid-row: 1; margin-left: 0; } }
-@media (max-width: 480px) { .logo-title { display: none; } .header-user-badge { padding-inline: 6px; font-size: 11px; } .header-logout-btn span { display: inline; } .header-logout-btn { min-width: auto; padding-inline: 7px !important; } }
-
-/* =========================================================
-   인증 화면(로그인/회원가입) 타이틀 및 레이아웃 보정
-   ========================================================= */
-.auth-box.staff-auth {
-  max-width: 480px;
-  padding: 2.5rem 2.25rem;
-}
-
-.auth-header h1 {
-  font-size: 1.75rem !important; /* 타이틀 글자 크기 최적화 (깨짐 방지) */
-  font-weight: 800 !important;
-  color: var(--text-primary, #0f172a);
-  margin: 0.75rem 0 0.5rem 0 !important;
-  text-align: center;
-  line-height: 1.3 !important;
-  word-break: keep-all;
-}
-
-.auth-header p {
-  font-size: 0.9rem !important;
-  color: var(--text-muted, #64748b) !important;
-  text-align: center;
-  margin: 0 0 1.5rem 0 !important;
-  line-height: 1.5;
-}
-
-.auth-header .logo-icon {
-  margin: 0 auto;
-}
-
-/* =========================================================
-   ManagerWorkspaceTab 전용 보완 스타일
-   ========================================================= */
-.workspace-next-step {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 20px;
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  padding: 18px 24px;
-}
-
-.workspace-next-step strong {
-  color: var(--text-primary);
-  font-size: 15px;
-}
-
-.workspace-next-step span {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-@media (max-width: 640px) {
-  .workspace-next-step {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-/* =========================================================
-   워크스페이스 및 매니저 탭 폰트/스타일 일치화 보완
-   ========================================================= */
-.workspace-heading h1 {
-  font-size: 28px !important;
-  font-weight: 800 !important;
-  color: var(--text-primary, #0f172a) !important;
-  letter-spacing: -0.5px;
-}
-
-.panel-heading h2 {
-  font-size: 18px !important;
-  font-weight: 700 !important;
-  color: var(--text-primary, #0f172a) !important;
-}
-
-.workspace-heading p,
-.panel-heading p {
-  font-size: 13.5px !important;
-  color: var(--text-muted, #64748b) !important;
-}
-
-.organization-row strong,
-.exam-invite-row strong {
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  color: var(--text-primary, #0f172a) !important;
-}
-
-.organization-row span {
-  font-size: 12.5px !important;
-  color: var(--text-muted, #64748b) !important;
-}
+.
