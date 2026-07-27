@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Camera,
@@ -18,6 +19,7 @@ export default function ExamCheckPage() {
 
   // 신분증 촬영용 영상
   const idVideoRef = useRef(null);
+  const idCaptureModalVideoRef = useRef(null);
 
   // 얼굴 촬영용 영상
   const faceVideoRef = useRef(null);
@@ -30,6 +32,7 @@ export default function ExamCheckPage() {
 
   // 스트림 보관
   const webcamStreamRef = useRef(null);
+  const idWebcamStreamRef = useRef(null);
   const displayStreamRef = useRef(null);
 
   // 촬영 결과
@@ -37,6 +40,11 @@ export default function ExamCheckPage() {
   const [faceImage, setFaceImage] = useState('');
 
   // 점검 상태
+  const [idCaptureModalOpen, setIdCaptureModalOpen] = useState(false);
+  const [idWebcamReady, setIdWebcamReady] = useState(false);
+  const [capturedIdImage, setCapturedIdImage] = useState('');
+
+
   const [webcamReady, setWebcamReady] = useState(false);
   const [identityReady, setIdentityReady] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -72,6 +80,10 @@ export default function ExamCheckPage() {
     return () => {
       channel.close();
       webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
+      // 모달용 웹캠 스트림 정리
+      if (idWebcamStreamRef.current) {
+        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
       displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -117,7 +129,6 @@ export default function ExamCheckPage() {
       }
 
       setWebcamReady(true);
-      setIdCardImage('');
       setFaceImage('');
       setIdentityReady(false);
       setErrorMsg('');
@@ -126,6 +137,67 @@ export default function ExamCheckPage() {
       setWebcamReady(false);
       setIdentityReady(false);
       setErrorMsg('웹캠 및 마이크 권한을 허용해야 합니다.');
+    }
+  };
+
+  // 신분증 촬영 모달 열기 및 웹캠 시작
+  const openIdCaptureModal = async () => {
+    setCapturedIdImage('');
+    setIdCaptureModalOpen(true);
+    setIdWebcamReady(false);
+    try {
+      // 기존 스트림 정리
+      if (idWebcamStreamRef.current) {
+        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+      idWebcamStreamRef.current = stream;
+      if (idCaptureModalVideoRef.current) {
+        idCaptureModalVideoRef.current.srcObject = stream;
+      }
+      setIdWebcamReady(true);
+    } catch (err) {
+      setErrorMsg('웹캠을 연결할 수 없습니다. 카메라 권한을 확인해주세요.');
+      console.error("Error accessing webcam for ID capture:", err);
+      closeIdCaptureModal();
+    }
+  };
+
+  // 신분증 촬영 모달 닫기 및 웹캠 정지
+  const closeIdCaptureModal = () => {
+    if (idWebcamStreamRef.current) {
+      idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+      idWebcamStreamRef.current = null;
+    }
+    setIdCaptureModalOpen(false);
+    setIdWebcamReady(false);
+    setCapturedIdImage('');
+  };
+
+  // 모달 안에서 신분증 촬영
+  const handleCaptureInModal = () => {
+    const image = captureVideoFrame(idCaptureModalVideoRef.current);
+    if (image) {
+      setCapturedIdImage(image);
+    } else {
+      setErrorMsg('카메라가 준비되지 않았습니다. 잠시 후 다시 시도해주세요.');
+    }
+  };
+
+  // 촬영한 신분증 이미지 확정
+  const confirmIdCardImage = () => {
+    if (capturedIdImage) {
+      setIdCardImage(capturedIdImage);
+      setIdentityReady(false);
+      closeIdCaptureModal();
+    }
+  };
+
+  // 모달 안에서 재촬영
+  const retakeIdCardInModal = () => {
+    setCapturedIdImage('');
+    if (idCaptureModalVideoRef.current) {
+      idCaptureModalVideoRef.current.play().catch(console.error);
     }
   };
 
@@ -148,21 +220,6 @@ export default function ExamCheckPage() {
 
     context.drawImage(videoElement, 0, 0, width, height);
     return canvas.toDataURL('image/jpeg', 0.92);
-  };
-
-  const captureIdCard = () => {
-    if (!webcamReady) {
-      setErrorMsg('웹캠과 마이크를 먼저 연결해주세요.');
-      return;
-    }
-    const capturedImage = captureVideoFrame(idVideoRef.current);
-    if (!capturedImage) {
-      setErrorMsg('카메라 화면이 준비될 때까지 잠시 기다려주세요.');
-      return;
-    }
-    setIdCardImage(capturedImage);
-    setIdentityReady(false);
-    setErrorMsg('');
   };
 
   const captureFace = () => {
@@ -293,30 +350,17 @@ export default function ExamCheckPage() {
             </div>
           </div>
 
-          <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
-            <RefreshCw size={18} /> {idCardImage ? '신분증 다시 촬영' : 'QR 코드 새로고침'}
-          </button>
-          {/*
-          <div className="identity-status-list">
-            <div>
-              <span>웹캠 연결</span>
-              <strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '정상' : '대기'}</strong>
-            </div>
-            <div>
-              <span>신분증 촬영</span>
-              <strong className={idCardImage ? 'text-success' : 'text-danger'}>{idCardImage ? '완료' : '대기'}</strong>
-            </div>
-          </div>
-
-          {!webcamReady ? (
-            <button type="button" className="btn-primary identity-full-button" onClick={startWebcam}>
-              <Camera size={18} /> 웹캠/마이크 연결하기
+          {idCardImage ? (
+            <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
+              <RefreshCw size={18} /> 신분증 다시 촬영
             </button>
           ) : (
-            <button type="button" className="btn-primary identity-full-button" onClick={captureIdCard}>
-              <Camera size={18} /> {idCardImage ? '신분증 다시 촬영' : '신분증 촬영'}
-            </button>
-          )} */}
+            <div className="identity-action-row" style={{ gridTemplateColumns: '1fr', marginTop: '0.75rem' }}>
+              <button type="button" onClick={openIdCaptureModal} className="secondary-button compact-button" style={{ justifyContent: 'center', minHeight: '44px' }}>
+                PC 카메라로 인증
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 2. 얼굴 촬영 및 본인 인증 */}
@@ -452,6 +496,46 @@ export default function ExamCheckPage() {
       </div>
 
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* 신분증 촬영 모달 (Portal 사용) */}
+      {idCaptureModalOpen && createPortal(
+          <div className="modal-overlay">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h3>PC 카메라로 신분증 촬영</h3>
+                <button onClick={closeIdCaptureModal} className="modal-close-btn">&times;</button>
+              </div>
+              <div className="modal-body">
+                <div className="identity-camera-box">
+                  <video ref={idCaptureModalVideoRef} autoPlay playsInline muted className="video-stream" />
+                  {!idWebcamReady && <span className="video-placeholder">웹캠을 불러오는 중...</span>}
+                  
+                  {/* 촬영 가이드 UI */}
+                  {!capturedIdImage && idWebcamReady && (
+                    <div className="id-card-guide">
+                      <div className="id-card-guide-frame"></div>
+                      <span>가이드 선 안에 신분증을 맞춰주세요</span>
+                    </div>
+                  )}
+
+                  {/* 촬영 후 이미지 미리보기 */}
+                  {capturedIdImage && <img src={capturedIdImage} alt="촬영된 신분증" className="captured-image-overlay" />}
+                </div>
+              </div>
+              <div className="modal-footer">
+                {capturedIdImage ? (
+                  <>
+                    <button onClick={retakeIdCardInModal} className="btn-secondary">다시 촬영</button>
+                    <button onClick={confirmIdCardImage} className="btn-primary">이 사진 사용</button>
+                  </>
+                ) : (
+                  <button onClick={handleCaptureInModal} className="btn-primary" disabled={!idWebcamReady}>촬영하기</button>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+      )}
     </div>
   );
 }
