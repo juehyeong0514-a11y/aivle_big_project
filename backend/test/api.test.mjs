@@ -59,6 +59,11 @@ test("serves public data and protects administration endpoints", async (context)
   });
   assert.equal(accountLogin.status, 200);
   assert.equal((await accountLogin.json()).user.role, "ADMIN");
+  const managerLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" }) });
+  const manager = await managerLogin.json();
+  const assignedSeedExaminees = await fetch(`${baseUrl}/api/supervisor/examinees?examId=exam-2026-second-half`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal(assignedSeedExaminees.status, 200);
+  assert.equal((await assignedSeedExaminees.json()).some((item) => item.candidateId === "candidate-1"), true);
 });
 
 test("registers managers for ADMIN approval before login", async (context) => {
@@ -144,6 +149,18 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(questionResponse.status, 201);
   const assignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
   assert.equal(assignment.status, 201);
+  const assignedBeforeEntry = await fetch(`${baseUrl}/api/supervisor/examinees?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal(assignedBeforeEntry.status, 200);
+  assert.equal((await assignedBeforeEntry.json()).some((item) => item.candidateId === candidate.id && item.status === "NOT_STARTED"), true);
+  const secondExamResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "분리 대상자 평가", duration: "60분", questions: "총 1문제", date: "2026.08.02 10:00" }) });
+  assert.equal(secondExamResponse.status, 201);
+  const secondExam = await secondExamResponse.json();
+  const firstExamCandidates = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/candidates`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal(firstExamCandidates.status, 200);
+  assert.deepEqual((await firstExamCandidates.json()).map((item) => item.id), [candidate.id]);
+  const secondExamCandidates = await fetch(`${baseUrl}/api/manager/exams/${secondExam.id}/candidates`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal(secondExamCandidates.status, 200);
+  assert.deepEqual(await secondExamCandidates.json(), []);
   const removableCandidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "Remove Before Invite", email: "remove-before-invite@example.com" }) });
   const removableCandidate = await removableCandidateResponse.json();
   const removableAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [removableCandidate.id] }) });
@@ -252,7 +269,9 @@ test("allows organization-code join approval and scopes monitoring by exam", asy
   assert.ok(exams.some((exam) => exam.id === "exam-2026-second-half"));
   const examinees = await fetch(baseUrl + "/api/supervisor/examinees?examId=exam-2026-second-half", { headers: { Authorization: "Bearer " + supervisor.token } });
   assert.equal(examinees.status, 200);
-  assert.equal((await examinees.json()).length, 2);
+  const scopedExaminees = await examinees.json();
+  assert.equal(scopedExaminees.length, 1);
+  assert.equal(scopedExaminees[0].candidateId, "candidate-1");
 });
 
 test("removes plaintext passwords from an existing database", async () => {

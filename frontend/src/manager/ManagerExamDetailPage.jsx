@@ -22,7 +22,7 @@ export default function ManagerExamDetailPage() {
   const load = async () => {
     const [examResponse, candidateResponse, questionResponse, resultResponse] = await Promise.all([
       api.get('/manager/exams', headers),
-      api.get('/manager/candidates', headers),
+      api.get(`/manager/exams/${examId}/candidates`, headers),
       api.get(`/manager/exams/${examId}/questions`, headers),
       api.get(`/manager/results?examId=${encodeURIComponent(examId)}`, headers),
     ]);
@@ -60,7 +60,8 @@ export default function ManagerExamDetailPage() {
   const createCandidate = async (event) => {
     event.preventDefault();
     try {
-      await api.post('/manager/candidates', { ...candidateForm, organizationId: exam.organizationId }, headers);
+      const { data: candidate } = await api.post('/manager/candidates', { ...candidateForm, organizationId: exam.organizationId }, headers);
+      await api.post(`/manager/exams/${examId}/assign`, { candidateIds: [candidate.id] }, headers);
       setCandidateForm({ name: '', email: '' });
       setMessage('응시자가 등록되었습니다.');
       await load();

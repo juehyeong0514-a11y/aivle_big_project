@@ -468,6 +468,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
     if (!scopedExam(request, request.params.id)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 조회할 수 있습니다." });
     return response.json(store.questions.filter((question) => question.examId === request.params.id));
   });
+  app.get("/api/manager/exams/:id/candidates", authenticate, requireManager, (request, response) => {
+    const exam = scopedExam(request, request.params.id);
+    if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험만 조회할 수 있습니다." });
+    const assignedCandidateIds = new Set(store.assignments.filter((assignment) => assignment.examId === exam.id).map((assignment) => assignment.candidateId));
+    return response.json(store.candidates.filter((candidate) => assignedCandidateIds.has(candidate.id)));
+  });
   app.post("/api/manager/exams/:id/questions", authenticate, requireManager, async (request, response, next) => {
     try {
       if (!scopedExam(request, request.params.id)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
@@ -500,6 +506,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
         if (!store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidate.id)) {
           const assignment = { id: randomUUID(), examId: exam.id, candidateId: candidate.id, status: "ASSIGNED" };
           await store.addAssignment(assignment);
+          await store.addExaminee({ id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: candidate.organizationId, examId: exam.id, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" });
           created.push(assignment);
         }
       }
@@ -611,7 +618,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
     return response.json(store.exams.filter((exam) => organizationIds.includes(exam.organizationId) && (!requestedOrganizationId || exam.organizationId === requestedOrganizationId)).map((exam) => ({
       ...exam,
       organizationName: store.organizations.find((organization) => organization.id === exam.organizationId)?.name ?? "조직",
-      examineeCount: store.examinees.filter((examinee) => examinee.examId === exam.id).length
+      examineeCount: store.assignments.filter((assignment) => assignment.examId === exam.id).length
     })));
   });
   app.get("/api/supervisor/examinees", authenticate, requireManager, (request, response) => {
@@ -623,7 +630,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const exam = store.exams.find((candidate) => candidate.id === examId);
       if (!exam || !organizationIds.includes(exam.organizationId) || (requestedOrganizationId && exam.organizationId !== requestedOrganizationId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관제할 수 있습니다." });
     }
-    return response.json(store.examinees.filter((examinee) => examinee.organizationId && organizationIds.includes(examinee.organizationId) && (!requestedOrganizationId || examinee.organizationId === requestedOrganizationId) && (!examId || examinee.examId === examId)));
+    const assignedCandidates = store.assignments
+      .filter((assignment) => !examId || assignment.examId === examId)
+      .map((assignment) => ({ assignment, candidate: store.candidates.find((candidate) => candidate.id === assignment.candidateId) }))
+      .filter(({ candidate }) => candidate && organizationIds.includes(candidate.organizationId) && (!requestedOrganizationId || candidate.organizationId === requestedOrganizationId))
+      .map(({ assignment, candidate }) => {
+        const examinee = store.examinees.find((item) => item.examId === assignment.examId && item.candidateId === candidate.id);
+        return examinee ?? { id: `assignment-${assignment.examId}-${candidate.id}`, candidateId: candidate.id, name: candidate.name, organizationId: candidate.organizationId, examId: assignment.examId, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" };
+      });
+    return response.json(assignedCandidates);
   });
   app.post("/api/supervisor/examinees/:id/warnings", authenticate, requireManager, async (request, response, next) => {
     try {
