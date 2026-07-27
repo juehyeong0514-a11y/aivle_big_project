@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, CheckSquare, Copy, Mail, Send, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, CheckSquare, Copy, ExternalLink, Mail, Send, Trash2, Users } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
@@ -22,7 +22,7 @@ export default function ManagerExamDetailPage() {
   const load = async () => {
     const [examResponse, candidateResponse, questionResponse, resultResponse] = await Promise.all([
       api.get('/manager/exams', headers),
-      api.get(`/manager/exams/${examId}/candidates`, headers),
+      api.get('/manager/candidates', headers),
       api.get(`/manager/exams/${examId}/questions`, headers),
       api.get(`/manager/results?examId=${encodeURIComponent(examId)}`, headers),
     ]);
@@ -60,8 +60,7 @@ export default function ManagerExamDetailPage() {
   const createCandidate = async (event) => {
     event.preventDefault();
     try {
-      const { data: candidate } = await api.post('/manager/candidates', { ...candidateForm, organizationId: exam.organizationId }, headers);
-      await api.post(`/manager/exams/${examId}/assign`, { candidateIds: [candidate.id] }, headers);
+      await api.post('/manager/candidates', { ...candidateForm, organizationId: exam.organizationId }, headers);
       setCandidateForm({ name: '', email: '' });
       setMessage('응시자가 등록되었습니다.');
       await load();
@@ -111,6 +110,18 @@ export default function ManagerExamDetailPage() {
     }
     setCopiedEntryLink(entryLink);
     setMessage('초대 링크를 클립보드에 복사했습니다.');
+  };
+
+  const getFixedEntryLink = (entryLink) => {
+    try {
+      const url = new URL(entryLink);
+      if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+        url.port = window.location.port;
+      }
+      return url.toString();
+    } catch {
+      return entryLink;
+    }
   };
 
   const removeAssignments = async () => {
@@ -172,18 +183,26 @@ export default function ManagerExamDetailPage() {
         {mailPreviews.length > 0 && <div className="mail-preview">
           <strong>방금 생성한 초대 링크</strong>
           <p className="form-hint">테스트용 링크입니다. 링크를 복사해 새 시크릿 창에서 응시자 입장 화면을 확인할 수 있습니다.</p>
-          {mailPreviews.map((preview) => <div className="mail-preview-row" key={preview.entryLink}>
-            <div>
-              <strong>{preview.to}</strong>
-              <span>{preview.examName}</span>
-              <span className="invite-candidate-number"><b>응시번호</b><code>{preview.candidateNumber}</code></span>
-              <code>{preview.entryLink}</code>
-            </div>
-            <button className="secondary-button compact-button" type="button" onClick={() => copyEntryLink(preview.entryLink)}>
-              {copiedEntryLink === preview.entryLink ? <Check size={16} /> : <Copy size={16} />}
-              {copiedEntryLink === preview.entryLink ? '복사됨' : '링크 복사'}
-            </button>
-          </div>)}
+          {mailPreviews.map((preview) => {
+            const fixedLink = getFixedEntryLink(preview.entryLink);
+            return (
+              <div className="mail-preview-row" key={preview.entryLink}>
+                <div>
+                  <strong>{preview.to}</strong>
+                  <span>{preview.examName}</span>
+                  <span className="invite-candidate-number"><b>응시번호</b><code>{preview.candidateNumber}</code></span>
+                  <code>{fixedLink}</code>
+                </div>
+                <div className="candidate-action-row" style={{ flexWrap: 'nowrap' }}>
+                  <button className="secondary-button compact-button" type="button" onClick={() => copyEntryLink(fixedLink)}>
+                    {copiedEntryLink === fixedLink ? <Check size={16} /> : <Copy size={16} />}
+                    {copiedEntryLink === fixedLink ? '복사됨' : '링크 복사'}
+                  </button>
+                  <a href={fixedLink} target="_blank" rel="noopener noreferrer" className="secondary-button compact-button"><ExternalLink size={16} /> 바로가기</a>
+                </div>
+              </div>
+            );
+          })}
         </div>}
       </div>
     </section>
