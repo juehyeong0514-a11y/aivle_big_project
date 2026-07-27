@@ -30,11 +30,11 @@ function Layout({ children }) {
   const location = useLocation();
   const isMobilePage = location.pathname.startsWith('/mobile/');
   const isInvitePage = location.pathname.startsWith('/invite/');
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
+  // 💡 isAuthPage 조건 변수를 제거하여 로그인 및 회원가입 페이지에서도 Header가 숨겨지지 않도록 수정합니다.
 
   return (
     <div className="app-wrapper">
-      {!isMobilePage && !isInvitePage && !isAuthPage && <Header />}
+      {!isMobilePage && !isInvitePage && <Header />}
       {children}
     </div>
   );
