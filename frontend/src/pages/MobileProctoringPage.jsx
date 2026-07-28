@@ -30,7 +30,7 @@ export default function MobileProctoringPage() {
           video: { facingMode: 'user' },
           audio: false
         });
-      } catch (firstErr) {
+      } catch {
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false

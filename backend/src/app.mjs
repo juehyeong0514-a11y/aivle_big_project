@@ -467,6 +467,45 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       return next(error);
     }
   });
+  const deletableCandidates = (request, candidateIds) => {
+    const uniqueIds = [...new Set(candidateIds.filter(isNonEmptyText))];
+    const candidates = uniqueIds.map((id) => store.candidates.find((candidate) => candidate.id === id));
+    if (!uniqueIds.length || candidates.some((candidate) => !candidate)) {
+      return { error: { status: 404, message: "삭제할 응시자를 찾을 수 없습니다." } };
+    }
+    if (candidates.some((candidate) => !scopedOrganization(request, candidate.organizationId))) {
+      return { error: { status: 403, message: "배정된 승인 조직의 응시자만 삭제할 수 있습니다." } };
+    }
+    const hasSubmittedResult = store.assignments.some((assignment) =>
+      uniqueIds.includes(assignment.candidateId) && (assignment.status === "SUBMITTED" || assignment.submittedAt)
+    ) || store.invitations.some((invitation) =>
+      uniqueIds.includes(invitation.candidateId) && invitation.submittedAt
+    );
+    if (hasSubmittedResult) {
+      return { error: { status: 409, message: "제출 결과가 있는 응시자는 삭제할 수 없습니다." } };
+    }
+    return { candidateIds: uniqueIds };
+  };
+  app.delete("/api/manager/candidates/batch-delete", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const result = deletableCandidates(request, Array.isArray(request.body.candidateIds) ? request.body.candidateIds : []);
+      if (result.error) return response.status(result.error.status).json({ message: result.error.message });
+      await store.removeCandidates(result.candidateIds);
+      return response.json({ removedCount: result.candidateIds.length });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/candidates/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const result = deletableCandidates(request, [request.params.id]);
+      if (result.error) return response.status(result.error.status).json({ message: result.error.message });
+      await store.removeCandidates(result.candidateIds);
+      return response.json({ removedCount: 1 });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.patch("/api/manager/candidates/:id", authenticate, requireManager, async (request, response, next) => {
     try {
       const candidate = store.candidates.find((item) => item.id === request.params.id);

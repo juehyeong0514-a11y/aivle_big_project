@@ -168,6 +168,16 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const removeAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assignments`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: [removableCandidate.id] }) });
   assert.equal(removeAssignment.status, 200);
   assert.equal((await removeAssignment.json()).removedCount, 1);
+  const deleteCandidate = await fetch(`${baseUrl}/api/manager/candidates/${removableCandidate.id}`, { method: "DELETE", headers: managerHeaders });
+  assert.equal(deleteCandidate.status, 200);
+  assert.equal((await deleteCandidate.json()).removedCount, 1);
+  const batchCandidateOneResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "Batch One", email: "batch-one@example.com", birthDate: "2000-01-01" }) });
+  const batchCandidateTwoResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "Batch Two", email: "batch-two@example.com", birthDate: "2000-01-01" }) });
+  const batchCandidateOne = await batchCandidateOneResponse.json();
+  const batchCandidateTwo = await batchCandidateTwoResponse.json();
+  const batchDelete = await fetch(`${baseUrl}/api/manager/candidates/batch-delete`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: [batchCandidateOne.id, batchCandidateTwo.id] }) });
+  assert.equal(batchDelete.status, 200);
+  assert.equal((await batchDelete.json()).removedCount, 2);
   const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
   const invitation = await invitationResponse.json();
   assert.equal(invitation.count, 1);
@@ -199,6 +209,8 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(applicantExamPayload.questions[0].answer, undefined);
   const submission = await fetch(`${baseUrl}/api/applicant/exam/submit`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ answers: { [applicantExamPayload.questions[0].id]: "4" } }) });
   assert.equal(submission.status, 200);
+  const protectedCandidateDelete = await fetch(`${baseUrl}/api/manager/candidates/${candidate.id}`, { method: "DELETE", headers: managerHeaders });
+  assert.equal(protectedCandidateDelete.status, 409);
   const duplicateSubmission = await fetch(`${baseUrl}/api/applicant/exam/submit`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ answers: {} }) });
   assert.equal(duplicateSubmission.status, 409);
   const protectedRemoval = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assignments`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });

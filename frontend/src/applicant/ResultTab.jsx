@@ -1,5 +1,5 @@
 import React from 'react';
-import { Award, CheckCircle2, AlertTriangle, FileText, Download, BarChart3, Code } from 'lucide-react';
+import { Award, FileText, Download, BarChart3, Code } from 'lucide-react';
 
 export default function ResultTab() {
   // 예시 시험 결과 데이터

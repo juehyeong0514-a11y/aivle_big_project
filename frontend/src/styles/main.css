@@ -1243,13 +1243,16 @@ main {
 .candidate-upload-error { margin: 0; padding: 10px 12px; border: 1px solid var(--border-danger); border-radius: 8px; background: var(--surface-danger-soft); color: var(--status-error); font-size: 13px; font-weight: 700; line-height: 1.5; }
 .candidate-controls-group {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(120px, auto) minmax(240px, 1fr);
   gap: 12px;
-  align-items: center; /* 체크박스와 검색창 수직 정렬 */
-  margin-bottom: 8px;
+  align-items: center;
+  margin-bottom: 12px;
 }
-.candidate-search-control { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-muted); }
-.candidate-search-control input { width: 100%; min-height: 40px; border: 0; background: transparent; color: var(--text-primary); font: inherit; outline: 0; }
+.candidate-controls-group .candidate-toolbar { min-height: 40px; margin: 0; }
+.candidate-search-control { display: flex; align-items: center; gap: 8px; min-height: 40px; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-muted); }
+.candidate-search-control input { width: 100%; min-height: 38px; border: 0; padding: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; outline: 0; }
+.candidate-search-control:focus-within { border-color: var(--accent-primary); outline: 3px solid rgba(37, 99, 235, .18); }
+.candidate-search-control input::placeholder { color: #94a3b8; font-size: 13px; }
 .input-with-icon input::placeholder {
   font-size: 13px;
   color: #94a3b8;
@@ -1314,6 +1317,8 @@ main {
 .candidate-list-row > input[type="checkbox"] {
   width: 16px;
   height: 16px;
+  margin: 0;
+  accent-color: var(--accent-primary);
 }
 .candidate-row-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .workspace-alert .candidate-row-actions {
@@ -1324,11 +1329,13 @@ main {
 }
 .candidate-toolbar { justify-content: space-between; margin-bottom: 8px; color: var(--text-muted); font-size: 13px; }
 .select-all-control {
-  display: inline-flex !important; /* 다른 스타일에 덮어쓰이지 않도록 !important 추가 */
+  display: inline-flex !important;
   align-items: center !important;
   gap: 8px;
-  white-space: nowrap; /* '전체 선택' 글자 줄바꿈 방지 */
+  min-height: 40px;
+  white-space: nowrap;
   color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1466,6 +1473,7 @@ main {
 .floating-action-buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 @media (max-width: 900px) { .workspace-grid.two-columns { grid-template-columns: 1fr; } .workspace-shell { padding-inline: 16px; } }
 @media (max-width: 640px) { .workspace-heading, .organization-switcher { flex-direction: column; } .metric-grid { grid-template-columns: 1fr 1fr; } .organization-row, .exam-invite-row, .admin-exam-row { align-items: flex-start; flex-direction: column; } .organization-actions { flex-wrap: wrap; } .form-row { grid-template-columns: 1fr; } .invite-card { padding: 24px; } .admin-exam-meta { justify-content: flex-start; } }
+@media (max-width: 640px) { .candidate-controls-group { grid-template-columns: 1fr; } .candidate-list-row { grid-template-columns: auto minmax(0, 1fr) auto; } .candidate-list-row > span:nth-of-type(2), .candidate-list-row > span:nth-of-type(3) { grid-column: 2 / -1; } }
 @media (max-width: 1280px) { .header-left-group { gap: 12px; } .header-tab-btn { padding-inline: 10px; font-size: 12px; } .logo-title { font-size: 14px; } }
 @media (max-width: 900px) { .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-height: 64px; height: auto; gap: 8px 12px; padding-block: 10px; } .header-left-group { display: contents; } .logo-area { grid-column: 1; grid-row: 1; min-width: 0; } .header-nav { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 38px; overflow-x: auto; } .nav-right { grid-column: 2; grid-row: 1; margin-left: 0; } }
 @media (max-width: 480px) { .logo-title { display: none; } .header-user-badge { padding-inline: 6px; font-size: 11px; } .header-logout-btn span { display: inline; } .header-logout-btn { min-width: auto; padding-inline: 7px !important; } }
@@ -1566,6 +1574,14 @@ main {
   color: var(--text-muted, #64748b) !important;
 }
 
+.workspace-shell,
+.workspace-shell button,
+.workspace-shell input,
+.workspace-shell select,
+.workspace-shell textarea {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
 /* =========================================================
    9. 모달 (Modal) 스타일
    ========================================================= */
@@ -1630,5 +1646,4 @@ main {
 .modal-footer .btn-secondary {
   padding: 0.6rem 1.2rem;
   font-size: 0.9rem;
-}
 }
