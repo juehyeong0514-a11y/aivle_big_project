@@ -192,6 +192,19 @@ export const createStore = async (filePath) => {
       await queuedSave();
       return candidate;
     },
+    removeCandidates: async (candidateIds) => {
+      const candidateIdSet = new Set(candidateIds);
+      const examineeIds = new Set(data.examinees
+        .filter((examinee) => candidateIdSet.has(examinee.candidateId))
+        .map((examinee) => examinee.id));
+      data.candidates = data.candidates.filter((candidate) => !candidateIdSet.has(candidate.id));
+      data.assignments = data.assignments.filter((assignment) => !candidateIdSet.has(assignment.candidateId));
+      data.invitations = data.invitations.filter((invitation) => !candidateIdSet.has(invitation.candidateId));
+      data.examinees = data.examinees.filter((examinee) => !examineeIds.has(examinee.id));
+      data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
+      await queuedSave();
+      return candidateIdSet.size;
+    },
     addExaminee: async (examinee) => {
       data.examinees.push(examinee);
       await queuedSave();

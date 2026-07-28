@@ -59,7 +59,7 @@ export default function MobileIdScanPage() {
       channel.postMessage({ type: 'ID_CARD_CAPTURED', token: token, image: capturedImage });
       channel.close();
       setIsSent(true);
-    } catch (e) {
+    } catch {
       setError('이미지를 PC로 전송하지 못했습니다. PC와 같은 기기, 같은 브라우저인지 확인해주세요.');
     }
   };

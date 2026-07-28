@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -111,11 +111,11 @@ export default function ManagerExamDetailPage() {
   const [error, setError] = useState("");
   const [candidateToDelete, setCandidateToDelete] = useState(null);
   const [messageType, setMessageType] = useState("info");
-  const headers = { headers: authHeaders() };
+  const headers = useMemo(() => ({ headers: authHeaders() }), []);
   const uploadableCandidateCount = candidateUploadPreview.filter((candidate) => !candidate.uploadError).length;
   const uploadErrorCount = candidateUploadPreview.length - uploadableCandidateCount;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse] =
       await Promise.all([
         api.get("/manager/exams", headers),
@@ -145,7 +145,7 @@ export default function ManagerExamDetailPage() {
         ),
       ),
     );
-  };
+  }, [examId, headers]);
 
   const showMessage = (text, type = "info") => {
     setMessage(text);
@@ -158,7 +158,7 @@ export default function ManagerExamDetailPage() {
         apiErrorMessage(reason, "시험 상세 정보를 불러오지 못했습니다."),
       ),
     );
-  }, [examId]);
+  }, [load]);
 
   const scopedCandidates = useMemo(
     () =>
@@ -1097,8 +1097,9 @@ export default function ManagerExamDetailPage() {
                   <span>전체 선택</span>
                 </label>
               </div>
-              <label className="input-with-icon">
+              <label className="candidate-search-control">
                 <Search size={16} />
+                <span className="sr-only">이름 또는 이메일 검색</span>
                 <input value={candidateAdminSearch} onChange={(event) => setCandidateAdminSearch(event.target.value)} placeholder="이름 또는 이메일 검색" />
               </label>
             </div>
@@ -1151,10 +1152,7 @@ export default function ManagerExamDetailPage() {
         <div className="panel-heading">
           <div>
             <h2>시험 대상자 배정 및 초대</h2>
-            <p>
-              전체 선택으로 일괄 배정·초대하거나 선택한 대상자의 배정을 해제할
-              수 있습니다.
-            </p>
+            <p>응시자를 선택해 시험에 배정하거나 초대 메일을 보낼 수 있습니다.</p>
           </div>
           <Send size={20} />
         </div>
@@ -1162,7 +1160,7 @@ export default function ManagerExamDetailPage() {
           <div className="candidate-toolbar">
             <label className="select-all-control"><input type="checkbox" checked={allCandidatesSelected} onChange={toggleAllCandidates} disabled={!scopedCandidates.length} /><span>전체 선택</span></label>
           </div>
-          <label className="candidate-search-control"><Search size={16} /><input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="이름 또는 이메일 검색" /></label>
+          <label className="candidate-search-control"><Search size={16} /><span className="sr-only">이름 또는 이메일 검색</span><input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="이름 또는 이메일 검색" /></label>
         </div>
         {editingCandidate && (
           <form className="candidate-edit-panel" onSubmit={saveCandidate}>

@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 
 export default function MobileScanPage() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const token = searchParams.get('token');
 
   const mobileVideoRef = useRef(null);
@@ -43,7 +42,7 @@ export default function MobileScanPage() {
       if (mobileVideoRef.current) {
         mobileVideoRef.current.srcObject = stream;
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('카메라 권한이 거부되었거나 지원하지 않는 브라우저입니다.');
     }
   };

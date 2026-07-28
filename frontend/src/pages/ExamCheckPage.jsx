@@ -54,6 +54,8 @@ export default function ExamCheckPage() {
   // 동적 토큰 상태들
   const [idScanToken, setIdScanToken] = useState(''); // 신분증 스캔용 토큰
   const [auxCamToken, setAuxCamToken] = useState(''); // 보조 카메라용 토큰
+  const idScanTokenRef = useRef('');
+  const auxCamTokenRef = useRef('');
   const [errorMsg, setErrorMsg] = useState('');
   const [examSession, setExamSession] = useState(null);
 
@@ -68,10 +70,10 @@ export default function ExamCheckPage() {
     const channel = new BroadcastChannel('exam_qr_channel'); // 채널 이름 통일
     channel.onmessage = (event) => {
       if (!event.data) return;
-      if (event.data.type === 'QR_CONNECTED' && event.data.token === auxCamToken) {
+      if (event.data.type === 'QR_CONNECTED' && event.data.token === auxCamTokenRef.current) {
         setQrConnected(true);
       }
-      if (event.data.type === 'ID_CARD_CAPTURED' && event.data.token === idScanToken) {
+      if (event.data.type === 'ID_CARD_CAPTURED' && event.data.token === idScanTokenRef.current) {
         setIdCardImage(event.data.image);
         setIdentityReady(false); // 재인증 필요
       }
@@ -91,8 +93,12 @@ export default function ExamCheckPage() {
   // 토큰 생성 함수
   const generateNewToken = () => {
     const generate = () => window.crypto.randomUUID ? window.crypto.randomUUID() : `${Math.random().toString(36).substring(2)}-${Date.now().toString(36)}`;
-    setIdScanToken(generate());
-    setAuxCamToken(generate());
+    const nextIdScanToken = generate();
+    const nextAuxCamToken = generate();
+    idScanTokenRef.current = nextIdScanToken;
+    auxCamTokenRef.current = nextAuxCamToken;
+    setIdScanToken(nextIdScanToken);
+    setAuxCamToken(nextAuxCamToken);
 
     // 상태 초기화
     setIdCardImage('');
