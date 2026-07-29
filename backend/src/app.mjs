@@ -34,17 +34,21 @@ const loginLockoutMs = 15 * 60 * 1000;
 const loginFailureLimit = 5;
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]);
-const sendResendEmail = async ({ to, subject, html, text }) => {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-  if (!apiKey || !from) return false;
-  const delivery = await fetch("https://api.resend.com/emails", {
+const sendSendGridEmail = async ({ to, subject, html, text }) => {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+  if (!apiKey || !fromEmail) return false;
+  const delivery = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [to], subject, html, text }),
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }], subject }],
+      from: { email: fromEmail, ...(process.env.SENDGRID_FROM_NAME ? { name: process.env.SENDGRID_FROM_NAME } : {}) },
+      content: [{ type: "text/plain", value: text }, { type: "text/html", value: html }]
+    }),
     signal: AbortSignal.timeout(5000)
   });
-  if (!delivery.ok) throw new Error("Resend email delivery failed");
+  if (!delivery.ok) throw new Error("SendGrid email delivery failed");
   return true;
 };
 const isValidBirthDate = (value) => {
@@ -147,7 +151,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const verification = { id: randomUUID(), email, codeHash: verificationCodeHash(code), sentAt: new Date().toISOString(), expiresAt: new Date(Date.now() + verificationTtlMs).toISOString(), attempts: 0, verifiedAt: null, verificationTokenHash: null };
       let deliveryStatus;
       try {
-        deliveryStatus = await sendResendEmail({
+        deliveryStatus = await sendSendGridEmail({
           to: email,
           subject: "[Aivle] 관리자 회원가입 인증번호",
           html: "<p>관리자 회원가입 인증번호는 <strong>" + code + "</strong>입니다.</p><p>인증번호는 10분 동안 유효합니다.</p>",
@@ -156,7 +160,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       } catch {
         return response.status(502).json({ message: "인증 메일 전송에 실패했습니다." });
       }
-      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.RESEND_API_KEY || process.env.RESEND_FROM_EMAIL)) return response.status(503).json({ message: "Resend 이메일 서비스가 아직 설정되지 않았습니다." });
+      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.SENDGRID_API_KEY || process.env.SENDGRID_FROM_EMAIL)) return response.status(503).json({ message: "SendGrid 이메일 서비스가 아직 설정되지 않았습니다." });
       await store.addEmailVerification(verification);
       return response.status(201).json({ verificationId: verification.id, deliveryStatus, expiresAt: verification.expiresAt, ...(deliveryStatus === "PREVIEW" ? { previewCode: code } : {}) });
     } catch (error) {
@@ -734,7 +738,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       }
       let deliveryStatus;
       try {
-        const deliveries = await Promise.all(previews.map((preview) => sendResendEmail({
+        const deliveries = await Promise.all(previews.map((preview) => sendSendGridEmail({
           to: preview.to,
           subject: "[Aivle] " + preview.examName + " 시험 초대",
           html: "<p>안녕하세요.</p><p><strong>" + escapeHtml(preview.examName) + "</strong> 시험에 초대되었습니다.</p><ul><li>응시번호: " + escapeHtml(preview.candidateNumber) + "</li><li>시험 일정: " + escapeHtml(preview.schedule) + "</li><li>입장 링크 만료: " + escapeHtml(preview.expiresAt) + "</li></ul><p>" + escapeHtml(preview.notice) + "</p><p><a href=\"" + escapeHtml(preview.entryLink) + "\">시험 입장하기</a></p>",
