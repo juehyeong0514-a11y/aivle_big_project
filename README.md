@@ -53,8 +53,8 @@ Vite가 표시하는 주소로 접속합니다. 기본 주소는 `http://localho
 | `VITE_API_BASE_URL` | 프런트엔드 API 기본 주소 |
 | `PUBLIC_WEB_ORIGIN` | 초대 메일에 넣을 프런트엔드 공개 주소 |
 | `ALLOWED_ORIGINS` | 허용할 CORS Origin 목록(쉼표 구분) |
-| `INVITATION_EMAIL_WEBHOOK_URL` | 초대 메일 전달 웹훅 주소 |
-| `EMAIL_VERIFICATION_WEBHOOK_URL` | 관리자 가입 인증 메일 전달 웹훅 주소 |
+| `RESEND_API_KEY` | Resend API 키. 설정하면 관리자 가입 인증 메일과 시험 초대 메일을 실제 발송합니다. |
+| `RESEND_FROM_EMAIL` | Resend에서 인증한 발신자 주소. 예: `Aivle <noreply@your-domain.com>` |
 
 ## 개발 계정
 

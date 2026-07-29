@@ -1,0 +1,181 @@
+{
+  "users": [
+    {
+      "id": "user-applicant",
+      "name": "응시자",
+      "email": "applicant@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "a088c465-8b81-44de-99bc-1fd3b63e0dd6:d93b7dd1d21fd09e8468bdfcc19f6d3e1170e920bc3faf3e529327844041d1bfb7e971377a636d546b71afeed7e3864e22cb609682d789bfacfe0a70e8118ce3"
+    },
+    {
+      "id": "user-supervisor",
+      "name": "김관리자",
+      "email": "supervisor@aivle.com",
+      "role": "MANAGER",
+      "approvalStatus": "APPROVED",
+      "organizationIds": [
+        "org-aivle-cs"
+      ],
+      "passwordHash": "251b0d71-0b17-4cc3-a220-3ba0279bc95f:dd41980e5405015a4781f02ed051372267f925521449a221f3f9d39647f94d1664c8098cc5990e53f72c630e540f43518bcc43b169a34ef24f213f934496cffe"
+    },
+    {
+      "id": "user-admin",
+      "name": "관리자",
+      "email": "admin@aivle.com",
+      "role": "ADMIN",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "220f6eda-3c87-45ae-b6c8-b42320ef20a5:1d03ce585c1c6342ff0b24ed26ab215f95c5c566b219fab03af78bdcde733de4fc5226b646962c1ea8149b3ba56d9d85185e99a91e68c0bf79810eb8ea31af60"
+    },
+    {
+      "id": "user-candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "role": "APPLICANT",
+      "approvalStatus": "APPROVED",
+      "passwordHash": "7f34a412-3649-477f-bf2a-5fff93cd439b:f57dd78447b3054017690765363609b96ba67bc4943a5c5b21166b015bd744ca87872306c74860aae395ec62960888e6a2e4f68df0fc68c80fe71caeab9de0dc"
+    }
+  ],
+  "exams": [
+    {
+      "id": "exam-2026-second-half",
+      "title": "2026년 하반기 신입 공채 AI 리터러시 역량 평가",
+      "category": "정규 평가 (Python / Java / C++)",
+      "duration": "90분",
+      "questions": "총 4문제",
+      "status": "AVAILABLE",
+      "date": "2026.07.20 ~ 2026.07.22",
+      "organizationId": "org-aivle-cs"
+    }
+  ],
+  "notices": [
+    {
+      "id": "notice-browser",
+      "title": "[필수 독려] 시험 응시 전 PC 크롬(Chrome) 브라우저 최신 업데이트 안내",
+      "date": "2026.07.18"
+    },
+    {
+      "id": "notice-camera",
+      "title": "보조 카메라(스마트폰) 거치 각도 및 QR 연결 가이드라인",
+      "date": "2026.07.15"
+    }
+  ],
+  "examinees": [
+    {
+      "id": "examinee-1",
+      "name": "김응시",
+      "organizationId": "org-aivle-cs",
+      "examId": "exam-2026-second-half",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 2번"
+    },
+    {
+      "id": "examinee-2",
+      "name": "이수험",
+      "organizationId": "org-aivle-cs",
+      "examId": "exam-2026-second-half",
+      "status": "WARNING",
+      "statusText": "시선 이탈 감지",
+      "currentProb": "문제 1번"
+    },
+    {
+      "id": "examinee-3",
+      "name": "박개발",
+      "organizationId": "org-data-lab",
+      "status": "DANGER",
+      "statusText": "이어폰 착용 의심",
+      "currentProb": "문제 3번"
+    },
+    {
+      "id": "examinee-4",
+      "name": "최코딩",
+      "organizationId": "org-data-lab",
+      "status": "NORMAL",
+      "statusText": "정상 응시 중",
+      "currentProb": "문제 4번 제출완료"
+    }
+  ],
+  "warnings": [],
+  "organizations": [
+    {
+      "id": "org-aivle-cs",
+      "name": "A대학교 컴퓨터공학과",
+      "code": "AIVLE-CS",
+      "status": "APPROVED",
+      "requestedBy": "user-supervisor",
+      "managerIds": [
+        "user-supervisor"
+      ],
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "org-data-lab",
+      "name": "B대학교 데이터사이언스센터",
+      "code": "B-DATA",
+      "status": "PENDING",
+      "requestedBy": "user-supervisor",
+      "managerIds": [],
+      "createdAt": "2026-07-22T09:00:00.000Z"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "candidate-1",
+      "name": "홍길동",
+      "email": "applicant1@aivle.com",
+      "birthDate": "2000-01-01",
+      "organizationId": "org-aivle-cs",
+      "candidateNumber": "AIVLE-1001",
+      "status": "REGISTERED",
+      "createdAt": "2026-07-20T09:10:00.000Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "question-seed-1",
+      "examId": "exam-2026-second-half",
+      "prompt": "2 + 2 = ?",
+      "options": [
+        "3",
+        "4",
+        "5"
+      ],
+      "answer": "4",
+      "createdAt": "2026-07-20T09:20:00.000Z"
+    },
+    {
+      "id": "question-seed-2",
+      "examId": "exam-2026-second-half",
+      "prompt": "JavaScript에서 불변 배열을 만들 때 사용하는 메서드는?",
+      "options": [
+        "map",
+        "push",
+        "splice"
+      ],
+      "answer": "map",
+      "createdAt": "2026-07-20T09:21:00.000Z"
+    }
+  ],
+  "assignments": [
+    {
+      "id": "assignment-1",
+      "examId": "exam-2026-second-half",
+      "candidateId": "candidate-1",
+      "status": "INVITED"
+    }
+  ],
+  "invitations": [],
+  "systemPolicies": {
+    "invitationExpiryHours": 24,
+    "aiAnalysisEnabled": true,
+    "cheatDetection": {
+      "gazeWarningEnabled": true,
+      "audioDetectionEnabled": true,
+      "tabSwitchSubmitEnabled": true
+    }
+  },
+  "emailVerifications": [],
+  "organizationJoinRequests": [],
+  "sessions": []
+}

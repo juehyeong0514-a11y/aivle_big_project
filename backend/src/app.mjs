@@ -33,6 +33,20 @@ const maxVerificationAttempts = 5;
 const loginLockoutMs = 15 * 60 * 1000;
 const loginFailureLimit = 5;
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]);
+const sendResendEmail = async ({ to, subject, html, text }) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) return false;
+  const delivery = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: [to], subject, html, text }),
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!delivery.ok) throw new Error("Resend email delivery failed");
+  return true;
+};
 const isValidBirthDate = (value) => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
@@ -116,16 +130,20 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       if (store.users.some((user) => user.email === email)) return response.status(409).json({ message: "이미 등록된 이메일입니다." });
       const previous = store.emailVerifications.find((item) => item.email === email && !item.verifiedAt);
       if (previous && Date.now() - new Date(previous.sentAt).getTime() < verificationCooldownMs) return response.status(429).json({ message: "인증번호는 1분 후 다시 요청할 수 있습니다." });
-      const webhookUrl = process.env.EMAIL_VERIFICATION_WEBHOOK_URL;
-      if (!webhookUrl && process.env.NODE_ENV === "production") return response.status(503).json({ message: "이메일 인증 서비스가 아직 설정되지 않았습니다." });
       const code = String(randomInt(100000, 1000000));
       const verification = { id: randomUUID(), email, codeHash: verificationCodeHash(code), sentAt: new Date().toISOString(), expiresAt: new Date(Date.now() + verificationTtlMs).toISOString(), attempts: 0, verifiedAt: null, verificationTokenHash: null };
-      let deliveryStatus = "PREVIEW";
-      if (webhookUrl) {
-        const deliveryResponse = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: email, subject: "Aivle 관리자 회원가입 이메일 인증번호", code, expiresAt: verification.expiresAt }), signal: AbortSignal.timeout(5000) });
-        if (!deliveryResponse.ok) return response.status(502).json({ message: "인증 메일 전송에 실패했습니다." });
-        deliveryStatus = "SENT";
+      let deliveryStatus;
+      try {
+        deliveryStatus = await sendResendEmail({
+          to: email,
+          subject: "[Aivle] 관리자 회원가입 인증번호",
+          html: "<p>관리자 회원가입 인증번호는 <strong>" + code + "</strong>입니다.</p><p>인증번호는 10분 동안 유효합니다.</p>",
+          text: "관리자 회원가입 인증번호는 " + code + "입니다. 인증번호는 10분 동안 유효합니다."
+        }) ? "SENT" : "PREVIEW";
+      } catch {
+        return response.status(502).json({ message: "인증 메일 전송에 실패했습니다." });
       }
+      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.RESEND_API_KEY || process.env.RESEND_FROM_EMAIL)) return response.status(503).json({ message: "Resend 이메일 서비스가 아직 설정되지 않았습니다." });
       await store.addEmailVerification(verification);
       return response.status(201).json({ verificationId: verification.id, deliveryStatus, expiresAt: verification.expiresAt, ...(deliveryStatus === "PREVIEW" ? { previewCode: code } : {}) });
     } catch (error) {
@@ -629,20 +647,27 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
         const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.submittedAt && !item.revokedAt);
         await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString() })));
         const token = randomUUID();
-      const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null };
+        const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null };
         await store.addInvitation(invitation);
         createdInvitationIds.push(invitation.id);
         previews.push({ to: candidate.email, examName: exam.title, schedule: exam.date, entryLink: new URL("/exam/enter?token=" + encodeURIComponent(token), publicWebOrigin).toString(), candidateNumber: candidate.candidateNumber, notice: "시험 시작 전 웹캠, 마이크, 화면 공유를 점검해주세요.", expiresAt, oneTimeToken: token });
       }
-      const webhookUrl = process.env.INVITATION_EMAIL_WEBHOOK_URL;
-      let deliveryStatus = "PREVIEW";
-      if (webhookUrl) {
-        const deliveryResponse = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: previews }), signal: AbortSignal.timeout(5000) });
-        if (!deliveryResponse.ok) {
-          await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
-          return response.status(502).json({ message: "초대 메일 전송에 실패했습니다." });
-        }
-        deliveryStatus = "SENT";
+      let deliveryStatus;
+      try {
+        const deliveries = await Promise.all(previews.map((preview) => sendResendEmail({
+          to: preview.to,
+          subject: "[Aivle] " + preview.examName + " 시험 초대",
+          html: "<p>안녕하세요.</p><p><strong>" + escapeHtml(preview.examName) + "</strong> 시험에 초대되었습니다.</p><ul><li>응시번호: " + escapeHtml(preview.candidateNumber) + "</li><li>시험 일정: " + escapeHtml(preview.schedule) + "</li><li>입장 링크 만료: " + escapeHtml(preview.expiresAt) + "</li></ul><p>" + escapeHtml(preview.notice) + "</p><p><a href=\"" + escapeHtml(preview.entryLink) + "\">시험 입장하기</a></p>",
+          text: preview.examName + " 시험에 초대되었습니다. 응시번호: " + preview.candidateNumber + ". 시험 일정: " + preview.schedule + ". 입장 링크: " + preview.entryLink + ". " + preview.notice
+        })));
+        deliveryStatus = deliveries.every(Boolean) ? "SENT" : "PREVIEW";
+      } catch {
+        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
+        return response.status(502).json({ message: "초대 메일 전송에 실패했습니다." });
+      }
+      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.RESEND_API_KEY || process.env.RESEND_FROM_EMAIL)) {
+        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
+        return response.status(503).json({ message: "Resend 이메일 서비스가 아직 설정되지 않았습니다." });
       }
       const safePreviews = previews.map(({ oneTimeToken, entryLink, ...preview }) => ({ ...preview, entryLink: process.env.NODE_ENV === "production" ? publicWebOrigin + "/invite/[메일 전송 전용 토큰]" : entryLink }));
       return response.status(201).json({ count: safePreviews.length, deliveryStatus, mailPreviews: safePreviews });
