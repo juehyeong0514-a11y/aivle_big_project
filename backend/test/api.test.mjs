@@ -175,12 +175,27 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(invitation.mailPreviews[0].oneTimeToken, undefined);
   assert.equal(Date.parse(invitation.mailPreviews[0].expiresAt), new Date(2026, 7, 1, 11, 0).getTime());
   const entryUrl = new URL(invitation.mailPreviews[0].entryLink);
+  assert.equal(entryUrl.origin, "http://localhost:5173");
   assert.equal(entryUrl.pathname, "/exam/enter");
   const token = entryUrl.searchParams.get("token");
   assert.ok(token);
   const invitationInfo = await fetch(`${baseUrl}/api/invitations/${token}`);
   assert.equal(invitationInfo.status, 200);
   assert.equal((await invitationInfo.json()).duration, "60분");
+
+  const pastExamResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "과거 일정 시험", duration: "60분", questions: "총 1문제", date: "2000.01.01 10:00" }) });
+  assert.equal(pastExamResponse.status, 201);
+  const pastExam = await pastExamResponse.json();
+  const pastAssignment = await fetch(`${baseUrl}/api/manager/exams/${pastExam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  assert.equal(pastAssignment.status, 201);
+  const pastInvitationResponse = await fetch(`${baseUrl}/api/manager/exams/${pastExam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const pastInvitation = await pastInvitationResponse.json();
+  assert.equal(pastInvitationResponse.status, 201);
+  assert.ok(Date.parse(pastInvitation.mailPreviews[0].expiresAt) > Date.now());
+  const pastToken = new URL(pastInvitation.mailPreviews[0].entryLink).searchParams.get("token");
+  const pastInvitationInfo = await fetch(`${baseUrl}/api/invitations/${pastToken}`);
+  assert.equal(pastInvitationInfo.status, 200);
+
   const savedDatabase = JSON.parse(await readFile(join(directory, "database.json"), "utf8"));
   assert.equal(savedDatabase.invitations[0].token, undefined);
   assert.ok(savedDatabase.invitations[0].tokenHash);

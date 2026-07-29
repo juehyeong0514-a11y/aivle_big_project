@@ -16,6 +16,8 @@ export default function InvitePage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    localStorage.removeItem('candidateAccessToken');
+    localStorage.removeItem('candidateNumber');
     if (!token) {
       setError('초대 링크가 올바르지 않습니다. 이메일의 링크를 다시 확인해주세요.');
       setLoading(false);

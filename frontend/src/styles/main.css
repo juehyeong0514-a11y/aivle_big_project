@@ -1372,6 +1372,37 @@ main {
 .status-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
 .status-table th, .status-table td { padding: 12px; border-bottom: 1px solid var(--border-default); }
 .status-table th { color: var(--text-muted); font-weight: 700; }
+.active-result-row { background: var(--surface-soft); }
+.result-candidate-button { border: 0; padding: 0; background: transparent; color: var(--accent-primary); cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.result-detail-panel { margin-top: 20px; }
+.result-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.result-metric { min-width: 0; padding: 14px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-soft); }
+.result-metric span, .result-metric strong { display: block; }
+.result-metric span { color: var(--text-muted); font-size: 12px; }
+.result-metric strong { margin-top: 5px; color: var(--text-primary); overflow-wrap: anywhere; }
+.result-detail-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .8fr); gap: 18px; align-items: start; }
+.result-code-section, .result-review-section { min-width: 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-secondary); }
+.result-code-section h3, .result-review-section h3 { margin: 0; }
+.result-code-section p, .result-review-section p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; }
+.result-question-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 16px 0; padding-bottom: 2px; }
+.result-question-tabs button { flex: 0 0 auto; border: 1px solid var(--border-default); border-radius: 7px; padding: 8px 10px; background: var(--surface-soft); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
+.result-question-tabs button.active { border-color: var(--accent-primary); background: var(--accent-soft); color: var(--accent-primary); font-weight: 700; }
+.result-code-heading, .result-run-heading { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin: 14px 0 8px; color: var(--text-secondary); font-size: 13px; }
+.result-code-heading span, .result-run-heading span { color: var(--text-muted); font-size: 12px; }
+.result-code-viewer, .result-run-viewer { max-height: 360px; margin: 0; overflow: auto; padding: 14px; border-radius: 8px; background: #111827; color: #e5e7eb; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.55; white-space: pre; }
+.result-run-viewer { max-height: 180px; background: var(--surface-soft); color: var(--text-primary); white-space: pre-wrap; }
+.result-run-viewer.error { color: var(--danger); }
+.result-run-viewer.success { color: var(--success); }
+.result-warning-list { display: grid; gap: 8px; margin: 14px 0 20px; }
+.result-warning-list article { padding: 10px; border-left: 3px solid var(--danger); border-radius: 6px; background: var(--surface-soft); }
+.result-warning-list strong, .result-warning-list span { display: block; }
+.result-warning-list span { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+.result-review-form { display: grid; gap: 12px; border-top: 1px solid var(--border-default); padding-top: 16px; }
+.result-review-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.result-review-form select, .result-review-form textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 7px; padding: 9px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; }
+.result-review-form textarea { min-height: 110px; resize: vertical; }
+.coding-save-status { display: inline-block; margin-left: 10px; color: var(--text-muted); font-size: 12px; }
+@media (max-width: 900px) { .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
 .exam-policy-panel { max-width: 640px; }
 .exam-policy-panel .toggle-row { min-height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-secondary); font-size: 13px; font-weight: 500; }

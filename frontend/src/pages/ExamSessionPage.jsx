@@ -9,6 +9,8 @@ export default function ExamSessionPage() {
   const [exam, setExam] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
+  const [runResults, setRunResults] = useState({});
+  const [saveStatus, setSaveStatus] = useState('');
   const [submitted, setSubmitted] = useState(null);
   const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
@@ -22,6 +24,13 @@ export default function ExamSessionPage() {
           : [];
         setExam(data.exam ?? null);
         setQuestions(normalized);
+        return api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
+      })
+      .then((response) => {
+        if (!response) return;
+        setAnswers(response.data.answers ?? {});
+        setRunResults(response.data.runResults ?? {});
+        if (response.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(response.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       })
       .catch((reason) => setError(apiErrorMessage(reason, '시험 세션을 확인할 수 없습니다. 초대 링크로 다시 입장해 주세요.')));
   }, []);
@@ -30,7 +39,7 @@ export default function ExamSessionPage() {
     event.preventDefault();
     setSubmissionError('');
     try {
-      const { data } = await api.post('/applicant/exam/submit', { answers }, { headers: candidateAuthHeaders() });
+      const { data } = await api.post('/applicant/exam/submit', { answers, runResults }, { headers: candidateAuthHeaders() });
       setSubmitted(data);
       localStorage.removeItem('candidateAccessToken');
     } catch (reason) {
@@ -38,10 +47,20 @@ export default function ExamSessionPage() {
     }
   };
 
+  const saveCodingProgress = async () => {
+    setSaveStatus('저장 중...');
+    try {
+      const { data } = await api.put('/applicant/exam/progress', { answers, runResults }, { headers: candidateAuthHeaders() });
+      setSaveStatus('저장됨 · ' + new Date(data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    } catch (reason) {
+      setSaveStatus(apiErrorMessage(reason, '코드 저장에 실패했습니다.'));
+    }
+  };
+
   if (submitted) return <ResultPage submitted={submitted} navigate={navigate} />;
   if (error) return <ErrorPage error={error} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
-  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={codingQuestions} submissionError={submissionError} updateAnswers={setAnswers} /></form>;
+  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={codingQuestions} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} /></form>;
 
   return (
     <main className="container exam-session-page">
@@ -59,7 +78,8 @@ export default function ExamSessionPage() {
 }
 
 function ResultPage({ submitted, navigate }) {
-  return <main className="container"><div className="card exam-session-result"><CheckCircle2 size={34} color="#16a34a" /><h1>시험 제출 완료</h1><p>{submitted.totalCount}문제 중 {submitted.correctCount}문제를 맞혔습니다.</p><strong>점수 {submitted.score}점</strong><button className="btn-primary" onClick={() => navigate('/')}>처음으로 돌아가기</button></div></main>;
+  const awaitingReview = submitted.gradingStatus === 'PENDING_REVIEW';
+  return <main className="container"><div className="card exam-session-result"><CheckCircle2 size={34} color="#16a34a" /><h1>시험 제출 완료</h1><p>{awaitingReview ? '작성 코드와 실행 결과가 저장되었습니다. 운영자 검토 후 결과가 확정됩니다.' : `${submitted.totalCount}문제 중 ${submitted.correctCount}문제를 맞혔습니다.`}</p>{!awaitingReview && <strong>점수 {submitted.score}점</strong>}<button className="btn-primary" onClick={() => navigate('/')}>처음으로 돌아가기</button></div></main>;
 }
 
 function ErrorPage({ error, navigate }) {

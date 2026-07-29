@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Play, Send } from 'lucide-react';
+import { Clock, Play, Save, Send } from 'lucide-react';
 
 const resultTabs = [
   { id: 'run', label: '실행 결과' },
@@ -52,10 +52,9 @@ function runJavaScript(source) {
   });
 }
 
-export function CodingExamWorkspace({ answers, exam, questions, submissionError, updateAnswers }) {
+export function CodingExamWorkspace({ answers, exam, questions, runResults, saveProgress, saveStatus, submissionError, updateAnswers, updateRunResults }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeResultTab, setActiveResultTab] = useState('run');
-  const [runResult, setRunResult] = useState({ type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' });
   const [panelSizes, setPanelSizes] = useState({ navigation: 18, statement: 27, editor: 66 });
   const workspaceRef = useRef(null);
   const editorPaneRef = useRef(null);
@@ -66,6 +65,7 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
   const language = answer.language ?? languages[0];
   const source = answer.source ?? '';
   const sourceLines = Math.max(source.split('\n').length, 16);
+  const runResult = runResults[question.id] ?? { type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' };
 
   useEffect(() => {
     if (submissionError) setActiveResultTab('submission');
@@ -81,11 +81,12 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
   const runCode = async () => {
     setActiveResultTab('run');
     if (language !== 'JavaScript') {
-      setRunResult({ type: 'error', output: `${language} 실행은 채점 서버 연결 후 제공됩니다. 현재는 JavaScript만 브라우저에서 실행할 수 있습니다.` });
+      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: `${language} 실행은 채점 서버 연결 후 제공됩니다. 현재는 JavaScript만 브라우저에서 실행할 수 있습니다.`, executedAt: new Date().toISOString() } });
       return;
     }
-    setRunResult({ type: 'running', output: '실행 중...' });
-    setRunResult(await runJavaScript(source));
+    updateRunResults({ ...runResults, [question.id]: { type: 'running', output: '실행 중...', executedAt: new Date().toISOString() } });
+    const result = await runJavaScript(source);
+    updateRunResults({ ...runResults, [question.id]: { ...result, executedAt: new Date().toISOString() } });
   };
 
   const resizePanel = (panel, startEvent) => {
@@ -248,7 +249,9 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
               <footer className="coding-result-controls">
                 <div>
                   <button className="coding-run-button" disabled={runResult.type === 'running'} type="button" onClick={runCode}><Play size={15} /> 실행</button>
+                  <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 코드 저장</button>
                   <button className="coding-submit-button" type="submit"><Send size={15} /> 코드 저장하고 제출</button>
+                  {saveStatus && <span className="coding-save-status" role="status">{saveStatus}</span>}
                 </div>
               </footer>
             </section>

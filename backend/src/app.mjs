@@ -67,6 +67,19 @@ const normalizeTestCases = (testCases, requireAtLeastOne = false) => {
   return normalized;
 };
 const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJudgeCode, ...question }) => question;
+const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questions.filter((question) => question.type === "CODING").map((question) => {
+  const answer = answers[question.id] && typeof answers[question.id] === "object" ? answers[question.id] : {};
+  const languages = question.languages?.length ? question.languages : ["Python"];
+  return [question.id, {
+    language: languages.includes(answer.language) ? answer.language : languages[0],
+    source: typeof answer.source === "string" ? answer.source.slice(0, 100000) : ""
+  }];
+}));
+const normalizeRunResults = (runResults, questions) => Object.fromEntries(questions.filter((question) => question.type === "CODING").flatMap((question) => {
+  const result = runResults?.[question.id];
+  if (!result || typeof result !== "object" || typeof result.output !== "string") return [];
+  return [[question.id, { type: ["success", "error", "notice"].includes(result.type) ? result.type : "notice", output: result.output.slice(0, 20000), executedAt: typeof result.executedAt === "string" ? result.executedAt : new Date().toISOString() }]];
+}));
 
 const requestUser = (sessions, users, removeSession) => (request, response, next) => {
   const token = request.header("authorization")?.replace("Bearer ", "");
@@ -106,7 +119,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   const candidateFailures = new Map();
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
-  const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || "https://aivle-frontend-gakg.onrender.com";
+  const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
 
   app.use(express.json({ limit: "1mb" }));
   app.use((request, response, next) => {
@@ -254,6 +267,35 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
     const questions = store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, questions });
   });
+  app.get("/api/applicant/exam/progress", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    return response.json({ answers: submission?.answers ?? {}, runResults: submission?.runResults ?? {}, updatedAt: submission?.updatedAt ?? null, status: submission?.status ?? "DRAFT" });
+  });
+  app.put("/api/applicant/exam/progress", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { invitation, candidate, exam } = request.applicantSession;
+      if (invitation.submittedAt) return response.status(409).json({ message: "이미 제출한 시험의 답안은 수정할 수 없습니다." });
+      const questions = store.questions.filter((question) => question.examId === exam.id);
+      const answers = request.body.answers && typeof request.body.answers === "object" ? request.body.answers : {};
+      const runResults = request.body.runResults && typeof request.body.runResults === "object" ? request.body.runResults : {};
+      const now = new Date().toISOString();
+      const submission = await store.saveCodingSubmission({
+        id: store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id)?.id ?? randomUUID(),
+        examId: exam.id,
+        organizationId: exam.organizationId,
+        candidateId: candidate.id,
+        answers: normalizeCodingAnswers(answers, questions),
+        runResults: normalizeRunResults(runResults, questions),
+        status: "DRAFT",
+        submittedAt: null,
+        updatedAt: now
+      });
+      return response.json({ updatedAt: submission.updatedAt, status: submission.status });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.post("/api/applicant/exam/submit", authenticateApplicant, async (request, response, next) => {
     try {
       const { invitation, candidate, exam } = request.applicantSession;
@@ -261,15 +303,31 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const questions = store.questions.filter((question) => question.examId === exam.id);
       if (questions.length === 0) return response.status(409).json({ message: "시험 문제가 아직 등록되지 않았습니다." });
       if (invitation.submittedAt) return response.status(409).json({ message: "이 시험은 이미 제출되었습니다." });
-      if (questions.some((question) => question.type === "CODING")) return response.status(503).json({ message: "코딩 문제 채점 서버가 아직 연결되지 않았습니다. 답안은 저장하거나 제출 처리되지 않았습니다." });
-      const correctCount = questions.filter((question) => answers[question.id] === question.answer).length;
-      const score = Math.round((correctCount / questions.length) * 100);
+      const codingQuestions = questions.filter((question) => question.type === "CODING");
+      const now = new Date().toISOString();
+      if (codingQuestions.length) {
+        const runResults = request.body.runResults && typeof request.body.runResults === "object" ? request.body.runResults : {};
+        const existingSubmission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+        await store.saveCodingSubmission({
+          id: existingSubmission?.id ?? randomUUID(),
+          examId: exam.id,
+          organizationId: exam.organizationId,
+          candidateId: candidate.id,
+          answers: normalizeCodingAnswers(answers, questions),
+          runResults: normalizeRunResults(runResults, questions),
+          status: "SUBMITTED",
+          submittedAt: now,
+          updatedAt: now
+        });
+      }
+      const correctCount = questions.filter((question) => question.type !== "CODING" && answers[question.id] === question.answer).length;
+      const score = codingQuestions.length ? null : Math.round((correctCount / questions.length) * 100);
       const assignment = store.assignments.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: "SUBMITTED", submittedAt: new Date().toISOString() });
-      await store.updateInvitation(invitation.id, { submittedAt: new Date().toISOString() });
+      if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
+      await store.updateInvitation(invitation.id, { submittedAt: now });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       if (examinee) await store.updateExaminee(examinee.id, { status: "SUBMITTED", statusText: "제출 완료", currentProb: "제출 완료" });
-      return response.json({ examId: exam.id, score, correctCount, totalCount: questions.length, status: "SUBMITTED" });
+      return response.json({ examId: exam.id, score, correctCount, totalCount: questions.length, status: "SUBMITTED", gradingStatus: codingQuestions.length ? "PENDING_REVIEW" : "COMPLETED" });
     } catch (error) {
       return next(error);
     }
@@ -660,7 +718,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       if (!exam || candidateIds.length === 0) return response.status(400).json({ message: "시험과 초대할 응시자를 확인해주세요." });
       const eligibleCandidateIds = candidateIds.filter((candidateId) => store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidateId));
       if (eligibleCandidateIds.length !== candidateIds.length) return response.status(409).json({ message: "시험 대상자로 먼저 배정한 응시자만 초대할 수 있습니다." });
-      const expiresAt = scheduledExamEndsAt(exam) ?? new Date(Date.now() + (Number(request.body.expiresInHours) || store.systemPolicies.invitationExpiryHours) * 60 * 60 * 1000).toISOString();
+      const fallbackExpiresAt = new Date(Date.now() + (Number(request.body.expiresInHours) || store.systemPolicies.invitationExpiryHours) * 60 * 60 * 1000).toISOString();
+      const scheduledExpiresAt = scheduledExamEndsAt(exam);
+      const expiresAt = scheduledExpiresAt && new Date(scheduledExpiresAt) > new Date() ? scheduledExpiresAt : fallbackExpiresAt;
       const previews = [];
       const createdInvitationIds = [];
       for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
@@ -803,6 +863,40 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       return { ...assignment, candidateName: candidate?.name ?? "응시자", candidateEmail: candidate?.email ?? "", examTitle: exam?.title ?? "시험", organizationId: candidate?.organizationId };
     });
     response.json(rows);
+  });
+  app.get("/api/manager/exams/:examId/results/:candidateId", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+    const candidate = store.candidates.find((item) => item.id === request.params.candidateId && item.organizationId === exam?.organizationId);
+    const assignment = store.assignments.find((item) => item.examId === exam?.id && item.candidateId === candidate?.id);
+    if (!exam || !candidate || !assignment) return response.status(404).json({ message: "조회할 응시자 결과를 찾을 수 없습니다." });
+    const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    const warnings = store.warnings.filter((item) => item.examId === exam.id && item.examineeId === examinee?.id).map((warning) => ({ message: warning.message, createdAt: warning.createdAt }));
+    const questions = store.questions.filter((item) => item.examId === exam.id && item.type === "CODING").map((question) => ({ id: question.id, title: question.title, languages: question.languages ?? [] }));
+    return response.json({
+      candidate: { id: candidate.id, name: candidate.name, email: candidate.email, candidateNumber: candidate.candidateNumber },
+      exam: { id: exam.id, title: exam.title },
+      result: { status: assignment.status, score: assignment.score ?? null, resultStatus: assignment.resultStatus ?? "NOT_SUBMITTED", submittedAt: assignment.submittedAt ?? null, reviewStatus: assignment.reviewStatus ?? "NOT_REVIEWED", reviewNote: assignment.reviewNote ?? "", reviewedAt: assignment.reviewedAt ?? null },
+      codingSubmission: submission ? { answers: submission.answers, runResults: submission.runResults, status: submission.status, submittedAt: submission.submittedAt, updatedAt: submission.updatedAt } : null,
+      questions,
+      warnings
+    });
+  });
+  app.patch("/api/manager/exams/:examId/results/:candidateId/review", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+      const assignment = store.assignments.find((item) => item.examId === exam?.id && item.candidateId === request.params.candidateId);
+      const reviewStatus = typeof request.body.reviewStatus === "string" ? request.body.reviewStatus : "";
+      const reviewNote = typeof request.body.reviewNote === "string" ? request.body.reviewNote.trim().slice(0, 2000) : "";
+      if (!exam || !assignment) return response.status(404).json({ message: "검토할 응시자 결과를 찾을 수 없습니다." });
+      if (!["NOT_REVIEWED", "NORMAL", "REVIEW_REQUIRED", "SUSPICIOUS"].includes(reviewStatus)) return response.status(400).json({ message: "검토 상태가 올바르지 않습니다." });
+      const result = await store.updateAssignment(assignment.id, { reviewStatus, reviewNote, reviewedAt: new Date().toISOString(), reviewedBy: request.user.id });
+      return response.json({ reviewStatus: result.reviewStatus, reviewNote: result.reviewNote, reviewedAt: result.reviewedAt });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.use((error, _request, response, _next) => {

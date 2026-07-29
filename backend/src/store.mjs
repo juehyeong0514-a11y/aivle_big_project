@@ -13,6 +13,7 @@ const collectionDefaults = {
   candidates: [],
   questions: [],
   assignments: [],
+  codingSubmissions: [],
   invitations: [],
   warnings: [],
   organizationJoinRequests: [],
@@ -145,6 +146,7 @@ export const createStore = async (filePath) => {
     get candidates() { return data.candidates; },
     get questions() { return data.questions; },
     get assignments() { return data.assignments; },
+    get codingSubmissions() { return data.codingSubmissions; },
     get invitations() { return data.invitations; },
     get organizationJoinRequests() { return data.organizationJoinRequests; },
     get sessions() { return data.sessions; },
@@ -238,6 +240,7 @@ export const createStore = async (filePath) => {
         .filter((examinee) => examinee.examId === examId && candidateIdSet.has(examinee.candidateId))
         .map((examinee) => examinee.id));
       data.assignments = data.assignments.filter((assignment) => !assignmentIds.has(assignment.id));
+      data.codingSubmissions = data.codingSubmissions.filter((submission) => !(submission.examId === examId && candidateIdSet.has(submission.candidateId)));
       data.invitations = data.invitations.filter((invitation) => !(invitation.examId === examId && candidateIdSet.has(invitation.candidateId)));
       data.examinees = data.examinees.filter((examinee) => !examineeIds.has(examinee.id));
       data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
@@ -250,6 +253,13 @@ export const createStore = async (filePath) => {
       Object.assign(assignment, patch);
       await queuedSave();
       return assignment;
+    },
+    saveCodingSubmission: async (submission) => {
+      const existing = data.codingSubmissions.find((candidate) => candidate.examId === submission.examId && candidate.candidateId === submission.candidateId);
+      if (existing) Object.assign(existing, submission);
+      else data.codingSubmissions.push(submission);
+      await queuedSave();
+      return existing ?? submission;
     },
     addInvitation: async (invitation) => {
       data.invitations.unshift(invitation);
