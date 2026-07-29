@@ -29,6 +29,8 @@ const collectionDefaults = {
   }
 };
 
+const defaultExamPolicies = (systemPolicies) => clone({ invitationExpiryHours: systemPolicies.invitationExpiryHours, aiAnalysisEnabled: systemPolicies.aiAnalysisEnabled, cheatDetection: systemPolicies.cheatDetection });
+
 const withDefaults = (value) => ({
   ...value,
   ...Object.fromEntries(Object.entries(collectionDefaults).map(([key, fallback]) => [key, value[key] ?? clone(seedData[key] ?? fallback)]))
@@ -64,6 +66,8 @@ export const createStore = async (filePath) => {
       data = { ...data, systemPolicies: normalizedPolicies };
       shouldSave = true;
     }
+    const examsWithPolicies = data.exams.map((exam) => ({ ...exam, examPolicies: { ...defaultExamPolicies(data.systemPolicies), ...(exam.examPolicies ?? {}), cheatDetection: { ...data.systemPolicies.cheatDetection, ...(exam.examPolicies?.cheatDetection ?? {}) } } }));
+    if (examsWithPolicies.some((exam, index) => JSON.stringify(exam.examPolicies) !== JSON.stringify(data.exams[index].examPolicies))) { data = { ...data, exams: examsWithPolicies }; shouldSave = true; }
     const validSessions = data.sessions.filter((session) => new Date(session.expiresAt) > new Date());
     if (validSessions.length !== data.sessions.length) {
       data = { ...data, sessions: validSessions };
@@ -156,8 +160,15 @@ export const createStore = async (filePath) => {
       await queuedSave();
     },
     addExam: async (exam) => {
-      data.exams.unshift(exam);
+      data.exams.unshift({ ...exam, examPolicies: exam.examPolicies ?? defaultExamPolicies(data.systemPolicies) });
       await queuedSave();
+    },
+    updateExam: async (id, patch) => {
+      const exam = data.exams.find((candidate) => candidate.id === id);
+      if (!exam) return undefined;
+      Object.assign(exam, patch);
+      await queuedSave();
+      return exam;
     },
     addWarning: async (warning) => {
       data.warnings.push(warning);

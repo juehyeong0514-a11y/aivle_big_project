@@ -17,12 +17,10 @@ const ADMIN_GROUPS = [
     ]
   },
   {
-    label: '시험 및 정책', icon: ClipboardList,
+    label: '시험 조회 및 설정', icon: ClipboardList,
     items: [
-      { key: 'EXAMS', label: '전체 시험 관리', icon: ClipboardList },
-      { key: 'POLICY_MGMT', label: '문제/정책 관리', icon: FileText },
-      { key: 'CHEAT_MGMT', label: '금지사항 관리', icon: ShieldAlert },
-      { key: 'AI_CONFIG', label: 'AI 분석 설정', icon: Cpu }
+      { key: 'AI_CONFIG', label: 'AI 분석 설정', icon: Cpu },
+      { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText }
     ]
   }
 ];
@@ -34,6 +32,9 @@ const SUPERVISOR_GROUPS = [
     items: [
       { key: 'MANAGER_WORKSPACE', label: '조직 운영', icon: Users },
       { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
+      { key: 'EXAMS', label: '전체 시험 조회', icon: ClipboardList },
+      { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
+      { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert },
       { key: 'EXAM_STATUS', label: '응시자 현황 관리', icon: BarChart3 },
       { key: 'AI_REPORTS', label: '응시자 결과 관리', icon: FileText }
     ]
@@ -41,7 +42,7 @@ const SUPERVISOR_GROUPS = [
   {
     label: '실시간 관제 및 검토', icon: Monitor,
     items: [
-      { key: 'LIVE_MONITORING', label: '실시간 화상 관제', icon: Monitor },
+      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor },
       { key: 'CHEAT_LOGS', label: '부정행위 감지 로그', icon: AlertTriangle }
     ]
   }

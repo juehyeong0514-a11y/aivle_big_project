@@ -3,11 +3,9 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 // 🌟 관리자 전용 탭 컴포넌트 임포트
 const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
-const AdminExamsTab = lazy(() => import('../admin/AdminExamsTab'));
-const PolicyMgmtTab = lazy(() => import('../admin/PolicyMgmtTab'));
 const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
-const CheatMgmtTab = lazy(() => import('../admin/CheatMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
+const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
 const ManagerWorkspaceTab = lazy(() => import('../manager/ManagerWorkspaceTab'));
 const ManagerExamManagementTab = lazy(() => import('../manager/ManagerExamManagementTab'));
 
@@ -24,6 +22,8 @@ const LiveMonitoringTab = lazy(() => import('../supervisor/LiveMonitoringTab'));
 const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
 const ExamStatusTab = lazy(() => import('../supervisor/ExamStatusTab'));
 const SupervisorReportsTab = lazy(() => import('../supervisor/ReportsTab'));
+const ExamPolicyTab = lazy(() => import('../supervisor/ExamPolicyTab'));
+const SupervisorExamDirectoryTab = lazy(() => import('../supervisor/SupervisorExamDirectoryTab'));
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -66,11 +66,9 @@ export default function HomePage() {
         {isAdmin && !showHome && (
           <div>
             {activeTab === 'GOVERNANCE' && <AdminGovernanceTab />} 
-            {activeTab === 'EXAMS' && <AdminExamsTab />} 
-            {activeTab === 'POLICY_MGMT' && <PolicyMgmtTab />} 
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
-            {activeTab === 'CHEAT_MGMT' && <CheatMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
+            {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
           </div>
         )}
 
@@ -80,11 +78,13 @@ export default function HomePage() {
         {isSupervisor && !showHome && (
           <div>
             {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
-            {activeTab === 'EXAMS' && <ManagerExamManagementTab />}
+            {activeTab === 'EXAMS' && <SupervisorExamDirectoryTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}
             {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
+            {activeTab === 'EXAM_POLICY' && <ExamPolicyTab />}
+            {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab prohibitions />}
           </div>
         )}
         </Suspense>

@@ -15,7 +15,7 @@ export default function AdminExamsTab() {
   return (
     <section className="workspace-shell">
       <div className="workspace-heading">
-        <div><span className="workspace-eyebrow">ADMIN EXAM DIRECTORY</span><h1>전체 시험 관리</h1><p>플랫폼에 등록된 시험과 소속 조직, 문제 수를 통합 조회합니다.</p></div>
+        <div><span className="workspace-eyebrow">전체 시험 현황</span><h1>전체 시험 조회</h1><p>플랫폼에 등록된 시험과 소속 조직, 문제 수를 통합 조회합니다.</p></div>
         <div className="workspace-role-mark admin"><ClipboardList size={20} /> 전체 조회</div>
       </div>
       {error && <div className="workspace-alert error">{error}</div>}

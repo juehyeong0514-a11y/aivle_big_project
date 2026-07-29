@@ -1373,6 +1373,10 @@ main {
 .status-table th, .status-table td { padding: 12px; border-bottom: 1px solid var(--border-default); }
 .status-table th { color: var(--text-muted); font-weight: 700; }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
+.exam-policy-panel { max-width: 640px; }
+.exam-policy-panel .toggle-row { min-height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-secondary); font-size: 13px; font-weight: 500; }
+.exam-policy-panel .toggle-row input { width: 16px; min-height: auto; margin: 0; flex: 0 0 auto; }
+.workspace-role-mark.exam-policy-prohibition { color: var(--status-error); background: #fef2f2; }
 .text-button { border: 0; background: transparent; color: var(--accent-primary); cursor: pointer; font-weight: 700; }
 .auth-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 20px; padding: 4px; border-radius: 10px; background: var(--surface-soft); }
 .auth-mode-switch button { min-height: 38px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 700; }

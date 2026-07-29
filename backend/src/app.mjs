@@ -522,6 +522,26 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
     if (!scopedExam(request, request.params.id)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 조회할 수 있습니다." });
     return response.json(store.questions.filter((question) => question.examId === request.params.id));
   });
+  app.get("/api/supervisor/exams/:id/policies", authenticate, requireManager, (request, response) => {
+    const exam = scopedExam(request, request.params.id);
+    if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험 정책만 조회할 수 있습니다." });
+    return response.json(exam.examPolicies ?? store.systemPolicies);
+  });
+  app.patch("/api/supervisor/exams/:id/policies", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const exam = scopedExam(request, request.params.id);
+      if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험 정책만 수정할 수 있습니다." });
+      const invitationExpiryHours = Number(request.body.invitationExpiryHours);
+      const aiAnalysisEnabled = request.body.aiAnalysisEnabled;
+      const cheatDetection = request.body.cheatDetection;
+      const validCheatDetection = cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean";
+      if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection) return response.status(400).json({ message: "정책 값을 확인해주세요." });
+      const updated = await store.updateExam(exam.id, { examPolicies: { invitationExpiryHours, aiAnalysisEnabled, cheatDetection } });
+      return response.json(updated.examPolicies);
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/manager/exams/:id/candidates", authenticate, requireManager, (request, response) => {
     const exam = scopedExam(request, request.params.id);
     if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험만 조회할 수 있습니다." });

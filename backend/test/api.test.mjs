@@ -316,3 +316,23 @@ test("removes plaintext passwords from an existing database", async () => {
   assert.equal(migratedDatabase.users[0].password, undefined);
   assert.equal(migratedDatabase.users[0].passwordHash, "kept");
 });
+
+test("scopes exam policies to the supervising manager's organization", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+  const login = async (email, role) => (await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "123", role }) })).json());
+  const supervisor = await login("supervisor@aivle.com", "MANAGER");
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${supervisor.token}` };
+  const initial = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { headers });
+  assert.equal(initial.status, 200);
+  const policies = await initial.json();
+  const update = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { method: "PATCH", headers, body: JSON.stringify({ ...policies, invitationExpiryHours: 48, cheatDetection: { ...policies.cheatDetection, tabSwitchSubmitEnabled: false } }) });
+  assert.equal(update.status, 200);
+  assert.equal((await update.json()).invitationExpiryHours, 48);
+  const persisted = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { headers });
+  assert.equal((await persisted.json()).cheatDetection.tabSwitchSubmitEnabled, false);
+  const outOfScope = await fetch(`${baseUrl}/api/supervisor/exams/not-managed/policies`, { headers });
+  assert.equal(outOfScope.status, 403);
+  const adminPolicies = await fetch(`${baseUrl}/api/admin/policies`, { headers });
+  assert.equal(adminPolicies.status, 403);
+});

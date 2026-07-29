@@ -67,8 +67,8 @@ export default function LiveMonitoringTab() {
     <section className="workspace-shell">
       <div className="workspace-heading">
         <div>
-          <span className="workspace-eyebrow">LIVE MONITORING</span>
-          <h1>실시간 화상 관제실</h1>
+          <span className="workspace-eyebrow">화상 모니터링</span>
+          <h1>화상 모니터링</h1>
           <p>현재 작업 조직의 시험만 조회하고 응시자 상태를 실시간으로 확인합니다.</p>
         </div>
         <div className="workspace-role-mark manager"><Monitor size={20} /> 시험 감독 관리자</div>
