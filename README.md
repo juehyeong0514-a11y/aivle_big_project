@@ -53,8 +53,9 @@ Vite가 표시하는 주소로 접속합니다. 기본 주소는 `http://localho
 | `VITE_API_BASE_URL` | 프런트엔드 API 기본 주소 |
 | `PUBLIC_WEB_ORIGIN` | 초대 메일에 넣을 프런트엔드 공개 주소 |
 | `ALLOWED_ORIGINS` | 허용할 CORS Origin 목록(쉼표 구분) |
-| `RESEND_API_KEY` | Resend API 키. 설정하면 관리자 가입 인증 메일과 시험 초대 메일을 실제 발송합니다. |
-| `RESEND_FROM_EMAIL` | Resend에서 인증한 발신자 주소. 예: `Aivle <noreply@your-domain.com>` |
+| `SENDGRID_API_KEY` | SendGrid API 키. 설정하면 관리자 가입 인증 메일과 시험 초대 메일을 실제 발송합니다. |
+| `SENDGRID_FROM_EMAIL` | SendGrid에서 Single Sender 인증을 마친 발신 이메일 주소 |
+| `SENDGRID_FROM_NAME` | 메일에 표시할 발신자 이름. 예: `Aivle 시험 플랫폼` |
 
 ## 개발 계정
 
