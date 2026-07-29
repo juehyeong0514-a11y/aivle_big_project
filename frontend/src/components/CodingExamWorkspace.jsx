@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Play, Send } from 'lucide-react';
 
 const resultTabs = [
@@ -13,10 +13,53 @@ function sourceFileName(language) {
   return 'solution.py';
 }
 
+function runJavaScript(source) {
+  const workerSource = `
+    const format = (value) => {
+      if (typeof value === 'string') return value;
+      try { return JSON.stringify(value); } catch { return String(value); }
+    };
+    self.onmessage = async ({ data }) => {
+      const output = [];
+      const console = {
+        log: (...values) => output.push(values.map(format).join(' ')),
+        warn: (...values) => output.push(values.map(format).join(' ')),
+        error: (...values) => output.push(values.map(format).join(' ')),
+      };
+      try {
+        const result = await new Function('console', '"use strict";\\n' + data.source)(console);
+        if (result !== undefined) output.push(format(result));
+        self.postMessage({ type: 'success', output: output.join('\\n') || '출력이 없습니다.' });
+      } catch (error) {
+        self.postMessage({ type: 'error', output: error instanceof Error ? error.message : String(error) });
+      }
+    };
+  `;
+
+  return new Promise((resolve) => {
+    const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+    const worker = new Worker(workerUrl);
+    const timeout = window.setTimeout(() => finish({ type: 'error', output: '실행 시간이 3초를 초과했습니다.' }), 3000);
+    const finish = (result) => {
+      window.clearTimeout(timeout);
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+      resolve(result);
+    };
+    worker.onmessage = ({ data }) => finish(data);
+    worker.onerror = () => finish({ type: 'error', output: '코드를 실행하지 못했습니다.' });
+    worker.postMessage({ source });
+  });
+}
+
 export function CodingExamWorkspace({ answers, exam, questions, submissionError, updateAnswers }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeResultTab, setActiveResultTab] = useState('run');
-  const [runNotice, setRunNotice] = useState('코드를 작성한 뒤 실행을 눌러 공개 예제를 확인하세요.');
+  const [runResult, setRunResult] = useState({ type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' });
+  const [panelSizes, setPanelSizes] = useState({ navigation: 18, statement: 27, editor: 66 });
+  const workspaceRef = useRef(null);
+  const editorPaneRef = useRef(null);
+  const lineNumberRef = useRef(null);
   const question = questions[activeIndex] ?? questions[0];
   const languages = question.languages?.length ? question.languages : ['Python'];
   const answer = answers[question.id] ?? {};
@@ -35,9 +78,57 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
     });
   };
 
-  const showRunNotice = () => {
+  const runCode = async () => {
     setActiveResultTab('run');
-    setRunNotice('실행 서버가 아직 연결되지 않았습니다. 공개 예제와 제출 결과는 채점 서버 연결 후 제공됩니다.');
+    if (language !== 'JavaScript') {
+      setRunResult({ type: 'error', output: `${language} 실행은 채점 서버 연결 후 제공됩니다. 현재는 JavaScript만 브라우저에서 실행할 수 있습니다.` });
+      return;
+    }
+    setRunResult({ type: 'running', output: '실행 중...' });
+    setRunResult(await runJavaScript(source));
+  };
+
+  const resizePanel = (panel, startEvent) => {
+    const container = panel === 'editor' ? editorPaneRef.current : workspaceRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const startSizes = panelSizes;
+    const startPosition = panel === 'editor' ? startEvent.clientY : startEvent.clientX;
+    const totalSize = panel === 'editor' ? rect.height : rect.width;
+
+    const resize = (event) => {
+      const offset = ((panel === 'editor' ? event.clientY : event.clientX) - startPosition) / totalSize * 100;
+      setPanelSizes(() => {
+        if (panel === 'navigation') {
+          const navigation = Math.min(30, Math.max(15, startSizes.navigation + offset));
+          return { ...startSizes, navigation };
+        }
+        if (panel === 'statement') {
+          const statement = Math.min(100 - startSizes.navigation - 35, Math.max(20, startSizes.statement + offset));
+          return { ...startSizes, statement };
+        }
+        return { ...startSizes, editor: Math.min(80, Math.max(35, startSizes.editor + offset)) };
+      });
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', stopResize);
+    };
+
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', stopResize, { once: true });
+  };
+
+  const adjustPanelWithKeyboard = (panel, event) => {
+    const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 2 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -2 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    setPanelSizes((current) => {
+      if (panel === 'navigation') return { ...current, navigation: Math.min(30, Math.max(15, current.navigation + direction)) };
+      if (panel === 'statement') return { ...current, statement: Math.min(100 - current.navigation - 35, Math.max(20, current.statement + direction)) };
+      return { ...current, editor: Math.min(80, Math.max(35, current.editor + direction)) };
+    });
   };
 
   return (
@@ -50,7 +141,11 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
           </div>
         </header>
 
-        <div className="coding-session-workspace">
+        <div
+          className="coding-session-workspace"
+          ref={workspaceRef}
+          style={{ '--navigation-width': `${panelSizes.navigation}%`, '--statement-width': `${panelSizes.statement}%` }}
+        >
           <aside className="coding-navigation-pane" aria-label="문제 선택">
             <div className="coding-problem-toolbar">
               <span><Clock size={16} /> 남은 시간 <strong>{exam.duration}</strong></span>
@@ -69,6 +164,8 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
               ))}
             </nav>
           </aside>
+
+          <PanelResizer direction="vertical" label="문제 목록 너비 조절" onKeyDown={(event) => adjustPanelWithKeyboard('navigation', event)} onPointerDown={(event) => resizePanel('navigation', event)} />
 
           <aside className="coding-problem-pane" aria-label="문제 설명">
             <div className="coding-problem-heading">
@@ -96,7 +193,9 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
             )}
           </aside>
 
-          <section className="coding-editor-pane" aria-label="코드 작성 및 결과">
+          <PanelResizer direction="vertical" label="문제 설명 너비 조절" onKeyDown={(event) => adjustPanelWithKeyboard('statement', event)} onPointerDown={(event) => resizePanel('statement', event)} />
+
+          <section className="coding-editor-pane" aria-label="코드 작성 및 결과" ref={editorPaneRef} style={{ '--editor-height': `${panelSizes.editor}%` }}>
             <div className="coding-editor-workspace">
               <div className="coding-editor-toolbar">
                 <strong>{sourceFileName(language)}</strong>
@@ -108,7 +207,7 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
                 </label>
               </div>
               <div className="coding-editor-body">
-                <ol className="coding-line-numbers" aria-hidden="true">
+                <ol className="coding-line-numbers" aria-hidden="true" ref={lineNumberRef}>
                   {Array.from({ length: sourceLines }, (_, index) => <li key={index}>{index + 1}</li>)}
                 </ol>
                 <textarea
@@ -118,9 +217,12 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
                   spellCheck="false"
                   value={source}
                   onChange={(event) => updateAnswer({ source: event.target.value })}
+                  onScroll={(event) => { if (lineNumberRef.current) lineNumberRef.current.scrollTop = event.currentTarget.scrollTop; }}
                 />
               </div>
             </div>
+
+            <PanelResizer direction="horizontal" label="코드 편집기 높이 조절" onKeyDown={(event) => adjustPanelWithKeyboard('editor', event)} onPointerDown={(event) => resizePanel('editor', event)} />
 
             <section className="coding-result-panel" aria-label="실행 및 제출 결과">
               <div className="coding-result-tabs" role="tablist" aria-label="결과 탭">
@@ -139,14 +241,13 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
                 ))}
               </div>
               <div className="coding-result-content" role="tabpanel" aria-labelledby={`result-tab-${activeResultTab}`}>
-                {activeResultTab === 'run' && <p>{runNotice}</p>}
+                {activeResultTab === 'run' && <pre className={`coding-run-output ${runResult.type}`}>{runResult.output}</pre>}
                 {activeResultTab === 'tests' && <PublicTestCases examples={question.publicExamples} />}
                 {activeResultTab === 'submission' && <p>{submissionError || '제출 전입니다. 제출하면 채점 상태가 이곳에 표시됩니다.'}</p>}
               </div>
               <footer className="coding-result-controls">
-                <span><Clock size={15} /> 남은 시간 <strong>{exam.duration}</strong></span>
                 <div>
-                  <button className="coding-run-button" type="button" onClick={showRunNotice}><Play size={15} /> 실행</button>
+                  <button className="coding-run-button" disabled={runResult.type === 'running'} type="button" onClick={runCode}><Play size={15} /> 실행</button>
                   <button className="coding-submit-button" type="submit"><Send size={15} /> 코드 저장하고 제출</button>
                 </div>
               </footer>
@@ -156,6 +257,10 @@ export function CodingExamWorkspace({ answers, exam, questions, submissionError,
       </div>
     </main>
   );
+}
+
+function PanelResizer({ direction, label, onKeyDown, onPointerDown }) {
+  return <div aria-label={label} className={`coding-panel-resizer ${direction}`} onKeyDown={onKeyDown} onPointerDown={onPointerDown} role="separator" tabIndex="0" />;
 }
 
 function StatementSection({ title, value }) {
