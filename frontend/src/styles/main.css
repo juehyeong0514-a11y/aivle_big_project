@@ -1404,6 +1404,12 @@ main {
 .coding-save-status { display: inline-block; margin-left: 10px; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 900px) { .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
+.ai-org-toggle input { width: 16px !important; height: 16px; min-height: 16px !important; margin: 0; padding: 0; flex: 0 0 16px; }
+.ai-quota-meter { min-width: 190px; }
+.ai-quota-meter-track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--surface-soft); }
+.ai-quota-meter-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent-primary); transition: width 160ms ease-out; }
+.ai-quota-meter-label { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.ai-quota-meter-label strong { color: var(--text-secondary); }
 .exam-policy-panel { max-width: 640px; }
 .exam-policy-panel .toggle-row { min-height: 40px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-secondary); font-size: 13px; font-weight: 500; }
 .exam-policy-panel .toggle-row input { width: 16px; min-height: auto; margin: 0; flex: 0 0 auto; }

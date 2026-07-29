@@ -1,5 +1,5 @@
 import express from "express";
-import { createHash, randomInt, randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createStore, verifyPassword } from "./store.mjs";
 
@@ -26,6 +26,13 @@ const publicOrganization = (organization, users) => ({
   managers: (organization.managerIds ?? []).map((id) => users.find((user) => user.id === id)).filter(Boolean).map(publicUser)
 });
 const normalizeEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
+const aiProviderModels = {
+  OpenAI: new Set(["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"]),
+  Anthropic: new Set(["claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"]),
+  "Google Gemini": new Set(["gemini-2.0-flash", "gemini-2.5-flash"])
+};
+const currentUsageMonth = (date = new Date()) => date.toISOString().slice(0, 7);
+const defaultOrganizationAiPolicy = (usageMonth = currentUsageMonth()) => ({ enabled: false, monthlyLimit: 0, monthlyUsage: 0, usageMonth });
 const verificationCodeHash = (code) => createHash("sha256").update(code).digest("hex");
 const verificationTtlMs = 10 * 60 * 1000;
 const verificationCooldownMs = 60 * 1000;
@@ -112,7 +119,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json") } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -120,6 +127,33 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
+  const encryptAiApiKey = (apiKey) => {
+    if (!aiSettingsEncryptionKey) return undefined;
+    const initializationVector = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(aiSettingsEncryptionKey).digest(), initializationVector);
+    const encrypted = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
+    return `${initializationVector.toString("base64")}.${cipher.getAuthTag().toString("base64")}.${encrypted.toString("base64")}`;
+  };
+  const organizationAiSettings = () => {
+    const usageMonth = currentUsageMonth();
+    return store.organizations.map((organization) => {
+      const saved = store.organizationAiPolicies[organization.id] ?? defaultOrganizationAiPolicy(usageMonth);
+      return {
+        organizationId: organization.id,
+        organizationName: organization.name,
+        enabled: saved.enabled === true,
+        monthlyLimit: Number.isSafeInteger(saved.monthlyLimit) && saved.monthlyLimit >= 0 ? saved.monthlyLimit : 0,
+        monthlyUsage: saved.usageMonth === usageMonth && Number.isSafeInteger(saved.monthlyUsage) && saved.monthlyUsage >= 0 ? saved.monthlyUsage : 0,
+        usageMonth
+      };
+    });
+  };
+  const publicAiSettings = () => ({
+    provider: store.systemPolicies.aiProvider,
+    model: store.systemPolicies.aiModel,
+    apiKeyConfigured: Boolean(process.env.AI_API_KEY || store.systemPolicies.aiEncryptedApiKey),
+    organizations: organizationAiSettings()
+  });
 
   app.use(express.json({ limit: "1mb" }));
   app.use((request, response, next) => {
@@ -363,6 +397,37 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
       const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean");
       if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection) return response.status(400).json({ message: "정책 값을 확인해주세요." });
       return response.json(await store.updateSystemPolicies({ invitationExpiryHours, aiAnalysisEnabled, ...(cheatDetection === undefined ? {} : { cheatDetection }) }));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/admin/ai-settings", authenticate, requireRole("ADMIN"), (_request, response) => response.json(publicAiSettings()));
+  app.patch("/api/admin/ai-settings", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
+      const model = typeof request.body.model === "string" ? request.body.model.trim() : "";
+      const apiKey = typeof request.body.apiKey === "string" ? request.body.apiKey.trim() : "";
+      const policies = request.body.organizations;
+      const organizationIds = new Set(store.organizations.map((organization) => organization.id));
+      const validPolicies = Array.isArray(policies)
+        && policies.length === organizationIds.size
+        && new Set(policies.map((policy) => policy?.organizationId)).size === organizationIds.size
+        && policies.every((policy) => organizationIds.has(policy?.organizationId) && typeof policy.enabled === "boolean" && Number.isSafeInteger(policy.monthlyLimit) && policy.monthlyLimit >= 0);
+      if (!aiProviderModels[provider]?.has(model) || !validPolicies) return response.status(400).json({ message: "AI 제공자, 모델, 조직별 사용 권한과 월간 한도를 확인해주세요." });
+      if (apiKey && !aiSettingsEncryptionKey) return response.status(503).json({ message: "API 키 암호화 환경변수(AI_SETTINGS_ENCRYPTION_KEY)가 설정되지 않았습니다." });
+      const usageMonth = currentUsageMonth();
+      const nextPolicies = Object.fromEntries(policies.map((policy) => {
+        const current = store.organizationAiPolicies[policy.organizationId];
+        return [policy.organizationId, {
+          enabled: policy.enabled,
+          monthlyLimit: policy.monthlyLimit,
+          monthlyUsage: current?.usageMonth === usageMonth && Number.isSafeInteger(current.monthlyUsage) ? current.monthlyUsage : 0,
+          usageMonth
+        }];
+      }));
+      await store.updateSystemPolicies({ aiProvider: provider, aiModel: model, ...(apiKey ? { aiEncryptedApiKey: encryptAiApiKey(apiKey) } : {}) });
+      await store.updateOrganizationAiPolicies(nextPolicies);
+      return response.json(publicAiSettings());
     } catch (error) {
       return next(error);
     }

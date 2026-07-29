@@ -6,9 +6,9 @@ import test from "node:test";
 import { createApp } from "../src/app.mjs";
 import { createStore } from "../src/store.mjs";
 
-const startServer = async () => {
+const startServer = async (options = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "aivle-api-"));
-  const app = await createApp({ databasePath: join(directory, "database.json") });
+  const app = await createApp({ ...options, databasePath: join(directory, "database.json") });
   const server = app.listen(0);
   await new Promise((resolveReady) => server.once("listening", resolveReady));
   const address = server.address();
@@ -350,4 +350,72 @@ test("scopes exam policies to the supervising manager's organization", async (co
   assert.equal(outOfScope.status, 403);
   const adminPolicies = await fetch(`${baseUrl}/api/admin/policies`, { headers });
   assert.equal(adminPolicies.status, 403);
+});
+
+test("allows only ADMIN to manage AI provider settings and organization limits", async (context) => {
+  const { baseUrl, directory, server } = await startServer();
+  context.after(() => server.close());
+  const login = async (email, role) => (await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "123", role }) })).json());
+  const admin = await login("admin@aivle.com", "ADMIN");
+  const manager = await login("supervisor@aivle.com", "MANAGER");
+  const managerHeaders = { Authorization: `Bearer ${manager.token}` };
+  assert.equal((await fetch(`${baseUrl}/api/admin/ai-settings`, { headers: managerHeaders })).status, 403);
+
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const initialResponse = await fetch(`${baseUrl}/api/admin/ai-settings`, { headers });
+  assert.equal(initialResponse.status, 200);
+  const initial = await initialResponse.json();
+  assert.equal(typeof initial.apiKeyConfigured, "boolean");
+  assert.equal(Object.hasOwn(initial, "apiKey"), false);
+  assert.equal(initial.organizations.length, 2);
+
+  const invalid = await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers, body: JSON.stringify({ ...initial, provider: "", organizations: initial.organizations }) });
+  assert.equal(invalid.status, 400);
+  const invalidLimit = await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers, body: JSON.stringify({ provider: "OpenAI", model: "gpt-4o-mini", organizations: initial.organizations.map((organization) => ({ ...organization, monthlyLimit: -1 })) }) });
+  assert.equal(invalidLimit.status, 400);
+
+  const organization = initial.organizations[0];
+  const update = await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers, body: JSON.stringify({ provider: "OpenAI", model: "gpt-4.1-mini", organizations: initial.organizations.map((item) => ({ organizationId: item.organizationId, enabled: item.organizationId === organization.organizationId, monthlyLimit: item.organizationId === organization.organizationId ? 120 : 0 })) }) });
+  assert.equal(update.status, 200);
+  const saved = await update.json();
+  assert.equal(saved.model, "gpt-4.1-mini");
+  assert.deepEqual(saved.organizations.find((item) => item.organizationId === organization.organizationId), { ...organization, enabled: true, monthlyLimit: 120 });
+
+  const database = JSON.parse(await readFile(join(directory, "database.json"), "utf8"));
+  assert.equal(database.systemPolicies.aiModel, "gpt-4.1-mini");
+  assert.equal(database.organizationAiPolicies[organization.organizationId].monthlyLimit, 120);
+  assert.equal(JSON.stringify(database).includes("AI_API_KEY"), false);
+});
+
+test("reuses organization AI policy for quota consumption and monthly reset", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aivle-ai-quota-"));
+  const store = await createStore(join(directory, "database.json"));
+  await store.updateOrganizationAiPolicies({
+    "org-aivle-cs": { enabled: true, monthlyLimit: 1, monthlyUsage: 0, usageMonth: "2026-07" },
+    "org-data-lab": { enabled: false, monthlyLimit: 10, monthlyUsage: 0, usageMonth: "2026-07" }
+  });
+  assert.equal((await store.consumeOrganizationAiQuota("org-data-lab", "2026-07")).reason, "ORGANIZATION_AI_DISABLED");
+  assert.equal((await store.consumeOrganizationAiQuota("org-aivle-cs", "2026-07")).allowed, true);
+  assert.equal((await store.consumeOrganizationAiQuota("org-aivle-cs", "2026-07")).reason, "MONTHLY_AI_LIMIT_EXCEEDED");
+  const nextMonth = await store.consumeOrganizationAiQuota("org-aivle-cs", "2026-08");
+  assert.equal(nextMonth.allowed, true);
+  assert.equal(nextMonth.policy.monthlyUsage, 1);
+  assert.equal(nextMonth.policy.usageMonth, "2026-08");
+});
+
+test("encrypts an API key registered by an ADMIN without returning it", async (context) => {
+  const { baseUrl, directory, server } = await startServer({ aiSettingsEncryptionKey: "test-encryption-key" });
+  context.after(() => server.close());
+  const login = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123", role: "ADMIN" }) });
+  const admin = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const initial = await (await fetch(`${baseUrl}/api/admin/ai-settings`, { headers })).json();
+  const response = await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers, body: JSON.stringify({ provider: initial.provider, model: initial.model, apiKey: "secret-ai-key", organizations: initial.organizations }) });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.apiKeyConfigured, true);
+  assert.equal(Object.hasOwn(payload, "apiKey"), false);
+  const database = await readFile(join(directory, "database.json"), "utf8");
+  assert.equal(database.includes("secret-ai-key"), false);
+  assert.equal(database.includes("aiEncryptedApiKey"), true);
 });

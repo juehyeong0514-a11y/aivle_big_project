@@ -19,9 +19,12 @@ const collectionDefaults = {
   organizationJoinRequests: [],
   sessions: [],
   emailVerifications: [],
+  organizationAiPolicies: {},
   systemPolicies: {
     invitationExpiryHours: 24,
     aiAnalysisEnabled: true,
+    aiProvider: "OpenAI",
+    aiModel: "gpt-4o-mini",
     cheatDetection: {
       gazeWarningEnabled: true,
       audioDetectionEnabled: true,
@@ -151,11 +154,26 @@ export const createStore = async (filePath) => {
     get organizationJoinRequests() { return data.organizationJoinRequests; },
     get sessions() { return data.sessions; },
     get emailVerifications() { return data.emailVerifications; },
+    get organizationAiPolicies() { return data.organizationAiPolicies; },
     get systemPolicies() { return data.systemPolicies; },
     updateSystemPolicies: async (patch) => {
       data.systemPolicies = { ...data.systemPolicies, ...patch };
       await queuedSave();
       return data.systemPolicies;
+    },
+    updateOrganizationAiPolicies: async (policies) => {
+      data.organizationAiPolicies = clone(policies);
+      await queuedSave();
+      return data.organizationAiPolicies;
+    },
+    consumeOrganizationAiQuota: async (organizationId, usageMonth) => {
+      const policy = data.organizationAiPolicies[organizationId];
+      if (!policy?.enabled) return { allowed: false, reason: "ORGANIZATION_AI_DISABLED" };
+      const monthlyUsage = policy.usageMonth === usageMonth ? policy.monthlyUsage : 0;
+      if (monthlyUsage >= policy.monthlyLimit) return { allowed: false, reason: "MONTHLY_AI_LIMIT_EXCEEDED" };
+      data.organizationAiPolicies[organizationId] = { ...policy, monthlyUsage: monthlyUsage + 1, usageMonth };
+      await queuedSave();
+      return { allowed: true, policy: clone(data.organizationAiPolicies[organizationId]) };
     },
     addUser: async ({ password, ...user }) => {
       data.users.push({ ...user, passwordHash: await hashPassword(password) });
