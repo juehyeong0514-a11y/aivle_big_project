@@ -665,10 +665,6 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
         await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
         return response.status(502).json({ message: "초대 메일 전송에 실패했습니다." });
       }
-      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.RESEND_API_KEY || process.env.RESEND_FROM_EMAIL)) {
-        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
-        return response.status(503).json({ message: "Resend 이메일 서비스가 아직 설정되지 않았습니다." });
-      }
       const safePreviews = previews.map(({ oneTimeToken, ...preview }) => preview);
       return response.status(201).json({ count: safePreviews.length, deliveryStatus, mailPreviews: safePreviews });
     } catch (error) {
