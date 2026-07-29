@@ -34,15 +34,15 @@ const SUPERVISOR_GROUPS = [
     items: [
       { key: 'MANAGER_WORKSPACE', label: '조직 운영', icon: Users },
       { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
-      { key: 'EXAM_STATUS', label: '응시자 현황 관리', icon: BarChart3 }
+      { key: 'EXAM_STATUS', label: '응시자 현황 관리', icon: BarChart3 },
+      { key: 'AI_REPORTS', label: '응시자 결과 관리', icon: FileText }
     ]
   },
   {
     label: '실시간 관제 및 검토', icon: Monitor,
     items: [
       { key: 'LIVE_MONITORING', label: '실시간 화상 관제', icon: Monitor },
-      { key: 'CHEAT_LOGS', label: '부정행위 감지 로그', icon: AlertTriangle },
-      { key: 'AI_REPORTS', label: '응시자 AI 리포트 검토', icon: FileText }
+      { key: 'CHEAT_LOGS', label: '부정행위 감지 로그', icon: AlertTriangle }
     ]
   }
 ];
@@ -171,7 +171,7 @@ export default function Header() {
             <div className="header-user-badge">
               <User size={14} color={isAdmin ? '#7c3aed' : isSupervisor ? '#16a34a' : '#2563EB'} />
               <span>
-                {userName}님 ({isAdmin ? 'ADMIN' : isSupervisor ? '관리자' : '응시자'})
+                {userName}님{!isAdmin && ` (${isSupervisor ? '감독관' : '응시자'})`}
               </span>
             </div>
             <button type="button" className="logout-btn header-logout-btn" onClick={handleLogout}>
