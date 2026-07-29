@@ -106,7 +106,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
   const candidateFailures = new Map();
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
-  const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN ?? "http://localhost:5174";
+  const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || "https://aivle-frontend-gakg.onrender.com";
 
   app.use(express.json({ limit: "1mb" }));
   app.use((request, response, next) => {
@@ -669,7 +669,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json") }
         await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString() })));
         return response.status(503).json({ message: "Resend 이메일 서비스가 아직 설정되지 않았습니다." });
       }
-      const safePreviews = previews.map(({ oneTimeToken, entryLink, ...preview }) => ({ ...preview, entryLink: process.env.NODE_ENV === "production" ? publicWebOrigin + "/invite/[메일 전송 전용 토큰]" : entryLink }));
+      const safePreviews = previews.map(({ oneTimeToken, ...preview }) => preview);
       return response.status(201).json({ count: safePreviews.length, deliveryStatus, mailPreviews: safePreviews });
     } catch (error) {
       return next(error);
