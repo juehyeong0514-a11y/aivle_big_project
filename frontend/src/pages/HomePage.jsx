@@ -6,6 +6,7 @@ const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
 const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
 const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
+const NoticeManagementTab = lazy(() => import('../admin/NoticeManagementTab'));
 const ManagerWorkspaceTab = lazy(() => import('../manager/ManagerWorkspaceTab'));
 
 // 🌟 응시자 전용 탭 컴포넌트 임포트
@@ -68,6 +69,7 @@ export default function HomePage() {
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
             {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
+            {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
           </div>
         )}
 
@@ -78,6 +80,7 @@ export default function HomePage() {
           <div>
             {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
             {activeTab === 'EXAMS' && <SupervisorExamDashboard />}
+            {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}

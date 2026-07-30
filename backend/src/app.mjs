@@ -289,7 +289,72 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
 
   app.get("/api/health", (_request, response) => response.json({ status: "ok" }));
   app.get("/api/exams", (_request, response) => response.status(403).json({ message: "시험은 초대 메일의 링크로만 입장할 수 있습니다." }));
-  app.get("/api/notices", (_request, response) => response.json(store.notices));
+  const publicNotice = (notice) => ({
+    id: notice.id,
+    title: notice.title,
+    content: notice.content ?? "",
+    category: notice.category ?? "GENERAL",
+    scope: notice.scope ?? "GLOBAL",
+    organizationId: notice.organizationId ?? null,
+    examId: notice.examId ?? null,
+    organizationName: notice.organizationId ? store.organizations.find((item) => item.id === notice.organizationId)?.name ?? null : null,
+    examTitle: notice.examId ? store.exams.find((item) => item.id === notice.examId)?.title ?? null : null,
+    pinned: Boolean(notice.pinned),
+    publishedAt: notice.publishedAt ?? notice.date ?? null,
+    publishStartAt: notice.publishStartAt ?? null,
+    publishEndAt: notice.publishEndAt ?? null,
+    viewCount: notice.viewCount ?? 0,
+    createdAt: notice.createdAt ?? null,
+    updatedAt: notice.updatedAt ?? null
+  });
+  const isPublishedNotice = (notice, now = new Date()) =>
+    (!notice.publishStartAt || new Date(notice.publishStartAt) <= now)
+    && (!notice.publishEndAt || new Date(notice.publishEndAt) >= now);
+  const noticeSort = (first, second) =>
+    Number(Boolean(second.pinned)) - Number(Boolean(first.pinned))
+    || new Date(second.publishedAt ?? second.date ?? 0) - new Date(first.publishedAt ?? first.date ?? 0);
+  const normalizeNoticeInput = (body) => {
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const content = typeof body.content === "string" ? body.content.trim() : "";
+    const categories = new Set(["GENERAL", "EXAM", "MAINTENANCE", "URGENT"]);
+    const category = categories.has(body.category) ? body.category : "GENERAL";
+    const parseOptionalDate = (value) => {
+      if (!value) return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+    };
+    return {
+      title,
+      content,
+      category,
+      pinned: body.pinned === true,
+      publishStartAt: parseOptionalDate(body.publishStartAt),
+      publishEndAt: parseOptionalDate(body.publishEndAt)
+    };
+  };
+
+  app.get("/api/notices", (request, response) => {
+    const query = String(request.query.q ?? "").trim().toLowerCase();
+    const category = String(request.query.category ?? "").trim();
+    const notices = store.notices
+      .filter((notice) => (notice.scope ?? "GLOBAL") === "GLOBAL")
+      .filter((notice) => isPublishedNotice(notice))
+      .filter((notice) => !category || category === "ALL" || (notice.category ?? "GENERAL") === category)
+      .filter((notice) => !query || `${notice.title} ${notice.content ?? ""}`.toLowerCase().includes(query))
+      .sort(noticeSort)
+      .map(publicNotice);
+    response.json(notices);
+  });
+  app.get("/api/notices/:id", async (request, response, next) => {
+    try {
+      const notice = store.notices.find((item) => item.id === request.params.id);
+      if (!notice || (notice.scope ?? "GLOBAL") !== "GLOBAL" || !isPublishedNotice(notice)) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      const updated = await store.updateNotice(notice.id, { viewCount: (notice.viewCount ?? 0) + 1 });
+      return response.json(publicNotice(updated));
+    } catch (error) {
+      return next(error);
+    }
+  });
 
   app.post("/api/auth/email-verification/send", async (request, response, next) => {
     try {
@@ -475,6 +540,36 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/applicant/session", authenticateApplicant, (request, response) => {
     const { invitation, candidate, exam } = request.applicantSession;
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt });
+  });
+  app.get("/api/applicant/notices", authenticateApplicant, (request, response) => {
+    const { exam } = request.applicantSession;
+    return response.json(store.notices
+      .filter((notice) => {
+        const scope = notice.scope ?? "GLOBAL";
+        return scope === "GLOBAL"
+          || (scope === "ORGANIZATION" && notice.organizationId === exam.organizationId)
+          || (scope === "EXAM" && notice.examId === exam.id);
+      })
+      .filter((notice) => isPublishedNotice(notice))
+      .sort(noticeSort)
+      .map(publicNotice));
+  });
+  app.get("/api/applicant/notices/:id", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { exam } = request.applicantSession;
+      const notice = store.notices.find((item) => item.id === request.params.id);
+      const scope = notice?.scope ?? "GLOBAL";
+      const canView = notice && (
+        scope === "GLOBAL"
+        || (scope === "ORGANIZATION" && notice.organizationId === exam.organizationId)
+        || (scope === "EXAM" && notice.examId === exam.id)
+      );
+      if (!canView || !isPublishedNotice(notice)) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      const updated = await store.updateNotice(notice.id, { viewCount: (notice.viewCount ?? 0) + 1 });
+      return response.json(publicNotice(updated));
+    } catch (error) {
+      return next(error);
+    }
   });
   app.put("/api/applicant/media-status", authenticateApplicant, async (request, response, next) => {
     try {
@@ -698,6 +793,44 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/admin/users", authenticate, requireRole("ADMIN"), (_request, response) => {
     response.json(store.users.filter((user) => isManagerRole(user.role)).map(publicUser));
+  });
+  app.get("/api/admin/notices", authenticate, requireRole("ADMIN"), (_request, response) =>
+    response.json([...store.notices].sort(noticeSort).map(publicNotice)));
+  app.post("/api/admin/notices", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const input = normalizeNoticeInput(request.body);
+      if (!input.title || !input.content) return response.status(400).json({ message: "공지 제목과 내용을 입력해주세요." });
+      if (input.publishStartAt === undefined || input.publishEndAt === undefined) return response.status(400).json({ message: "게시 기간을 올바르게 입력해주세요." });
+      if (input.publishStartAt && input.publishEndAt && new Date(input.publishStartAt) > new Date(input.publishEndAt)) return response.status(400).json({ message: "게시 종료일은 시작일 이후여야 합니다." });
+      const now = new Date().toISOString();
+      const notice = await store.addNotice({ id: randomUUID(), ...input, scope: "GLOBAL", organizationId: null, examId: null, publishedAt: input.publishStartAt ?? now, viewCount: 0, authorId: request.user.id, createdAt: now, updatedAt: now });
+      return response.status(201).json(publicNotice(notice));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/admin/notices/:id", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const existing = store.notices.find((item) => item.id === request.params.id);
+      if (!existing) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      const input = normalizeNoticeInput({ ...existing, ...request.body });
+      if (!input.title || !input.content) return response.status(400).json({ message: "공지 제목과 내용을 입력해주세요." });
+      if (input.publishStartAt === undefined || input.publishEndAt === undefined) return response.status(400).json({ message: "게시 기간을 올바르게 입력해주세요." });
+      if (input.publishStartAt && input.publishEndAt && new Date(input.publishStartAt) > new Date(input.publishEndAt)) return response.status(400).json({ message: "게시 종료일은 시작일 이후여야 합니다." });
+      const notice = await store.updateNotice(existing.id, { ...input, publishedAt: input.publishStartAt ?? existing.publishedAt ?? existing.date ?? new Date().toISOString(), updatedAt: new Date().toISOString() });
+      return response.json(publicNotice(notice));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/admin/notices/:id", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const removed = await store.removeNotice(request.params.id);
+      if (!removed) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      return response.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
   });
   app.patch("/api/admin/users/:id/status", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
@@ -1048,6 +1181,68 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       questionCount: store.questions.filter((question) => question.examId === exam.id).length,
       examineeCount: store.assignments.filter((assignment) => assignment.examId === exam.id).length
     })));
+  });
+  app.get("/api/manager/notices", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    response.json(store.notices
+      .filter((notice) => notice.organizationId && organizationIds.includes(notice.organizationId))
+      .sort(noticeSort)
+      .map(publicNotice));
+  });
+  const managerNoticeTarget = (request) => {
+    const scope = request.body.scope === "EXAM" ? "EXAM" : "ORGANIZATION";
+    const organizationId = typeof request.body.organizationId === "string" ? request.body.organizationId : "";
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    if (!organizationIds.includes(organizationId)) return { error: "배정된 조직의 공지만 관리할 수 있습니다.", status: 403 };
+    if (scope === "EXAM") {
+      const exam = store.exams.find((item) => item.id === request.body.examId && item.organizationId === organizationId);
+      if (!exam) return { error: "선택한 조직에 속한 시험을 찾을 수 없습니다.", status: 400 };
+      return { scope, organizationId, examId: exam.id };
+    }
+    return { scope, organizationId, examId: null };
+  };
+  app.post("/api/manager/notices", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const target = managerNoticeTarget(request);
+      if (target.error) return response.status(target.status).json({ message: target.error });
+      const input = normalizeNoticeInput(request.body);
+      if (!input.title || !input.content) return response.status(400).json({ message: "공지 제목과 내용을 입력해주세요." });
+      if (input.publishStartAt === undefined || input.publishEndAt === undefined) return response.status(400).json({ message: "게시 기간을 올바르게 입력해주세요." });
+      if (input.publishStartAt && input.publishEndAt && new Date(input.publishStartAt) > new Date(input.publishEndAt)) return response.status(400).json({ message: "게시 종료일은 시작일 이후여야 합니다." });
+      const now = new Date().toISOString();
+      const notice = await store.addNotice({ id: randomUUID(), ...input, ...target, publishedAt: input.publishStartAt ?? now, viewCount: 0, authorId: request.user.id, createdAt: now, updatedAt: now });
+      return response.status(201).json(publicNotice(notice));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/manager/notices/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const existing = store.notices.find((item) => item.id === request.params.id);
+      if (!existing) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      if (!existing.organizationId || !organizationIds.includes(existing.organizationId)) return response.status(403).json({ message: "다른 조직의 공지는 수정할 수 없습니다." });
+      const target = managerNoticeTarget(request);
+      if (target.error) return response.status(target.status).json({ message: target.error });
+      const input = normalizeNoticeInput({ ...existing, ...request.body });
+      if (!input.title || !input.content) return response.status(400).json({ message: "공지 제목과 내용을 입력해주세요." });
+      const notice = await store.updateNotice(existing.id, { ...input, ...target, publishedAt: input.publishStartAt ?? existing.publishedAt, updatedAt: new Date().toISOString() });
+      return response.json(publicNotice(notice));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/notices/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const existing = store.notices.find((item) => item.id === request.params.id);
+      if (!existing) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      if (!existing.organizationId || !organizationIds.includes(existing.organizationId)) return response.status(403).json({ message: "다른 조직의 공지는 삭제할 수 없습니다." });
+      await store.removeNotice(existing.id);
+      return response.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
   });
   app.post("/api/manager/exams", authenticate, requireManager, async (request, response, next) => {
     try {
