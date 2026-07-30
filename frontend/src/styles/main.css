@@ -1808,7 +1808,7 @@ main {
   .header-tab-btn { padding-inline: 10px; }
   .logo-title { max-width: 230px; font-size: 14px; }
 }
-@media (max-width: 1080px) {
+@media (max-width: 1280px) {
   .header { height: 64px; min-height: 64px; padding-inline: 12px; }
   .header-left-group { gap: 8px; }
   .header-nav { flex-shrink: 0; }
