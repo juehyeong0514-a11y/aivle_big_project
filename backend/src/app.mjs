@@ -128,6 +128,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
   const candidateFailures = new Map();
+  const liveSessions = new Map();
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
@@ -299,6 +300,55 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/applicant/session", authenticateApplicant, (request, response) => {
     const { invitation, candidate, exam } = request.applicantSession;
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt });
+  });
+  app.put("/api/applicant/media-status", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const media = request.body.media && typeof request.body.media === "object" ? request.body.media : {};
+      const mediaStatus = {
+        webcam: Boolean(media.webcam),
+        microphone: Boolean(media.microphone),
+        screen: Boolean(media.screen),
+        auxiliaryCamera: Boolean(media.auxiliaryCamera),
+        updatedAt: new Date().toISOString()
+      };
+      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+      if (!examinee) {
+        examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전", mediaStatus };
+        await store.addExaminee(examinee);
+      } else await store.updateExaminee(examinee.id, { mediaStatus });
+      return response.json({ mediaStatus });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.put("/api/applicant/monitoring-snapshot", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const image = typeof request.body.image === "string" ? request.body.image : "";
+      if (!image.startsWith("data:image/") || image.length > 120000) return response.status(400).json({ message: "모니터링 화면 형식이 올바르지 않습니다." });
+      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+      if (!examinee) {
+        examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" };
+        await store.addExaminee(examinee);
+      }
+      await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: new Date().toISOString() } });
+      return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/applicant/live-offers", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const session = [...liveSessions.values()].find((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.answer && Date.now() - item.createdAt < 30000);
+    return response.json(session ? { id: session.id, offer: session.offer } : null);
+  });
+  app.post("/api/applicant/live-offers/:id/answer", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const session = liveSessions.get(request.params.id);
+    if (!session || session.examId !== exam.id || session.candidateId !== candidate.id || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "라이브 연결 요청을 찾을 수 없습니다." });
+    session.answer = request.body.answer;
+    return response.sendStatus(204);
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
@@ -888,6 +938,19 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         return examinee ?? { id: `assignment-${assignment.examId}-${candidate.id}`, candidateId: candidate.id, name: candidate.name, organizationId: candidate.organizationId, examId: assignment.examId, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" };
       });
     return response.json(assignedCandidates);
+  });
+  app.post("/api/supervisor/examinees/:id/live-offers", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
+    if (!examinee || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "라이브 연결 대상을 확인해주세요." });
+    const id = randomUUID();
+    liveSessions.set(id, { id, examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    return response.status(201).json({ id });
+  });
+  app.get("/api/supervisor/live-offers/:id", authenticate, requireManager, (request, response) => {
+    const session = liveSessions.get(request.params.id);
+    if (!session || Date.now() - session.createdAt >= 30000) return response.status(404).json({ message: "라이브 연결 요청이 만료되었습니다." });
+    return response.json({ answer: session.answer ?? null });
   });
   app.post("/api/supervisor/examinees/:id/warnings", authenticate, requireManager, async (request, response, next) => {
     try {
