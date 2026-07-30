@@ -29,9 +29,20 @@ class OCRResponse(BaseModel):
     nameMatched: bool
 
 
+class CardDetectionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    image: str = Field(min_length=32, max_length=5_000_000)
+
+
+class CardDetectionResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    aligned: bool
+
+
 @dataclass(frozen=True, slots=True)
 class DetectedCard:
     image: np.ndarray
+    aligned: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +108,12 @@ class IdentityOCRService:
         crop = image[max(y1, 0):min(y2, height), max(x1, 0):min(x2, width)]
         if crop.size == 0:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="신분증 영역을 자르지 못했습니다. 다시 촬영해주세요.")
-        return DetectedCard(image=crop)
+        center_x = (x1 + x2) / (2 * width)
+        center_y = (y1 + y2) / (2 * height)
+        card_width = (x2 - x1) / width
+        card_height = (y2 - y1) / height
+        aligned = abs(center_x - 0.5) <= 0.18 and abs(center_y - 0.5) <= 0.18 and 0.32 <= card_width <= 0.92 and 0.12 <= card_height <= 0.7
+        return DetectedCard(image=crop, aligned=aligned)
 
     def recognize_identity(self, card: DetectedCard, expected_name: str) -> RecognizedIdentity:
         recognized_text = " ".join(extract_text(result) for result in self._ocr.predict(card.image))
@@ -124,16 +140,32 @@ def get_service() -> IdentityOCRService:
     return service
 
 
+def require_service_token(authorization: str | None) -> None:
+    expected_token = os.environ.get("ID_CARD_SERVICE_TOKEN")
+    if expected_token and authorization != f"Bearer {expected_token}":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OCR 서비스 인증에 실패했습니다.")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/ocr/id-card/detect", response_model=CardDetectionResponse)
+def detect_id_card(payload: CardDetectionRequest, authorization: str | None = Header(default=None)) -> CardDetectionResponse:
+    require_service_token(authorization)
+    try:
+        card = get_service().detect_card(decode_data_url(payload.image))
+    except HTTPException as error:
+        if error.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+            return CardDetectionResponse(aligned=False)
+        raise
+    return CardDetectionResponse(aligned=card.aligned)
+
+
 @app.post("/ocr/id-card", response_model=OCRResponse)
 def recognize_id_card(payload: OCRRequest, authorization: str | None = Header(default=None)) -> OCRResponse:
-    expected_token = os.environ.get("ID_CARD_SERVICE_TOKEN")
-    if expected_token and authorization != f"Bearer {expected_token}":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OCR 서비스 인증에 실패했습니다.")
+    require_service_token(authorization)
     ocr_service = get_service()
     card = ocr_service.detect_card(decode_data_url(payload.image))
     identity = ocr_service.recognize_identity(card, payload.expectedName)

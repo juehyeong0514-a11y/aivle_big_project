@@ -91,9 +91,9 @@ const nameMatchedFromOcr = (payload, expectedName) => {
   const expected = normalizeIdentityName(expectedName);
   return normalizeIdentityName(recognizedName) === expected || normalizeIdentityName(recognizedText).includes(expected);
 };
-const verifyIdCardWithOcr = async (image, expectedName) => {
-  const endpoint = process.env.ID_CARD_OCR_URL?.trim();
-  if (!endpoint) {
+const requestIdCardOcr = async (path, payload) => {
+  const baseEndpoint = process.env.ID_CARD_OCR_URL?.trim().replace(/\/$/, "");
+  if (!baseEndpoint) {
     const error = new Error("신분증 OCR 모델이 아직 설정되지 않았습니다. 서버 환경변수 ID_CARD_OCR_URL을 등록해주세요.");
     error.status = 503;
     throw error;
@@ -101,18 +101,29 @@ const verifyIdCardWithOcr = async (image, expectedName) => {
   const headers = { "Content-Type": "application/json" };
   const apiKey = process.env.ID_CARD_OCR_API_KEY?.trim();
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const ocrResponse = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ image, expectedName }),
-    signal: AbortSignal.timeout(20_000)
-  });
-  if (!ocrResponse.ok) {
-    const error = new Error("신분증 OCR 모델이 이미지를 처리하지 못했습니다.");
-    error.status = 502;
+  let ocrResponse;
+  try {
+    ocrResponse = await fetch(`${baseEndpoint}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90_000)
+    });
+  } catch {
+    const error = new Error("신분증 OCR 서비스에 연결하지 못했습니다. OCR 서비스 배포 상태와 주소를 확인해주세요.");
+    error.status = 503;
     throw error;
   }
-  const payload = await ocrResponse.json();
+  if (!ocrResponse.ok) {
+    const result = await ocrResponse.json().catch(() => ({}));
+    const error = new Error(typeof result?.detail === "string" ? result.detail : "신분증 OCR 모델이 이미지를 처리하지 못했습니다.");
+    error.status = ocrResponse.status >= 500 ? 502 : ocrResponse.status;
+    throw error;
+  }
+  return ocrResponse.json();
+};
+const verifyIdCardWithOcr = async (image, expectedName) => {
+  const payload = await requestIdCardOcr("", { image, expectedName });
   const residentNumberFront = residentNumberFrontFromOcr(payload);
   if (!residentNumberFront) {
     const error = new Error("신분증에서 주민번호 앞 6자리를 읽지 못했습니다. 빛 반사를 피해서 다시 촬영해주세요.");
@@ -121,6 +132,7 @@ const verifyIdCardWithOcr = async (image, expectedName) => {
   }
   return { residentNumberFront, nameMatched: nameMatchedFromOcr(payload, expectedName) };
 };
+const detectIdCardWithOcr = async (image) => requestIdCardOcr("/detect", { image });
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
 const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
 const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
@@ -731,6 +743,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const scan = idCardScans.get(request.params.token);
       if (!scan || scan.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 신분증 QR 코드입니다." });
       return response.json(await submitIdCardScan(scan, typeof request.body.image === "string" ? request.body.image : ""));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/mobile-id-scans/:token/detect", async (request, response, next) => {
+    try {
+      const scan = idCardScans.get(request.params.token);
+      if (!scan || scan.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 신분증 QR 코드입니다." });
+      const image = typeof request.body.image === "string" ? request.body.image : "";
+      return response.json(await detectIdCardWithOcr(image));
     } catch (error) {
       return next(error);
     }
@@ -1896,7 +1918,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
 
   app.use((error, _request, response, _next) => {
     console.error(error);
-    response.status(error instanceof SyntaxError && error.status === 400 ? 400 : 500).json({ message: error instanceof SyntaxError && error.status === 400 ? "요청 형식이 올바르지 않습니다." : "서버 오류가 발생했습니다." });
+    const statusCode = error instanceof SyntaxError && error.status === 400 ? 400 : Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 500;
+    const message = statusCode === 500 ? "서버 오류가 발생했습니다." : typeof error?.message === "string" ? error.message : "요청을 처리하지 못했습니다.";
+    response.status(statusCode).json({ message });
   });
   return app;
 };
