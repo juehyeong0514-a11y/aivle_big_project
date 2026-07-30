@@ -132,6 +132,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
   const candidateFailures = new Map();
+  const liveSessions = new Map();
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
@@ -145,6 +146,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organization = store.organizations.find((item) => item.id === invitation.organizationId);
     const exam = store.exams.find((item) => item.id === invitation.examId);
     const candidate = store.candidates.find((item) => item.id === invitation.candidateId);
+    const assignment = store.assignments.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId);
+    const examinee = store.examinees.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId);
+    const gradingRequest = store.aiGradingRequests.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId && ["PENDING", "PROCESSING", "COMPLETED", "FAILED"].includes(item.status));
+    const examProgress = invitation.submittedAt ? "SUBMITTED" : invitation.verifiedAt ? "IN_PROGRESS" : "NOT_STARTED";
+    const diagnosisStatus = !invitation.submittedAt ? "NOT_READY" : assignment?.aiGradingStatus === "COMPLETED" || gradingRequest?.status === "COMPLETED" ? "COMPLETED" : gradingRequest?.status ?? "NOT_REQUESTED";
     return {
       id: invitation.id,
       organizationId: invitation.organizationId,
@@ -161,7 +167,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       revokedAt: invitation.revokedAt,
       revokedReason: invitation.revokedReason,
       deliveryStatus: invitation.deliveryStatus ?? "PREVIEW",
-      status: invitationStatus(invitation)
+      status: invitationStatus(invitation),
+      examProgress,
+      examineeStatus: examinee?.status ?? "NOT_STARTED",
+      examineeStatusText: examinee?.statusText ?? "미접속",
+      diagnosisStatus,
+      resultStatus: assignment?.resultStatus ?? "NOT_SUBMITTED"
     };
   };
   const addInvitationAudit = (action, actor, details = {}) => store.addInvitationAuditLog({ id: randomUUID(), action, actorId: actor.id, actorName: actor.name, createdAt: new Date().toISOString(), ...details });
@@ -264,11 +275,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   };
 
   app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: false }));
   app.use((request, response, next) => {
     const origin = request.header("origin");
     if (origin && allowedOrigins.has(origin)) response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    response.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     response.setHeader("Vary", "Origin");
     if (request.method === "OPTIONS") return response.sendStatus(204);
     return next();
@@ -405,7 +417,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const user = { id: randomUUID(), name: name.trim(), email, password, role: "MANAGER", approvalStatus: "PENDING", organizationIds: [] };
       await store.addUser(user);
       await store.updateEmailVerification(verification.id, { consumedAt: new Date().toISOString() });
-      return response.status(201).json({ user: publicUser(user), message: "관리자 가입 신청이 접수되었습니다. ADMIN 승인 후 로그인할 수 있습니다." });
+      return response.status(201).json({ user: publicUser(user), message: "관리자 가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다." });
     } catch (error) {
       return next(error);
     }
@@ -421,7 +433,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const user = store.users.find((candidate) => candidate.email === email);
       const roleMatches = user && (!role || user.role === role || (isManagerRole(user.role) && isManagerRole(role)));
       if (!roleMatches || user.role === "APPLICANT" || role === "APPLICANT" || user.approvalStatus !== "APPROVED" || !(await verifyPassword(password ?? "", user.passwordHash))) {
-        if (user && user.approvalStatus !== "APPROVED") return response.status(403).json({ message: "ADMIN 승인 후 로그인할 수 있습니다." });
+        if (user && user.approvalStatus !== "APPROVED") return response.status(403).json({ message: "관리자 승인 후 로그인할 수 있습니다." });
         const failures = (loginFailures.get(key)?.failures ?? 0) + 1;
         loginFailures.set(key, { failures, blockedUntil: failures >= loginFailureLimit ? Date.now() + loginLockoutMs : 0 });
         return response.status(401).json({ message: "이메일, 비밀번호 또는 권한을 확인해주세요." });
@@ -461,6 +473,24 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
     request.applicantSession = { session, invitation, candidate, exam };
     return next();
+  };
+  const authenticateApplicantBeacon = (request, response, next) => {
+    const accessToken = typeof request.body?.accessToken === "string" ? request.body.accessToken : "";
+    if (accessToken && !request.header("authorization")) request.headers.authorization = "Bearer " + accessToken;
+    return authenticateApplicant(request, response, next);
+  };
+  const disconnectApplicantMedia = async ({ candidate, exam }) => {
+    const updatedAt = new Date().toISOString();
+    for (const [id, liveSession] of liveSessions) {
+      if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
+    }
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    if (examinee) {
+      await store.updateExaminee(examinee.id, {
+        mediaStatus: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt },
+        monitoringSnapshot: null
+      });
+    }
   };
   app.post("/api/auth/logout", authenticate, async (request, response) => {
     const token = request.header("authorization")?.replace("Bearer ", "");
@@ -504,6 +534,68 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     } catch (error) {
       return next(error);
     }
+  });
+  app.put("/api/applicant/media-status", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const media = request.body.media && typeof request.body.media === "object" ? request.body.media : {};
+      const mediaStatus = {
+        webcam: Boolean(media.webcam),
+        microphone: Boolean(media.microphone),
+        screen: Boolean(media.screen),
+        auxiliaryCamera: Boolean(media.auxiliaryCamera),
+        updatedAt: new Date().toISOString()
+      };
+      const disconnecting = !mediaStatus.webcam && !mediaStatus.screen;
+      if (disconnecting) {
+        await disconnectApplicantMedia({ candidate, exam });
+        return response.json({ mediaStatus });
+      }
+      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+      if (!examinee) {
+        examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전", mediaStatus };
+        await store.addExaminee(examinee);
+      } else await store.updateExaminee(examinee.id, { mediaStatus, ...(disconnecting ? { monitoringSnapshot: null } : {}) });
+      return response.json({ mediaStatus });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/applicant/media-disconnect", authenticateApplicantBeacon, async (request, response, next) => {
+    try {
+      await disconnectApplicantMedia(request.applicantSession);
+      return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.put("/api/applicant/monitoring-snapshot", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const image = typeof request.body.image === "string" ? request.body.image : "";
+      if (!image.startsWith("data:image/") || image.length > 120000) return response.status(400).json({ message: "모니터링 화면 형식이 올바르지 않습니다." });
+      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+      if (!examinee) {
+        examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" };
+        await store.addExaminee(examinee);
+      }
+      await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: new Date().toISOString() } });
+      return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/applicant/live-offers", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const session = [...liveSessions.values()].find((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.answer && Date.now() - item.createdAt < 30000);
+    return response.json(session ? { id: session.id, offer: session.offer } : null);
+  });
+  app.post("/api/applicant/live-offers/:id/answer", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const session = liveSessions.get(request.params.id);
+    if (!session || session.examId !== exam.id || session.candidateId !== candidate.id || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "라이브 연결 요청을 찾을 수 없습니다." });
+    session.answer = request.body.answer;
+    return response.sendStatus(204);
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
@@ -569,7 +661,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
       await store.updateInvitation(invitation.id, { submittedAt: now });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      if (examinee) await store.updateExaminee(examinee.id, { status: "SUBMITTED", statusText: "제출 완료", currentProb: "제출 완료" });
+      await disconnectApplicantMedia({ candidate, exam });
+      if (examinee) {
+        await store.updateExaminee(examinee.id, {
+          status: "SUBMITTED",
+          statusText: "제출 완료",
+          currentProb: "제출 완료"
+        });
+      }
       return response.json({ examId: exam.id, score, correctCount, totalCount: questions.length, status: "SUBMITTED", gradingStatus: codingQuestions.length ? "PENDING_REVIEW" : "COMPLETED" });
     } catch (error) {
       return next(error);
@@ -643,7 +742,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const cheatDetection = request.body.cheatDetection;
       const invitationSecurity = request.body.invitationSecurity;
       const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean");
-      const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && typeof invitationSecurity.revokePreviousOnResend === "boolean" && typeof invitationSecurity.blockAfterSubmission === "boolean" && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440);
+      const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440 && Number.isInteger(invitationSecurity.applicantSessionMinutes) && invitationSecurity.applicantSessionMinutes >= 30 && invitationSecurity.applicantSessionMinutes <= 480 && Number.isInteger(invitationSecurity.reverificationCooldownMinutes) && invitationSecurity.reverificationCooldownMinutes >= 0 && invitationSecurity.reverificationCooldownMinutes <= 1440);
       if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection || !validInvitationSecurity) return response.status(400).json({ message: "정책 값을 확인해주세요." });
       const previous = { invitationExpiryHours: store.systemPolicies.invitationExpiryHours, invitationSecurity: store.systemPolicies.invitationSecurity };
       const updated = await store.updateSystemPolicies({ invitationExpiryHours, aiAnalysisEnabled, ...(cheatDetection === undefined ? {} : { cheatDetection }), ...(invitationSecurity === undefined ? {} : { invitationSecurity }) });
@@ -961,7 +1060,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     response.json(store.exams.filter((exam) => organizationIds.includes(exam.organizationId)).map((exam) => ({
       ...exam,
-      questionCount: store.questions.filter((question) => question.examId === exam.id).length
+      organizationName: store.organizations.find((organization) => organization.id === exam.organizationId)?.name ?? "조직",
+      questionCount: store.questions.filter((question) => question.examId === exam.id).length,
+      examineeCount: store.assignments.filter((assignment) => assignment.examId === exam.id).length
     })));
   });
   app.get("/api/manager/notices", authenticate, requireManager, (request, response) => {
@@ -1095,7 +1196,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const normalizedAnswer = answer.trim();
       if (normalizedOptions.length < 2) return response.status(400).json({ message: "선택지는 2개 이상 입력해주세요." });
       if (!normalizedOptions.includes(normalizedAnswer)) return response.status(400).json({ message: "정답은 보기 중 하나여야 합니다." });
-      const question = { id: randomUUID(), examId: request.params.id, prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, createdAt: new Date().toISOString() };
+      const question = { id: randomUUID(), examId: request.params.id, type: "MULTIPLE_CHOICE", prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, createdAt: new Date().toISOString() };
       await store.addQuestion(question);
       return response.status(201).json(question);
     } catch (error) {
@@ -1107,7 +1208,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
       const current = store.questions.find((question) => question.id === request.params.questionId && question.examId === request.params.examId);
       if (!current) return response.status(404).json({ message: "문제를 찾을 수 없습니다." });
-      if (current.type !== "CODING" || request.body.type !== "CODING") return response.status(400).json({ message: "코딩 문제만 이 화면에서 수정할 수 있습니다." });
+      if (current.type !== "CODING" && request.body.type === "CODING") return response.status(400).json({ message: "문제 유형은 변경할 수 없습니다." });
+      if (current.type === "CODING" && request.body.type !== "CODING") return response.status(400).json({ message: "문제 유형은 변경할 수 없습니다." });
+      if (current.type !== "CODING") {
+        const { prompt, options, answer } = request.body;
+        const normalizedOptions = Array.isArray(options) ? [...new Set(options.map((option) => String(option).trim()).filter(Boolean))] : [];
+        const normalizedAnswer = typeof answer === "string" ? answer.trim() : "";
+        if (!isNonEmptyText(prompt) || normalizedOptions.length < 2 || !normalizedOptions.includes(normalizedAnswer)) return response.status(400).json({ message: "문제, 두 개 이상의 선택지, 선택지에 포함된 정답을 입력해주세요." });
+        const question = await store.updateQuestion(current.id, { type: "MULTIPLE_CHOICE", prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, updatedAt: new Date().toISOString() });
+        return response.json(question);
+      }
       const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
       const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
       const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
@@ -1123,6 +1233,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         referenceSolutions: normalizedReferenceSolutions, updatedAt: new Date().toISOString()
       });
       return response.json(question);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/exams/:examId/questions/:questionId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
+      const question = store.questions.find((item) => item.id === request.params.questionId && item.examId === request.params.examId);
+      if (!question) return response.status(404).json({ message: "문제를 찾을 수 없습니다." });
+      if (store.invitations.some((invitation) => invitation.examId === request.params.examId)) return response.status(409).json({ message: "초대 발송 이력이 있는 시험의 문제는 삭제할 수 없습니다." });
+      await store.removeQuestion(question.id);
+      return response.status(204).end();
     } catch (error) {
       return next(error);
     }
@@ -1187,7 +1309,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const createdInvitationIds = [];
       for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
         const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && invitationStatus(item) === "ACTIVE");
-        if (store.systemPolicies.invitationSecurity.revokePreviousOnResend) await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString(), revokedReason: "재발송으로 인한 자동 폐기" })));
+        await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString(), revokedReason: "재발송으로 인한 자동 폐기" })));
         const token = randomUUID();
         const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null, deliveryStatus: "PENDING" };
         await store.addInvitation(invitation);
@@ -1220,7 +1342,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/invitations/:token", (request, response) => {
     const invitation = invitationForToken(store.invitations, request.params.token);
-    if (invitation?.submittedAt && store.systemPolicies.invitationSecurity.blockAfterSubmission) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
+    if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
     if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
@@ -1229,8 +1351,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
       const invitation = invitationForToken(store.invitations, request.params.token);
-      if (invitation?.submittedAt && store.systemPolicies.invitationSecurity.blockAfterSubmission) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
+      if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
       if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
+      const cooldownMs = store.systemPolicies.invitationSecurity.reverificationCooldownMinutes * 60 * 1000;
+      if (invitation.verifiedAt && cooldownMs > 0 && Date.now() - new Date(invitation.verifiedAt).getTime() < cooldownMs) return response.status(429).json({ message: "동일 링크 재인증 제한 시간이 남아 있습니다. 잠시 후 다시 시도해주세요." });
       const failureKey = `${request.ip}:${invitation.id}`;
       const failure = candidateFailures.get(failureKey);
       if (failure && failure.blockedUntil > Date.now()) return response.status(429).json({ message: "응시번호 입력 횟수를 초과했습니다. 잠시 후 다시 시도해주세요." });
@@ -1246,7 +1370,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (existingExaminee) await store.updateExaminee(existingExaminee.id, { status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
       else await store.addExaminee({ id: randomUUID(), candidateId: invitation.candidateId, name: store.candidates.find((candidate) => candidate.id === invitation.candidateId)?.name ?? "응시자", organizationId: invitation.organizationId, examId: invitation.examId, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
       const accessToken = randomUUID();
-      const session = { tokenHash: hashToken(accessToken), role: "APPLICANT", invitationId: invitation.id, expiresAt: new Date(Date.now() + applicantSessionTtlMs).toISOString() };
+      const session = { tokenHash: hashToken(accessToken), role: "APPLICANT", invitationId: invitation.id, expiresAt: new Date(Date.now() + store.systemPolicies.invitationSecurity.applicantSessionMinutes * 60 * 1000).toISOString() };
       sessions.set(session.tokenHash, session);
       await store.updateInvitation(invitation.id, { verifiedAt: invitation.verifiedAt ?? new Date().toISOString() });
       await store.addSession(session);
@@ -1283,6 +1407,19 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         return examinee ?? { id: `assignment-${assignment.examId}-${candidate.id}`, candidateId: candidate.id, name: candidate.name, organizationId: candidate.organizationId, examId: assignment.examId, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" };
       });
     return response.json(assignedCandidates);
+  });
+  app.post("/api/supervisor/examinees/:id/live-offers", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
+    if (!examinee || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "라이브 연결 대상을 확인해주세요." });
+    const id = randomUUID();
+    liveSessions.set(id, { id, examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    return response.status(201).json({ id });
+  });
+  app.get("/api/supervisor/live-offers/:id", authenticate, requireManager, (request, response) => {
+    const session = liveSessions.get(request.params.id);
+    if (!session || Date.now() - session.createdAt >= 30000) return response.status(404).json({ message: "라이브 연결 요청이 만료되었습니다." });
+    return response.json({ answer: session.answer ?? null });
   });
   app.post("/api/supervisor/examinees/:id/warnings", authenticate, requireManager, async (request, response, next) => {
     try {

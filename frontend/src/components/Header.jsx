@@ -26,13 +26,12 @@ const ADMIN_GROUPS = [
   }
 ];
 
-// 2. 감독관(매니저) 전용 카테고리 그룹 정의
+// 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
     label: '시험 운영', icon: Users,
     items: [
-      { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
-      { key: 'EXAMS', label: '전체 시험 조회', icon: ClipboardList },
+      { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
       { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
@@ -97,10 +96,10 @@ export default function Header() {
   const getDefaultTab = () => 'HOME';
 
   const defaultTab = getDefaultTab();
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAM_MANAGEMENT' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
 
   const handleTabClick = (tabName) => {
-    if (isSupervisor && tabName === 'EXAM_MANAGEMENT') {
+    if (isSupervisor && tabName === 'EXAMS') {
       navigate('/manager/exams');
       return;
     }
@@ -152,7 +151,7 @@ export default function Header() {
               ))}
             </>
           ) : isSupervisor ? (
-            /* ================= 2. 감독관 전용 (그룹 드롭다운) ================= */
+            /* ================= 2. 매니저 전용 (그룹 드롭다운) ================= */
             <>
               <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
                 <Monitor size={16} style={{ marginRight: 6 }} /> 홈
@@ -181,7 +180,7 @@ export default function Header() {
             <div className="header-user-badge">
               <User size={14} color={isAdmin ? '#7c3aed' : isSupervisor ? '#16a34a' : '#2563EB'} />
               <span>
-                {userName}님{!isAdmin && ` (${isSupervisor ? '감독관' : '응시자'})`}
+                {userName}님{!isAdmin && ` (${isSupervisor ? '매니저' : '응시자'})`}
               </span>
             </div>
             <button type="button" className="logout-btn header-logout-btn" onClick={handleLogout}>

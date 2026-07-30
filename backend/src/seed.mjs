@@ -47,7 +47,7 @@ export const seedData = {
   organizationAiPolicies: {},
   systemPolicies: {
     invitationExpiryHours: 24,
-    invitationSecurity: { revokePreviousOnResend: true, blockAfterSubmission: true, maxVerificationAttempts: 5, verificationLockoutMinutes: 15 },
+    invitationSecurity: { maxVerificationAttempts: 5, verificationLockoutMinutes: 15, applicantSessionMinutes: 240, reverificationCooldownMinutes: 0 },
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",
     aiModel: "gpt-4o-mini",
