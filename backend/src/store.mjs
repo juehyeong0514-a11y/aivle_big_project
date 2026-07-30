@@ -278,7 +278,7 @@ const save = async () => {
       await queuedSave();
     },
     addAuxiliaryDevice: async (device) => {
-      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.expiresAt > Date.now() && !(item.examId === device.examId && item.candidateId === device.candidateId));
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.expiresAt > Date.now());
       data.auxiliaryDevices.push(device);
       await queuedSave();
       return device;
