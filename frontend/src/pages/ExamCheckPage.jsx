@@ -34,6 +34,7 @@ export default function ExamCheckPage() {
 
   // 촬영 결과
   const [idCardImage, setIdCardImage] = useState('');
+  const [idCardVerification, setIdCardVerification] = useState({ status: 'PENDING', message: '' });
   // 점검 상태
   const [idCaptureModalOpen, setIdCaptureModalOpen] = useState(false);
   const [idWebcamReady, setIdWebcamReady] = useState(false);
@@ -106,6 +107,22 @@ export default function ExamCheckPage() {
   }, [idScanToken]);
 
   useEffect(() => {
+    if (!idScanToken || idCardVerification.status === 'VERIFIED') return undefined;
+    const poll = () => {
+      api.get(`/applicant/id-card-scans/${idScanToken}`, { headers: candidateAuthHeaders() })
+        .then(({ data }) => {
+          if (data.status === 'PENDING') return;
+          setIdCardVerification({ status: data.status, message: data.message ?? '' });
+          setIdCardImage(data.image ?? '');
+        })
+        .catch(() => {});
+    };
+    poll();
+    const interval = window.setInterval(poll, 2000);
+    return () => window.clearInterval(interval);
+  }, [idCardVerification.status, idScanToken]);
+
+  useEffect(() => {
     if (!examSession) return;
     syncMediaStatus({}, { silent: true });
   }, [displayReady, examSession, qrConnected, syncMediaStatus, webcamReady]);
@@ -134,17 +151,21 @@ export default function ExamCheckPage() {
 
   // 토큰 생성 함수
   const generateNewToken = async () => {
-    const generate = () => window.crypto.randomUUID ? window.crypto.randomUUID() : `${Math.random().toString(36).substring(2)}-${Date.now().toString(36)}`;
-    setIdScanToken(generate());
+    setIdScanToken('');
     setAuxCamToken('');
 
     // 상태 초기화
     setIdCardImage('');
+    setIdCardVerification({ status: 'PENDING', message: '' });
     setQrConnected(false);
     setErrorMsg('');
     try {
-      const { data } = await api.post('/applicant/auxiliary-devices', {}, { headers: candidateAuthHeaders() });
-      setAuxCamToken(data.token);
+      const [idCardResponse, auxiliaryResponse] = await Promise.all([
+        api.post('/applicant/id-card-scans', {}, { headers: candidateAuthHeaders() }),
+        api.post('/applicant/auxiliary-devices', {}, { headers: candidateAuthHeaders() })
+      ]);
+      setIdScanToken(idCardResponse.data.token);
+      setAuxCamToken(auxiliaryResponse.data.token);
     } catch (error) {
       setErrorMsg(apiErrorMessage(error, '보조 카메라 QR 코드를 생성하지 못했습니다.'));
     }
@@ -228,10 +249,15 @@ export default function ExamCheckPage() {
   };
 
   // 촬영한 신분증 이미지 확정
-  const confirmIdCardImage = () => {
-    if (capturedIdImage) {
-      setIdCardImage(capturedIdImage);
+  const confirmIdCardImage = async () => {
+    if (!capturedIdImage || !idScanToken) return;
+    try {
+      const { data } = await api.post(`/applicant/id-card-scans/${idScanToken}/capture`, { image: capturedIdImage }, { headers: candidateAuthHeaders() });
+      setIdCardImage(data.image ?? '');
+      setIdCardVerification({ status: data.status, message: data.message ?? '' });
       closeIdCaptureModal();
+    } catch (error) {
+      setErrorMsg(apiErrorMessage(error, '신분증 생년월일을 확인하지 못했습니다.'));
     }
   };
 
@@ -308,7 +334,7 @@ export default function ExamCheckPage() {
 
   const isAllReady =
     webcamReady &&
-    Boolean(idCardImage) &&
+    idCardVerification.status === 'VERIFIED' &&
     displayReady &&
     qrConnected;
 
@@ -338,11 +364,11 @@ export default function ExamCheckPage() {
               <CreditCard size={20} color="#2563EB" />
               <h3>1. 신분증 촬영</h3>
             </div>
-            {idCardImage && <CheckCircle2 color="#16a34a" />}
+            {idCardVerification.status === 'VERIFIED' && <CheckCircle2 color="#16a34a" />}
           </div>
 
           <div className="qr-connection-box">
-            {idCardImage ? (
+            {idCardVerification.status === 'VERIFIED' && idCardImage ? (
               <img src={idCardImage} alt="촬영한 신분증" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
             ) : (
               <>
@@ -355,11 +381,11 @@ export default function ExamCheckPage() {
           <div className="identity-status-list">
             <div>
               <span>신분증 촬영</span>
-              <strong className={idCardImage ? 'text-success' : 'text-danger'}>{idCardImage ? '완료' : '대기'}</strong>
+              <strong className={idCardVerification.status === 'VERIFIED' ? 'text-success' : 'text-danger'}>{idCardVerification.status === 'VERIFIED' ? '신원확인 완료' : idCardVerification.status === 'MISMATCH' ? '생년월일 불일치' : '대기'}</strong>
             </div>
           </div>
 
-          {idCardImage ? (
+          {idCardVerification.status === 'VERIFIED' ? (
             <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
               <RefreshCw size={18} /> 신분증 다시 촬영
             </button>
@@ -370,6 +396,7 @@ export default function ExamCheckPage() {
               </button>
             </div>
           )}
+          {idCardVerification.message && idCardVerification.status !== 'VERIFIED' && <p className="form-hint text-danger" style={{ marginTop: '0.75rem' }}>{idCardVerification.message}</p>}
         </div>
 
         <div className="card">
@@ -467,7 +494,7 @@ export default function ExamCheckPage() {
       <div className="footer-box">
         <div className="status-summary">
           <span>
-            신분증: <strong className={idCardImage ? 'text-success' : 'text-danger'}>{idCardImage ? '촬영 완료' : '미촬영'}</strong>
+            신분증: <strong className={idCardVerification.status === 'VERIFIED' ? 'text-success' : 'text-danger'}>{idCardVerification.status === 'VERIFIED' ? '신원확인 완료' : '미확인'}</strong>
           </span>
           <span>
             웹캠/마이크: <strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '연결됨' : '미연결'}</strong>

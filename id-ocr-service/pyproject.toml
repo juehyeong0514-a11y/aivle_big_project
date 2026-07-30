@@ -1,0 +1,17 @@
+[project]
+name = "aivle-id-ocr-service"
+version = "0.1.0"
+description = "YOLO-based Korean ID card identity verification OCR service"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "ultralytics>=8.3,<9",
+  "paddlepaddle>=3.0,<4",
+  "paddleocr>=3.0,<4",
+  "opencv-python-headless>=4.10,<5",
+  "numpy>=2.0,<3",
+]
+
+[tool.uv]
+package = false

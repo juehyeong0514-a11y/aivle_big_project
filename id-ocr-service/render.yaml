@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: aivle-id-ocr
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: ID_CARD_YOLO_MODEL_PATH
+        value: models/best.pt
+      - key: ID_CARD_SERVICE_TOKEN
+        generateValue: true
