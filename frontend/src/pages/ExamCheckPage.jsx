@@ -89,7 +89,7 @@ export default function ExamCheckPage() {
         auxiliaryCamera: qrConnected
       }
     }, { headers: candidateAuthHeaders() })
-      .catch((reason) => console.warn('장비 연결 상태 초기 동기화 실패:', reason));
+      .catch((reason) => setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.')));
   }, [displayReady, examSession, qrConnected, webcamReady]);
 
   // 🌟 폰이 실제로 QR을 스캔해 보조 카메라를 연결하면 서버에 물어봐서 자동 감지
