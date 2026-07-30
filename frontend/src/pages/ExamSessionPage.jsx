@@ -27,11 +27,11 @@ export default function ExamSessionPage() {
       const token = localStorage.getItem('candidateAccessToken');
       if (!token) return;
       const baseUrl = (api.defaults.baseURL ?? '/api').replace(/\/$/, '');
-      if (navigator.sendBeacon?.(baseUrl + '/applicant/media-disconnect', new URLSearchParams({ accessToken: token }))) return;
-      void fetch(baseUrl + '/applicant/media-status', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ media: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false } }),
+      const disconnectUrl = baseUrl + '/applicant/media-disconnect';
+      navigator.sendBeacon?.(disconnectUrl, new URLSearchParams({ accessToken: token }));
+      void fetch(disconnectUrl, {
+        method: 'POST',
+        body: new URLSearchParams({ accessToken: token }),
         keepalive: true,
       }).catch(() => {});
     };

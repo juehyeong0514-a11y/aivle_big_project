@@ -647,7 +647,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (!device) return response.json({ ended: true });
     const assignment = store.assignments.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
     const invitation = store.invitations.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
-    return response.json({ ended: assignment?.status === "SUBMITTED" || Boolean(invitation?.submittedAt) });
+    const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+    const pcMediaEnded = Boolean(examinee?.mediaStatus?.updatedAt) && !examinee.mediaStatus.webcam && !examinee.mediaStatus.screen;
+    return response.json({ ended: assignment?.status === "SUBMITTED" || Boolean(invitation?.submittedAt) || pcMediaEnded });
   });
   app.get("/api/mobile-devices/:deviceToken/live-offers", (request, response) => {
     const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
