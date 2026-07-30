@@ -43,9 +43,11 @@ export const seedData = {
     { id: "assignment-1", examId: "exam-2026-second-half", candidateId: "candidate-1", status: "INVITED" }
   ],
   invitations: [],
+  invitationAuditLogs: [],
   organizationAiPolicies: {},
   systemPolicies: {
     invitationExpiryHours: 24,
+    invitationSecurity: { revokePreviousOnResend: true, blockAfterSubmission: true, maxVerificationAttempts: 5, verificationLockoutMinutes: 15 },
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",
     aiModel: "gpt-4o-mini",
