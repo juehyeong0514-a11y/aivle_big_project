@@ -67,7 +67,7 @@ export default function ManagerWorkspaceTab() {
         <div>
           <span className="workspace-eyebrow">MANAGER WORKSPACE</span>
           <h1>조직 운영</h1>
-          <p>조직 신청과 ADMIN 승인 상태, 배정된 조직 정보를 확인합니다.</p>
+          <p>조직 신청과 관리자 승인 상태, 배정된 조직 정보를 확인합니다.</p>
         </div>
         <div className="workspace-role-mark manager"><Users size={20} /> 조직 관리자</div>
       </div>
@@ -91,7 +91,7 @@ export default function ManagerWorkspaceTab() {
         </div>
 
         <form className="data-panel form-panel" onSubmit={createOrganization}>
-          <div className="panel-heading"><div><h2>조직 신청</h2><p>새 조직은 ADMIN 승인 대기 상태로 생성됩니다.</p></div><Plus size={20} /></div>
+          <div className="panel-heading"><div><h2>조직 신청</h2><p>새 조직은 관리자 승인 대기 상태로 생성됩니다.</p></div><Plus size={20} /></div>
           <label>조직명<input value={organizationForm.name} onChange={(event) => setOrganizationForm({ ...organizationForm, name: event.target.value })} placeholder="A대학교 컴퓨터공학과" required /></label>
           <p className="form-hint">조직 코드는 중복되지 않는 번호로 자동 발급됩니다.</p>
           <button className="secondary-button" type="submit"><Plus size={16} /> 조직 생성 요청</button>

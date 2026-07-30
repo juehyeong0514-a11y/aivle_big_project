@@ -326,6 +326,13 @@ const save = async () => {
       await queuedSave();
       return question;
     },
+    removeQuestion: async (id) => {
+      const questionIndex = data.questions.findIndex((question) => question.id === id);
+      if (questionIndex < 0) return false;
+      data.questions.splice(questionIndex, 1);
+      await queuedSave();
+      return true;
+    },
     addAssignment: async (assignment) => {
       data.assignments.push(assignment);
       await queuedSave();
