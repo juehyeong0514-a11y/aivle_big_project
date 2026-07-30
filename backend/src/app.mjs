@@ -841,6 +841,28 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  const publicCommunityComment = (comment) => ({
+    ...comment,
+    authorName: store.users.find((user) => user.id === comment.authorId)?.name ?? "사용자"
+  });
+  const publicCommunityPost = (post, includeComments = false) => ({
+    ...post,
+    authorName: store.users.find((user) => user.id === post.authorId)?.name ?? "사용자",
+    organizationName: store.organizations.find((item) => item.id === post.organizationId)?.name ?? null,
+    examTitle: post.examId ? store.exams.find((item) => item.id === post.examId)?.title ?? null : null,
+    commentCount: store.communityComments.filter((item) => item.postId === post.id).length,
+    ...(includeComments ? { comments: store.communityComments.filter((item) => item.postId === post.id).map(publicCommunityComment) } : {})
+  });
+  app.get("/api/admin/community", authenticate, requireRole("ADMIN"), (_request, response) =>
+    response.json(store.communityPosts.map((post) => publicCommunityPost(post))));
+  app.delete("/api/admin/community/:id", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const removed = await store.removeCommunityPost(request.params.id);
+      return removed ? response.status(204).end() : response.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.patch("/api/admin/users/:id/status", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const { status } = request.body;
@@ -1248,6 +1270,108 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!existing) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
       if (!existing.organizationId || !organizationIds.includes(existing.organizationId)) return response.status(403).json({ message: "다른 조직의 공지는 삭제할 수 없습니다." });
       await store.removeNotice(existing.id);
+      return response.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
+  });
+  const managerCommunityPost = (request) => {
+    const organizationId = typeof request.body.organizationId === "string" ? request.body.organizationId : "";
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    if (!organizationIds.includes(organizationId)) return { error: "배정된 조직의 게시판만 이용할 수 있습니다.", status: 403 };
+    const examId = typeof request.body.examId === "string" && request.body.examId ? request.body.examId : null;
+    if (examId && !store.exams.some((exam) => exam.id === examId && exam.organizationId === organizationId)) {
+      return { error: "선택한 조직에 속한 시험을 찾을 수 없습니다.", status: 400 };
+    }
+    const categories = new Set(["GENERAL", "QUESTION", "RESOURCE", "SUGGESTION"]);
+    return {
+      organizationId,
+      examId,
+      category: categories.has(request.body.category) ? request.body.category : "GENERAL",
+      title: typeof request.body.title === "string" ? request.body.title.trim() : "",
+      content: typeof request.body.content === "string" ? request.body.content.trim() : ""
+    };
+  };
+  app.get("/api/manager/community", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const query = String(request.query.q ?? "").trim().toLowerCase();
+    const category = String(request.query.category ?? "ALL");
+    response.json(store.communityPosts
+      .filter((post) => organizationIds.includes(post.organizationId))
+      .filter((post) => category === "ALL" || post.category === category)
+      .filter((post) => !query || `${post.title} ${post.content}`.toLowerCase().includes(query))
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || new Date(b.updatedAt) - new Date(a.updatedAt))
+      .map((post) => ({ ...publicCommunityPost(post), canEdit: post.authorId === request.user.id })));
+  });
+  app.get("/api/manager/community/:id", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const post = store.communityPosts.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
+    if (!post) return response.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+    const payload = publicCommunityPost(post, true);
+    return response.json({
+      ...payload,
+      canEdit: post.authorId === request.user.id,
+      comments: payload.comments.map((comment) => ({ ...comment, canDelete: comment.authorId === request.user.id }))
+    });
+  });
+  app.post("/api/manager/community", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const input = managerCommunityPost(request);
+      if (input.error) return response.status(input.status).json({ message: input.error });
+      if (!input.title || !input.content) return response.status(400).json({ message: "제목과 내용을 입력해주세요." });
+      const now = new Date().toISOString();
+      const post = await store.addCommunityPost({ id: randomUUID(), ...input, authorId: request.user.id, status: "OPEN", pinned: false, createdAt: now, updatedAt: now });
+      return response.status(201).json(publicCommunityPost(post));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/manager/community/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const post = store.communityPosts.find((item) => item.id === request.params.id);
+      if (!post) return response.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+      if (post.authorId !== request.user.id) return response.status(403).json({ message: "본인이 작성한 게시글만 수정할 수 있습니다." });
+      const input = managerCommunityPost(request);
+      if (input.error) return response.status(input.status).json({ message: input.error });
+      if (!input.title || !input.content) return response.status(400).json({ message: "제목과 내용을 입력해주세요." });
+      const status = request.body.status === "RESOLVED" ? "RESOLVED" : "OPEN";
+      const updated = await store.updateCommunityPost(post.id, { ...input, status, updatedAt: new Date().toISOString() });
+      return response.json(publicCommunityPost(updated));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/community/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const post = store.communityPosts.find((item) => item.id === request.params.id);
+      if (!post) return response.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+      if (post.authorId !== request.user.id) return response.status(403).json({ message: "본인이 작성한 게시글만 삭제할 수 있습니다." });
+      await store.removeCommunityPost(post.id);
+      return response.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/manager/community/:id/comments", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const post = store.communityPosts.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
+      if (!post) return response.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+      const content = typeof request.body.content === "string" ? request.body.content.trim() : "";
+      if (!content) return response.status(400).json({ message: "댓글 내용을 입력해주세요." });
+      const now = new Date().toISOString();
+      const comment = await store.addCommunityComment({ id: randomUUID(), postId: post.id, authorId: request.user.id, content, createdAt: now, updatedAt: now });
+      return response.status(201).json(publicCommunityComment(comment));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/community/:postId/comments/:commentId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const comment = store.communityComments.find((item) => item.id === request.params.commentId && item.postId === request.params.postId);
+      if (!comment) return response.status(404).json({ message: "댓글을 찾을 수 없습니다." });
+      if (comment.authorId !== request.user.id) return response.status(403).json({ message: "본인이 작성한 댓글만 삭제할 수 있습니다." });
+      await store.removeCommunityComment(comment.id);
       return response.status(204).end();
     } catch (error) {
       return next(error);

@@ -208,6 +208,62 @@ test("scopes manager notices to assigned organizations and exams", async (contex
   assert.equal((await managed.json()).some((item) => item.id === notice.id), true);
 });
 
+test("scopes community posts and comments to a manager organization", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+
+  const managerLogin = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" })
+  });
+  const manager = await managerLogin.json();
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+
+  const created = await fetch(`${baseUrl}/api/manager/community`, {
+    method: "POST",
+    headers: managerHeaders,
+    body: JSON.stringify({
+      title: "시험 환경 질문",
+      content: "화면 공유는 언제 시작하나요?",
+      category: "QUESTION",
+      organizationId: "org-aivle-cs",
+      examId: "exam-2026-second-half"
+    })
+  });
+  assert.equal(created.status, 201);
+  const post = await created.json();
+  assert.equal(post.organizationId, "org-aivle-cs");
+
+  const comment = await fetch(`${baseUrl}/api/manager/community/${post.id}/comments`, {
+    method: "POST",
+    headers: managerHeaders,
+    body: JSON.stringify({ content: "사전 환경 점검 단계에서 시작합니다." })
+  });
+  assert.equal(comment.status, 201);
+
+  const detail = await fetch(`${baseUrl}/api/manager/community/${post.id}`, { headers: managerHeaders });
+  const detailPayload = await detail.json();
+  assert.equal(detailPayload.comments.length, 1);
+  assert.equal(detailPayload.commentCount, 1);
+
+  const denied = await fetch(`${baseUrl}/api/manager/community`, {
+    method: "POST",
+    headers: managerHeaders,
+    body: JSON.stringify({ title: "다른 조직 글", content: "등록 불가", organizationId: "org-data-lab" })
+  });
+  assert.equal(denied.status, 403);
+
+  const adminLogin = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@aivle.com", password: "123" })
+  });
+  const admin = await adminLogin.json();
+  const adminList = await fetch(`${baseUrl}/api/admin/community`, { headers: { Authorization: `Bearer ${admin.token}` } });
+  assert.equal((await adminList.json()).some((item) => item.id === post.id), true);
+});
+
 test("registers managers for ADMIN approval before login", async (context) => {
   const { baseUrl, server } = await startServer();
   context.after(() => server.close());
