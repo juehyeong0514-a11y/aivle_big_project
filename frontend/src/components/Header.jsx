@@ -33,6 +33,7 @@ const SUPERVISOR_GROUPS = [
     items: [
       { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
       { key: 'EXAMS', label: '전체 시험 조회', icon: ClipboardList },
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]

@@ -81,6 +81,7 @@ export default function HomePage() {
           <div>
             {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
             {activeTab === 'EXAMS' && <SupervisorExamDirectoryTab />}
+            {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}

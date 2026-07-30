@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, ChevronRight, Megaphone, Pin, Search, X } from 'lucide-react';
-import { api, apiErrorMessage } from '../api/client';
+import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 
 const categories = {
   ALL: '전체',
@@ -28,8 +28,15 @@ export default function NoticeTab() {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setLoadError('');
-      api.get('/notices', { params: { q: query.trim() || undefined, category } })
-        .then(({ data }) => setNotices(data))
+      const hasCandidateSession = Boolean(localStorage.getItem('candidateAccessToken'));
+      const request = hasCandidateSession
+        ? api.get('/applicant/notices', { headers: candidateAuthHeaders() })
+        : api.get('/notices', { params: { q: query.trim() || undefined, category } });
+      request
+        .then(({ data }) => setNotices(data.filter((notice) =>
+          (category === 'ALL' || notice.category === category)
+          && (!query.trim() || `${notice.title} ${notice.content}`.toLowerCase().includes(query.trim().toLowerCase()))
+        )))
         .catch((error) => setLoadError(apiErrorMessage(error, '공지사항을 불러오지 못했습니다.')))
         .finally(() => setLoading(false));
     }, 250);
@@ -40,7 +47,10 @@ export default function NoticeTab() {
 
   const openNotice = async (notice) => {
     try {
-      const { data } = await api.get(`/notices/${notice.id}`);
+      const hasCandidateSession = Boolean(localStorage.getItem('candidateAccessToken'));
+      const { data } = hasCandidateSession
+        ? await api.get(`/applicant/notices/${notice.id}`, { headers: candidateAuthHeaders() })
+        : await api.get(`/notices/${notice.id}`);
       setSelectedNotice(data);
       setNotices((current) => current.map((item) => item.id === data.id ? { ...item, viewCount: data.viewCount } : item));
     } catch (error) {
