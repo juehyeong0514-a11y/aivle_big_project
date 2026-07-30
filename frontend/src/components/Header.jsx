@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
@@ -87,6 +87,11 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const headerRef = useRef(null);
+  const navRef = useRef(null);
+  const navRightRef = useRef(null);
+  const expandedWidthRef = useRef(0);
+  const [isCompact, setIsCompact] = useState(false);
 
   const userRole = localStorage.getItem('userRole') || 'GUEST';
   const userEmail = localStorage.getItem('userEmail') || '비회원(게스트)';
@@ -131,8 +136,45 @@ export default function Header() {
 
   const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : '/';
 
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const nav = navRef.current;
+    const navRight = navRightRef.current;
+    if (!header || !nav || !navRight) return undefined;
+
+    const measure = () => {
+      const headerRect = header.getBoundingClientRect();
+
+      if (isCompact) {
+        if (expandedWidthRef.current && headerRect.width >= expandedWidthRef.current + 24) {
+          setIsCompact(false);
+        }
+        return;
+      }
+
+      const navContent = nav.querySelectorAll('.header-tab-label, .header-tab-chevron');
+      const lastNavRight = Math.max(
+        nav.getBoundingClientRect().right,
+        ...Array.from(navContent, (element) => element.getBoundingClientRect().right)
+      );
+      const accountLeft = navRight.getBoundingClientRect().left;
+      const overlap = lastNavRight + 16 - accountLeft;
+
+      if (overlap > 0) {
+        expandedWidthRef.current = Math.ceil(headerRect.width + overlap);
+        setIsCompact(true);
+      }
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(navRight);
+    return () => observer.disconnect();
+  }, [isCompact, userName, userRole]);
+
   return (
-    <header className="header">
+    <header ref={headerRef} className={`header ${isCompact ? 'header--compact' : ''}`}>
       <div className="header-left-group">
         <div className="logo-area" onClick={() => navigate(homeRoute)}>
           <div className="logo-icon" style={{ width: 34, height: 34 }}>
@@ -142,7 +184,7 @@ export default function Header() {
         </div>
 
         {/* 로그인/회원가입 페이지에서도 네비게이션이 보이도록 제어 조건(!isAuthPage) 제거 */}
-        <nav className="header-nav" aria-label="주요 메뉴">
+        <nav ref={navRef} className="header-nav" aria-label="주요 메뉴">
           {isAdmin ? (
             /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
             <>
@@ -177,7 +219,7 @@ export default function Header() {
         </nav>
       </div>
 
-      <div className="nav-right">
+      <div ref={navRightRef} className="nav-right">
         {userRole && userRole !== 'GUEST' ? (
           <div className="header-account-actions">
             <div className="header-user-badge">
