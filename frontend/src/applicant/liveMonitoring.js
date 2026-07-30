@@ -1,19 +1,26 @@
 import { api, candidateAuthHeaders } from '../api/client';
 
-const liveState = window.__aivleLiveMonitoring ??= { streams: new Map(), livePeers: new Map() };
-const { streams, livePeers } = liveState;
+const liveState = window.__aivleLiveMonitoring ??= { streams: new Map(), livePeers: new Map(), answeringOffers: new Set() };
+liveState.answeringOffers ??= new Set();
+const { streams, livePeers, answeringOffers } = liveState;
 let polling = false;
 let snapshotTimer = null;
+let offerPollInFlight = false;
 
 const waitForIceComplete = (peer) => new Promise((resolve) => {
   if (peer.iceGatheringState === 'complete') return resolve();
-  const timeout = window.setTimeout(resolve, 3000);
-  peer.addEventListener('icegatheringstatechange', () => {
+  const finish = () => {
+    window.clearTimeout(timeout);
+    peer.removeEventListener('icegatheringstatechange', handleStateChange);
+    resolve();
+  };
+  const handleStateChange = () => {
     if (peer.iceGatheringState === 'complete') {
-      window.clearTimeout(timeout);
-      resolve();
+      finish();
     }
-  }, { once: true });
+  };
+  const timeout = window.setTimeout(finish, 3000);
+  peer.addEventListener('icegatheringstatechange', handleStateChange);
 });
 
 export const registerLiveStream = (kind, stream) => {
@@ -46,13 +53,25 @@ const uploadSnapshot = (stream) => {
 const startOfferPolling = () => {
   if (polling) return;
   polling = true;
-  window.setInterval(async () => {
-    if (streams.size === 0) return;
+  const pollOffers = async () => {
+    if (streams.size === 0 || offerPollInFlight) return;
+    offerPollInFlight = true;
     try {
       const { data } = await api.get('/applicant/live-offers', { headers: candidateAuthHeaders() });
-      if (data?.offer) await answerOffer(data);
-    } catch {}
-  }, 1200);
+      if (data?.offer && !answeringOffers.has(data.id)) {
+        answeringOffers.add(data.id);
+        void answerOffer(data)
+          .catch((error) => console.warn('라이브 화면 연결 응답에 실패했습니다.', error))
+          .finally(() => answeringOffers.delete(data.id));
+      }
+    } catch (error) {
+      console.warn('라이브 화면 연결 요청을 확인하지 못했습니다.', error);
+    } finally {
+      offerPollInFlight = false;
+    }
+  };
+  void pollOffers();
+  window.setInterval(pollOffers, 1200);
 };
 
 const answerOffer = async ({ id, offer }) => {
