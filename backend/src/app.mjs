@@ -275,6 +275,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   };
 
   app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: false }));
   app.use((request, response, next) => {
     const origin = request.header("origin");
     if (origin && allowedOrigins.has(origin)) response.setHeader("Access-Control-Allow-Origin", origin);
@@ -408,6 +409,24 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     request.applicantSession = { session, invitation, candidate, exam };
     return next();
   };
+  const authenticateApplicantBeacon = (request, response, next) => {
+    const accessToken = typeof request.body?.accessToken === "string" ? request.body.accessToken : "";
+    if (accessToken && !request.header("authorization")) request.headers.authorization = "Bearer " + accessToken;
+    return authenticateApplicant(request, response, next);
+  };
+  const disconnectApplicantMedia = async ({ candidate, exam }) => {
+    const updatedAt = new Date().toISOString();
+    for (const [id, liveSession] of liveSessions) {
+      if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
+    }
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    if (examinee) {
+      await store.updateExaminee(examinee.id, {
+        mediaStatus: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt },
+        monitoringSnapshot: null
+      });
+    }
+  };
   app.post("/api/auth/logout", authenticate, async (request, response) => {
     const token = request.header("authorization")?.replace("Bearer ", "");
     if (token) {
@@ -432,12 +451,25 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         auxiliaryCamera: Boolean(media.auxiliaryCamera),
         updatedAt: new Date().toISOString()
       };
+      const disconnecting = !mediaStatus.webcam && !mediaStatus.screen;
+      if (disconnecting) {
+        await disconnectApplicantMedia({ candidate, exam });
+        return response.json({ mediaStatus });
+      }
       let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       if (!examinee) {
         examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전", mediaStatus };
         await store.addExaminee(examinee);
-      } else await store.updateExaminee(examinee.id, { mediaStatus });
+      } else await store.updateExaminee(examinee.id, { mediaStatus, ...(disconnecting ? { monitoringSnapshot: null } : {}) });
       return response.json({ mediaStatus });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/applicant/media-disconnect", authenticateApplicantBeacon, async (request, response, next) => {
+    try {
+      await disconnectApplicantMedia(request.applicantSession);
+      return response.sendStatus(204);
     } catch (error) {
       return next(error);
     }
@@ -534,7 +566,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
       await store.updateInvitation(invitation.id, { submittedAt: now });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      if (examinee) await store.updateExaminee(examinee.id, { status: "SUBMITTED", statusText: "제출 완료", currentProb: "제출 완료" });
+      await disconnectApplicantMedia({ candidate, exam });
+      if (examinee) {
+        await store.updateExaminee(examinee.id, {
+          status: "SUBMITTED",
+          statusText: "제출 완료",
+          currentProb: "제출 완료"
+        });
+      }
       return response.json({ examId: exam.id, score, correctCount, totalCount: questions.length, status: "SUBMITTED", gradingStatus: codingQuestions.length ? "PENDING_REVIEW" : "COMPLETED" });
     } catch (error) {
       return next(error);

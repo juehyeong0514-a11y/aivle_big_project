@@ -5,6 +5,7 @@ liveState.answeringOffers ??= new Set();
 const { streams, livePeers, answeringOffers } = liveState;
 let polling = false;
 let snapshotTimer = null;
+let offerPollTimer = null;
 let offerPollInFlight = false;
 
 const waitForIceComplete = (peer) => new Promise((resolve) => {
@@ -26,7 +27,8 @@ const waitForIceComplete = (peer) => new Promise((resolve) => {
 export const registerLiveStream = (kind, stream) => {
   streams.set(kind, stream);
   startOfferPolling();
-  if (kind === 'webcam' && !snapshotTimer) {
+  if (kind === 'webcam') {
+    if (snapshotTimer) window.clearInterval(snapshotTimer);
     snapshotTimer = window.setInterval(() => uploadSnapshot(stream), 10000);
     uploadSnapshot(stream);
   }
@@ -34,7 +36,22 @@ export const registerLiveStream = (kind, stream) => {
 
 export const hasActiveLiveStream = (kind) => streams.get(kind)?.getVideoTracks().some((track) => track.readyState === 'live') ?? false;
 
+export const stopLiveMonitoring = () => {
+  if (snapshotTimer) window.clearInterval(snapshotTimer);
+  if (offerPollTimer) window.clearInterval(offerPollTimer);
+  snapshotTimer = null;
+  offerPollTimer = null;
+  polling = false;
+  offerPollInFlight = false;
+  answeringOffers.clear();
+  livePeers.forEach((peer) => peer.close());
+  livePeers.clear();
+  streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+  streams.clear();
+};
+
 const uploadSnapshot = (stream) => {
+  if (streams.get('webcam') !== stream || !stream.getVideoTracks().some((track) => track.readyState === 'live')) return;
   const video = document.createElement('video');
   video.srcObject = stream;
   video.muted = true;
@@ -45,7 +62,9 @@ const uploadSnapshot = (stream) => {
     const context = canvas.getContext('2d');
     if (!context) return;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    api.put('/applicant/monitoring-snapshot', { image: canvas.toDataURL('image/jpeg', .55) }, { headers: candidateAuthHeaders() }).catch(() => {});
+    if (streams.get('webcam') === stream && stream.getVideoTracks().some((track) => track.readyState === 'live')) {
+      api.put('/applicant/monitoring-snapshot', { image: canvas.toDataURL('image/jpeg', .55) }, { headers: candidateAuthHeaders() }).catch(() => {});
+    }
     video.srcObject = null;
   }, 250)).catch(() => {});
 };
@@ -71,7 +90,7 @@ const startOfferPolling = () => {
     }
   };
   void pollOffers();
-  window.setInterval(pollOffers, 1200);
+  offerPollTimer = window.setInterval(pollOffers, 1200);
 };
 
 const answerOffer = async ({ id, offer }) => {
