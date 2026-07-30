@@ -273,6 +273,8 @@ main {
 .header-tab-icon,
 .header-tab-chevron { flex: 0 0 auto; }
 
+.header-tab-label { flex: 0 0 auto; }
+
 .header-tab-btn:hover {
   color: #0f172a;
   background-color: #f8fafc;
@@ -1808,17 +1810,16 @@ main {
   .header-tab-btn { padding-inline: 10px; }
   .logo-title { max-width: 230px; font-size: 14px; }
 }
-@media (max-width: 1280px) {
-  .header { height: 64px; min-height: 64px; padding-inline: 12px; }
-  .header-left-group { gap: 8px; }
-  .header-nav { flex-shrink: 0; }
-  .header-tab-btn { width: 42px; min-width: 42px; padding: 0; }
-  .header-tab-label, .header-tab-chevron { display: none; }
-  .header-tab-icon { width: 18px; height: 18px; }
-  .header-nav-dropdown { top: calc(100% - 1px); }
-  .header-nav-group:nth-last-child(-n + 2) .header-nav-dropdown { right: 0; left: auto; }
-  .nav-right { margin-left: 8px; }
-}
+.header.header--compact { height: 64px; min-height: 64px; padding-inline: 12px; }
+.header.header--compact .header-left-group { gap: 8px; }
+.header.header--compact .header-nav { flex-shrink: 0; }
+.header.header--compact .header-tab-btn { width: 42px; min-width: 42px; padding: 0; }
+.header.header--compact .header-tab-label,
+.header.header--compact .header-tab-chevron { display: none; }
+.header.header--compact .header-tab-icon { width: 18px; height: 18px; }
+.header.header--compact .header-nav-dropdown { top: calc(100% - 1px); }
+.header.header--compact .header-nav-group:nth-last-child(-n + 2) .header-nav-dropdown { right: 0; left: auto; }
+.header.header--compact .nav-right { margin-left: 8px; }
 @media (max-width: 760px) {
   .logo-title { max-width: clamp(90px, 25vw, 170px); }
   .header-user-badge span,
