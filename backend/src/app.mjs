@@ -68,6 +68,59 @@ const isValidBirthDate = (value) => {
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day && date <= new Date();
 };
+const normalizeResidentNumberFront = (value) => {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (/^\d{6}$/.test(digits)) return digits;
+  if (/^\d{8}$/.test(digits)) return digits.slice(-6);
+  return "";
+};
+const residentNumberFrontFromOcr = (payload) => {
+  const candidate = payload?.residentNumberFront
+    ?? payload?.birthDate
+    ?? payload?.data?.residentNumberFront
+    ?? payload?.data?.birthDate
+    ?? payload?.result?.residentNumberFront
+    ?? payload?.result?.birthDate;
+  return normalizeResidentNumberFront(candidate);
+};
+const normalizeIdentityName = (value) => String(value ?? "").replace(/\s/g, "").toLowerCase();
+const nameMatchedFromOcr = (payload, expectedName) => {
+  if (payload?.nameMatched === true) return true;
+  const recognizedName = payload?.name ?? payload?.data?.name ?? payload?.result?.name;
+  const recognizedText = payload?.recognizedText ?? payload?.text ?? payload?.data?.recognizedText ?? payload?.result?.recognizedText;
+  const expected = normalizeIdentityName(expectedName);
+  return normalizeIdentityName(recognizedName) === expected || normalizeIdentityName(recognizedText).includes(expected);
+};
+const verifyIdCardWithOcr = async (image, expectedName) => {
+  const endpoint = process.env.ID_CARD_OCR_URL?.trim();
+  if (!endpoint) {
+    const error = new Error("신분증 OCR 모델이 아직 설정되지 않았습니다. 서버 환경변수 ID_CARD_OCR_URL을 등록해주세요.");
+    error.status = 503;
+    throw error;
+  }
+  const headers = { "Content-Type": "application/json" };
+  const apiKey = process.env.ID_CARD_OCR_API_KEY?.trim();
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const ocrResponse = await fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ image, expectedName }),
+    signal: AbortSignal.timeout(20_000)
+  });
+  if (!ocrResponse.ok) {
+    const error = new Error("신분증 OCR 모델이 이미지를 처리하지 못했습니다.");
+    error.status = 502;
+    throw error;
+  }
+  const payload = await ocrResponse.json();
+  const residentNumberFront = residentNumberFrontFromOcr(payload);
+  if (!residentNumberFront) {
+    const error = new Error("신분증에서 주민번호 앞 6자리를 읽지 못했습니다. 빛 반사를 피해서 다시 촬영해주세요.");
+    error.status = 422;
+    throw error;
+  }
+  return { residentNumberFront, nameMatched: nameMatchedFromOcr(payload, expectedName) };
+};
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
 const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
 const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
@@ -135,6 +188,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const candidateFailures = new Map();
   const liveSessions = new Map();
   const auxiliaryDevices = new Map(store.auxiliaryDevices.map((device) => [device.token, device]));
+  const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
@@ -276,7 +330,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   };
 
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "6mb" }));
   app.use(express.urlencoded({ extended: false }));
   app.use((request, response, next) => {
     const origin = request.header("origin");
@@ -607,6 +661,76 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       await disconnectApplicantMedia(request.applicantSession);
       return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  const idCardScanResponse = (scan) => ({
+    status: scan.status,
+    verified: scan.status === "VERIFIED",
+    message: scan.message ?? ""
+  });
+  const submitIdCardScan = async (scan, image) => {
+    if (!image.startsWith("data:image/") || image.length > 5_000_000) {
+      const error = new Error("신분증 사진 형식이 올바르지 않거나 파일이 너무 큽니다.");
+      error.status = 400;
+      throw error;
+    }
+    const candidate = store.candidates.find((item) => item.id === scan.candidateId);
+    if (!candidate?.birthDate) {
+      const error = new Error("등록된 응시자 생년월일을 찾을 수 없습니다.");
+      error.status = 409;
+      throw error;
+    }
+    const ocrResult = await verifyIdCardWithOcr(image, candidate.name);
+    const expected = candidate.birthDate.replace(/-/g, "").slice(-6);
+    const birthDateMatched = ocrResult.residentNumberFront === expected;
+    const verified = birthDateMatched && ocrResult.nameMatched;
+    const updated = await store.updateIdCardScan(scan.token, {
+      status: verified ? "VERIFIED" : "MISMATCH",
+      message: verified ? "등록된 이름과 생년월일이 일치합니다." : !ocrResult.nameMatched ? "신분증 이름이 등록된 응시자 정보와 일치하지 않습니다." : "신분증 생년월일이 등록된 응시자 정보와 일치하지 않습니다.",
+      image: null,
+      capturedAt: new Date().toISOString()
+    });
+    Object.assign(scan, updated);
+    return idCardScanResponse(updated);
+  };
+  app.post("/api/applicant/id-card-scans", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const scan = { token: randomUUID(), examId: exam.id, candidateId: candidate.id, status: "PENDING", expiresAt: Date.now() + 60 * 60 * 1000 };
+      idCardScans.set(scan.token, scan);
+      await store.addIdCardScan(scan);
+      return response.status(201).json({ token: scan.token });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/applicant/id-card-scans/:token", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const scan = idCardScans.get(request.params.token);
+    if (!scan || scan.expiresAt <= Date.now() || scan.candidateId !== candidate.id || scan.examId !== exam.id) {
+      return response.status(404).json({ message: "신분증 QR 촬영 요청을 찾을 수 없습니다." });
+    }
+    return response.json(idCardScanResponse(scan));
+  });
+  app.post("/api/applicant/id-card-scans/:token/capture", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const scan = idCardScans.get(request.params.token);
+      if (!scan || scan.expiresAt <= Date.now() || scan.candidateId !== candidate.id || scan.examId !== exam.id) {
+        return response.status(404).json({ message: "신분증 QR 촬영 요청을 찾을 수 없습니다." });
+      }
+      return response.json(await submitIdCardScan(scan, typeof request.body.image === "string" ? request.body.image : ""));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/mobile-id-scans/:token/capture", async (request, response, next) => {
+    try {
+      const scan = idCardScans.get(request.params.token);
+      if (!scan || scan.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 신분증 QR 코드입니다." });
+      return response.json(await submitIdCardScan(scan, typeof request.body.image === "string" ? request.body.image : ""));
     } catch (error) {
       return next(error);
     }

@@ -20,6 +20,7 @@ const collectionDefaults = {
   invitationAuditLogs: [],
   warnings: [],
   auxiliaryDevices: [],
+  idCardScans: [],
   organizationJoinRequests: [],
   sessions: [],
   emailVerifications: [],
@@ -229,6 +230,7 @@ const save = async () => {
     get communityComments() { return data.communityComments; },
     get warnings() { return data.warnings; },
     get auxiliaryDevices() { return data.auxiliaryDevices; },
+    get idCardScans() { return data.idCardScans; },
     get examinees() { return data.examinees; },
     get organizations() { return data.organizations; },
     get candidates() { return data.candidates; },
@@ -305,6 +307,19 @@ const save = async () => {
       Object.assign(device, patch);
       await queuedSave();
       return device;
+    },
+    addIdCardScan: async (scan) => {
+      data.idCardScans = data.idCardScans.filter((item) => item.expiresAt > Date.now());
+      data.idCardScans.push(scan);
+      await queuedSave();
+      return scan;
+    },
+    updateIdCardScan: async (token, patch) => {
+      const scan = data.idCardScans.find((item) => item.token === token);
+      if (!scan) return undefined;
+      Object.assign(scan, patch);
+      await queuedSave();
+      return scan;
     },
     removeAuxiliaryDevices: async (examId, candidateId) => {
       data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.examId !== examId || item.candidateId !== candidateId);
