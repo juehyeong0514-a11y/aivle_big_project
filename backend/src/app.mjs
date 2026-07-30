@@ -641,6 +641,13 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  app.get("/api/mobile-devices/:deviceToken/status", (request, response) => {
+    const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
+    if (!device) return response.json({ ended: true });
+    const assignment = store.assignments.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+    const invitation = store.invitations.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+    return response.json({ ended: assignment?.status === "SUBMITTED" || Boolean(invitation?.submittedAt) });
+  });
   app.get("/api/mobile-devices/:deviceToken/live-offers", (request, response) => {
     const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
     if (!device) return response.status(401).json({ message: "유효하지 않은 보조 카메라 연결입니다." });

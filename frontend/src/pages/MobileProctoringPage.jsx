@@ -13,6 +13,7 @@ export default function MobileProctoringPage() {
   const stopMonitoringRef = useRef(null);
   const [isStarted, setIsStarted] = useState(false);
   const [deviceReady, setDeviceReady] = useState(false);
+  const [examEnded, setExamEnded] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -44,6 +45,33 @@ export default function MobileProctoringPage() {
       }
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!deviceReady || !isStarted || examEnded) return undefined;
+    let active = true;
+    const checkExamStatus = () => {
+      const deviceToken = sessionStorage.getItem('auxiliaryDeviceToken');
+      if (!deviceToken) return;
+      api.get('/mobile-devices/' + deviceToken + '/status')
+        .then(({ data }) => {
+          if (!active || !data.ended) return;
+          stopMonitoringRef.current?.();
+          stopMonitoringRef.current = null;
+          streamRef.current?.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+          setIsStarted(false);
+          setExamEnded(true);
+          setErrorMsg('');
+        })
+        .catch(() => {});
+    };
+    checkExamStatus();
+    const timer = window.setInterval(checkExamStatus, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [deviceReady, examEnded, isStarted]);
 
   const startFrontCamera = async () => {
     try {
@@ -105,7 +133,13 @@ export default function MobileProctoringPage() {
       </div>
 
       <div style={{ width: '100%', flex: 1, position: 'relative', backgroundColor: '#000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {errorMsg ? (
+        {examEnded ? (
+          <div style={{ margin: 'auto', padding: '32px 24px', textAlign: 'center', color: '#e2e8f0' }}>
+            <ShieldCheck size={48} color="#4ade80" style={{ marginBottom: '14px' }} />
+            <h1 style={{ margin: '0 0 10px', fontSize: '1.35rem', color: '#f8fafc' }}>시험이 종료되었습니다.</h1>
+            <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.88rem', lineHeight: 1.55 }}>보조 카메라 연결과 영상 전송이 안전하게 종료되었습니다.<br />이 창은 닫아도 됩니다.</p>
+          </div>
+        ) : errorMsg ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#f87171', margin: 'auto' }}>
             <AlertTriangle size={36} style={{ marginBottom: '10px' }} />
             <p style={{ fontSize: '0.95rem', margin: 0 }}>{errorMsg}</p>
