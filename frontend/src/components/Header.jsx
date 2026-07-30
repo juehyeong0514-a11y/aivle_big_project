@@ -30,11 +30,17 @@ const ADMIN_GROUPS = [
 // 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
+    label: '조직 운영', icon: Building2,
+    items: [
+      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users },
+      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
+    ]
+  },
+  {
     label: '시험 운영', icon: Users,
     items: [
       { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
       { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
-      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]
@@ -200,9 +206,6 @@ export default function Header() {
             <>
               <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}>
                 <Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span>
-              </button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'MANAGER_WORKSPACE' ? 'active' : ''}`} aria-label="조직 운영" title="조직 운영" onClick={() => handleTabClick('MANAGER_WORKSPACE')}>
-                <Users size={16} className="header-tab-icon" /><span className="header-tab-label">조직 운영</span>
               </button>
               {SUPERVISOR_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
