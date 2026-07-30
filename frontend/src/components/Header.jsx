@@ -19,7 +19,7 @@ const ADMIN_GROUPS = [
   {
     label: '시험 조회 및 설정', icon: ClipboardList,
     items: [
-      { key: 'AI_CONFIG', label: 'API 적용, 권한, 한도 설정', icon: Cpu },
+      { key: 'AI_CONFIG', label: '중앙 AI 채점 설정', icon: Cpu },
       { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText }
     ]
   }
