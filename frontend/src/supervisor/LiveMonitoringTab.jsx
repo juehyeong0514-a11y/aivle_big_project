@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Monitor, Video } from 'lucide-react';
+import { AlertTriangle, Building2, Clock3, Monitor, Radio, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 export default function LiveMonitoringTab() {
@@ -8,6 +8,9 @@ export default function LiveMonitoringTab() {
   const [exams, setExams] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState('');
   const [examinees, setExaminees] = useState([]);
+  const [warnings, setWarnings] = useState([]);
+  const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
+  const [liveExaminee, setLiveExaminee] = useState(null);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -39,21 +42,38 @@ export default function LiveMonitoringTab() {
   useEffect(() => {
     if (!selectedExamId) {
       setExaminees([]);
+      setWarnings([]);
+      setLastSnapshotAt(null);
+      setLiveExaminee(null);
       return undefined;
     }
-    const loadExaminees = () => api.get('/supervisor/examinees?examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() })
-      .then(({ data }) => setExaminees(data))
+    const loadMonitoringData = () => Promise.all([
+      api.get('/supervisor/examinees?examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() }),
+      api.get('/supervisor/warnings?organizationId=' + encodeURIComponent(organizationId) + '&examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() })
+    ])
+      .then(([examineeResponse, warningResponse]) => {
+        setExaminees(examineeResponse.data);
+        setWarnings(warningResponse.data);
+        setLastSnapshotAt(new Date());
+      })
       .catch((error) => setLoadError(apiErrorMessage(error, '선택한 시험의 응시자 데이터를 불러오지 못했습니다.')));
-    loadExaminees();
-    const timer = window.setInterval(loadExaminees, 5000);
+    loadMonitoringData();
+    const timer = window.setInterval(loadMonitoringData, 10000);
     return () => window.clearInterval(timer);
-  }, [selectedExamId]);
+  }, [organizationId, selectedExamId]);
 
   const sendWarning = async (examinee) => {
     const message = window.prompt('[' + examinee.name + '] 응시자에게 보낼 경고 메시지를 입력하세요.');
     if (!message) return;
     try {
       const { data } = await api.post('/supervisor/examinees/' + examinee.id + '/warnings', { examId: selectedExamId, message }, { headers: authHeaders() });
+      setWarnings((current) => [{
+        id: 'pending-' + Date.now(),
+        examineeId: examinee.id,
+        examineeName: examinee.name,
+        message: message.trim(),
+        createdAt: new Date().toISOString()
+      }, ...current]);
       window.alert('[전송 완료] ' + examinee.name + '님에게 ' + data.message);
     } catch (error) {
       window.alert(apiErrorMessage(error, '경고를 전송하지 못했습니다.'));
@@ -62,6 +82,10 @@ export default function LiveMonitoringTab() {
 
   const selectedExam = exams.find((exam) => exam.id === selectedExamId);
   const selectedOrganization = organizations.find((organization) => organization.id === organizationId);
+  const snapshotTime = lastSnapshotAt?.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) ?? '갱신 대기';
+  const warningsFor = (examineeId) => warnings
+    .filter((warning) => warning.examineeId === examineeId)
+    .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
 
   return (
     <section className="workspace-shell">
@@ -98,21 +122,57 @@ export default function LiveMonitoringTab() {
       {!organizationId && <div className="data-panel empty-state">관제할 조직을 선택해주세요.</div>}
       {organizationId && !exams.length && <div className="data-panel empty-state">선택한 조직에 등록된 시험이 없습니다.</div>}
       {selectedExamId && !examinees.length && <div className="data-panel empty-state">현재 선택한 시험에서 관제 중인 응시자가 없습니다.</div>}
+      {liveExaminee && <div className="monitoring-live-modal" role="dialog" aria-modal="true" aria-labelledby="monitoring-live-title">
+        <button className="monitoring-live-backdrop" type="button" onClick={() => setLiveExaminee(null)} aria-label="라이브 화면 닫기" />
+        <section className="monitoring-live-panel" aria-live="polite">
+          <div className="monitoring-live-heading">
+            <div>
+              <span className="workspace-eyebrow"><Radio size={14} /> LIVE MONITORING</span>
+              <h2 id="monitoring-live-title">{liveExaminee.name} 응시자 라이브 화면</h2>
+              <p>카드를 다시 확인하려면 닫기 버튼을 누르세요. 실제 영상 연결 전에는 마지막 상태 화면만 표시됩니다.</p>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setLiveExaminee(null)} aria-label="라이브 화면 닫기"><X size={18} /></button>
+          </div>
+          <div className="monitoring-live-grid">
+            <div className="monitoring-live-surface">
+              <span>정면 라이브</span>
+              <Video size={36} />
+              <strong>영상 연결 대기</strong>
+              <small>응시자 카메라 스트림이 연결되면 이곳에 표시됩니다.</small>
+            </div>
+            <div className="monitoring-live-surface">
+              <span>보조 라이브</span>
+              <Monitor size={36} />
+              <strong>영상 연결 대기</strong>
+              <small>보조 카메라 또는 화면 공유 스트림을 기다리고 있습니다.</small>
+            </div>
+          </div>
+        </section>
+      </div>}
       <div className="monitoring-grid">
-        {examinees.map((examinee) => (
-          <article key={examinee.id} className={'monitoring-card ' + examinee.status.toLowerCase()}>
+        {examinees.map((examinee) => {
+          const examineeWarnings = warningsFor(examinee.id);
+          return <article key={examinee.id} className={'monitoring-card ' + (examineeWarnings.length ? 'warning ' : '') + examinee.status.toLowerCase()}>
             <div className="monitoring-card-heading">
               <strong>{examinee.name} 응시자</strong>
               <span className={'status-badge ' + (examinee.status === 'NORMAL' ? 'approved' : examinee.status.toLowerCase())}>{examinee.statusText}</span>
             </div>
             <div className="monitoring-video-grid">
-              <div><span>정면 화면</span><Video size={24} /></div>
-              <div><span>보조 모니터링</span><Monitor size={24} /></div>
+              <button className="monitoring-snapshot" type="button" onClick={() => setLiveExaminee(examinee)} aria-label={examinee.name + ' 응시자의 정면 라이브 화면 열기'}>
+                <span>정면 화면</span><Video size={24} /><small>정지 화면 · {snapshotTime}</small>
+              </button>
+              <button className="monitoring-snapshot" type="button" onClick={() => setLiveExaminee(examinee)} aria-label={examinee.name + ' 응시자의 보조 라이브 화면 열기'}>
+                <span>보조 모니터링</span><Monitor size={24} /><small>정지 화면 · {snapshotTime}</small>
+              </button>
             </div>
-            <p>진행 현황: <strong>{examinee.currentProb}</strong></p>
+            <div className="monitoring-status-row"><span>진행 현황</span><strong>{examinee.currentProb}</strong><small><Clock3 size={13} /> 10초마다 갱신</small></div>
+            <div className="monitoring-alert-log">
+              <div><strong><AlertTriangle size={15} /> AI 감시 알림</strong><span>{examineeWarnings.length ? `${examineeWarnings.length}건` : '없음'}</span></div>
+              {examineeWarnings.length ? <ul>{examineeWarnings.slice(0, 2).map((warning) => <li key={warning.id}><span>{warning.message}</span><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></li>)}</ul> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
+            </div>
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>
-          </article>
-        ))}
+          </article>;
+        })}
       </div>
     </section>
   );
