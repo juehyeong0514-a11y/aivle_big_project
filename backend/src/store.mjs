@@ -15,13 +15,21 @@ const collectionDefaults = {
   assignments: [],
   codingSubmissions: [],
   invitations: [],
+  invitationAuditLogs: [],
   warnings: [],
   organizationJoinRequests: [],
   sessions: [],
   emailVerifications: [],
+  aiGradingRequests: [],
   organizationAiPolicies: {},
   systemPolicies: {
     invitationExpiryHours: 24,
+    invitationSecurity: {
+      revokePreviousOnResend: true,
+      blockAfterSubmission: true,
+      maxVerificationAttempts: 5,
+      verificationLockoutMinutes: 15
+    },
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",
     aiModel: "gpt-4o-mini",
@@ -65,7 +73,7 @@ export const createStore = async (filePath) => {
   let shouldSave = false;
   try {
     data = withDefaults(JSON.parse(await readFile(filePath, "utf8")));
-    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...data.systemPolicies, cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) } };
+    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...data.systemPolicies, cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) }, invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
     if (JSON.stringify(normalizedPolicies) !== JSON.stringify(data.systemPolicies)) {
       data = { ...data, systemPolicies: normalizedPolicies };
       shouldSave = true;
@@ -151,9 +159,11 @@ export const createStore = async (filePath) => {
     get assignments() { return data.assignments; },
     get codingSubmissions() { return data.codingSubmissions; },
     get invitations() { return data.invitations; },
+    get invitationAuditLogs() { return data.invitationAuditLogs; },
     get organizationJoinRequests() { return data.organizationJoinRequests; },
     get sessions() { return data.sessions; },
     get emailVerifications() { return data.emailVerifications; },
+    get aiGradingRequests() { return data.aiGradingRequests; },
     get organizationAiPolicies() { return data.organizationAiPolicies; },
     get systemPolicies() { return data.systemPolicies; },
     updateSystemPolicies: async (patch) => {
@@ -165,6 +175,18 @@ export const createStore = async (filePath) => {
       data.organizationAiPolicies = clone(policies);
       await queuedSave();
       return data.organizationAiPolicies;
+    },
+    addAiGradingRequest: async (request) => {
+      data.aiGradingRequests.unshift(request);
+      await queuedSave();
+      return request;
+    },
+    updateAiGradingRequest: async (id, patch) => {
+      const request = data.aiGradingRequests.find((item) => item.id === id);
+      if (!request) return undefined;
+      Object.assign(request, patch);
+      await queuedSave();
+      return request;
     },
     consumeOrganizationAiQuota: async (organizationId, usageMonth) => {
       const policy = data.organizationAiPolicies[organizationId];
@@ -289,6 +311,11 @@ export const createStore = async (filePath) => {
       Object.assign(invitation, patch);
       await queuedSave();
       return invitation;
+    },
+    addInvitationAuditLog: async (auditLog) => {
+      data.invitationAuditLogs.unshift(auditLog);
+      await queuedSave();
+      return auditLog;
     },
     addOrganizationJoinRequest: async (request) => {
       data.organizationJoinRequests.unshift(request);

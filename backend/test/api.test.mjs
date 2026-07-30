@@ -352,6 +352,45 @@ test("scopes exam policies to the supervising manager's organization", async (co
   assert.equal(adminPolicies.status, 403);
 });
 
+test("allows only ADMIN to govern invitation policies, inventory, audit logs, and emergency revocation", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+  const login = async (email, role) => (await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "123", role }) })).json());
+  const admin = await login("admin@aivle.com", "ADMIN");
+  const manager = await login("supervisor@aivle.com", "MANAGER");
+  const adminHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+
+  const denied = await fetch(`${baseUrl}/api/admin/invitations/overview`, { headers: managerHeaders });
+  assert.equal(denied.status, 403);
+  const sent = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(sent.status, 201);
+
+  const inventory = await fetch(`${baseUrl}/api/admin/invitations`, { headers: adminHeaders });
+  assert.equal(inventory.status, 200);
+  const [invitation] = await inventory.json();
+  assert.equal(invitation.status, "ACTIVE");
+  assert.equal(invitation.token, undefined);
+  assert.equal(invitation.tokenHash, undefined);
+  const overview = await fetch(`${baseUrl}/api/admin/invitations/overview`, { headers: adminHeaders });
+  assert.equal((await overview.json()).metrics.active, 1);
+
+  const policies = await (await fetch(`${baseUrl}/api/admin/policies`, { headers: adminHeaders })).json();
+  const policyUpdate = await fetch(`${baseUrl}/api/admin/policies`, { method: "PATCH", headers: adminHeaders, body: JSON.stringify({ ...policies, invitationExpiryHours: 48, invitationSecurity: { ...policies.invitationSecurity, maxVerificationAttempts: 3, verificationLockoutMinutes: 30 } }) });
+  assert.equal(policyUpdate.status, 200);
+  assert.equal((await policyUpdate.json()).invitationSecurity.maxVerificationAttempts, 3);
+
+  const missingReason = await fetch(`${baseUrl}/api/admin/invitations/${invitation.id}/revoke`, { method: "POST", headers: adminHeaders, body: JSON.stringify({}) });
+  assert.equal(missingReason.status, 400);
+  const revoked = await fetch(`${baseUrl}/api/admin/invitations/${invitation.id}/revoke`, { method: "POST", headers: adminHeaders, body: JSON.stringify({ reason: "링크 유출 의심" }) });
+  assert.equal(revoked.status, 200);
+  assert.equal((await revoked.json()).status, "REVOKED");
+  const audit = await fetch(`${baseUrl}/api/admin/invitation-audit-logs`, { headers: adminHeaders });
+  const actions = (await audit.json()).map((item) => item.action);
+  assert.ok(actions.includes("POLICY_UPDATED"));
+  assert.ok(actions.includes("INVITATION_REVOKED"));
+});
+
 test("allows only ADMIN to manage AI provider settings and organization limits", async (context) => {
   const { baseUrl, directory, server } = await startServer();
   context.after(() => server.close());
@@ -418,4 +457,28 @@ test("encrypts an API key registered by an ADMIN without returning it", async (c
   const database = await readFile(join(directory, "database.json"), "utf8");
   assert.equal(database.includes("secret-ai-key"), false);
   assert.equal(database.includes("aiEncryptedApiKey"), true);
+});
+
+test("uses an organization request and central admin acceptance workflow for AI grading", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+  const login = async (email, role) => (await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "123", role }) })).json());
+  const manager = await login("supervisor@aivle.com", "MANAGER");
+  const admin = await login("admin@aivle.com", "ADMIN");
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+  const adminHeaders = { Authorization: `Bearer ${admin.token}` };
+
+  const request = await fetch(`${baseUrl}/api/manager/ai-grading-requests`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ examId: "exam-2026-second-half", candidateId: "candidate-1" }) });
+  assert.equal(request.status, 201);
+  const pending = await request.json();
+  assert.equal(pending.status, "PENDING");
+  assert.equal(pending.candidateId, "candidate-1");
+  assert.equal((await fetch(`${baseUrl}/api/admin/ai-grading-requests`, { headers: { Authorization: `Bearer ${manager.token}` } })).status, 403);
+
+  const queue = await fetch(`${baseUrl}/api/admin/ai-grading-requests`, { headers: adminHeaders });
+  assert.equal(queue.status, 200);
+  assert.equal((await queue.json())[0].id, pending.id);
+  const acceptance = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}/accept`, { method: "POST", headers: adminHeaders });
+  assert.equal(acceptance.status, 202);
+  assert.equal((await acceptance.json()).status, "PROCESSING");
 });

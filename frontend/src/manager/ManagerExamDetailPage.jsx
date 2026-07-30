@@ -5,6 +5,7 @@ import {
   Check,
   CheckSquare,
   Copy,
+  Eye,
   ExternalLink,
   FileUp,
   Mail,
@@ -14,6 +15,7 @@ import {
   Send,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, apiErrorMessage, authHeaders } from "../api/client";
@@ -107,6 +109,7 @@ export default function ManagerExamDetailPage() {
   const [mailPreviews, setMailPreviews] = useState([]);
   const [copiedEntryLink, setCopiedEntryLink] = useState("");
   const [activeManagementPanel, setActiveManagementPanel] = useState("questions");
+  const [isExamPreviewOpen, setIsExamPreviewOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [candidateToDelete, setCandidateToDelete] = useState(null);
@@ -1156,7 +1159,12 @@ export default function ManagerExamDetailPage() {
               수 있습니다.
             </p>
           </div>
-          <Send size={20} />
+          <div className="invitation-panel-actions">
+            <button className="secondary-button compact-button" type="button" onClick={() => setIsExamPreviewOpen(true)}>
+              <Eye size={16} /> 시험지 미리보기
+            </button>
+            <Send size={20} />
+          </div>
         </div>
         <div className="candidate-controls-group">
           <div className="candidate-toolbar">
@@ -1272,6 +1280,67 @@ export default function ManagerExamDetailPage() {
         )}
       </div>
       )}
+
+      {isExamPreviewOpen && (
+        <div className="exam-preview-modal" role="dialog" aria-modal="true" aria-labelledby="exam-preview-title">
+          <button className="exam-preview-backdrop" type="button" aria-label="시험지 미리보기 닫기" onClick={() => setIsExamPreviewOpen(false)} />
+          <section className="exam-preview-panel">
+            <header className="exam-preview-heading">
+              <div>
+                <span className="workspace-eyebrow"><Eye size={14} /> APPLICANT VIEW</span>
+                <h2 id="exam-preview-title">{exam.title}</h2>
+                <p>{exam.date} · {exam.duration} · 총 {questions.length}문제</p>
+              </div>
+              <button className="icon-button" type="button" aria-label="시험지 미리보기 닫기" onClick={() => setIsExamPreviewOpen(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="exam-preview-notice">
+              응시자에게 표시되는 문제 내용과 공개 예제만 미리봅니다. 숨김 테스트와 모범 답안은 표시되지 않습니다.
+            </div>
+            <div className="exam-preview-questions">
+              {questions.map((question, index) => (
+                <article className="exam-preview-question" key={question.id}>
+                  <div className="exam-preview-question-heading">
+                    <span>문제 {index + 1}</span>
+                    {question.type === "CODING" && <em>{(question.languages ?? []).join(" · ") || "코딩"}</em>}
+                  </div>
+                  <h3>{question.type === "CODING" ? question.title : question.prompt}</h3>
+                  {question.type === "CODING" ? (
+                    <>
+                      <p className="exam-preview-description">{question.description}</p>
+                      <PreviewDetail title="입력 형식" content={question.inputFormat} />
+                      <PreviewDetail title="출력 형식" content={question.outputFormat} />
+                      <PreviewDetail title="제한" content={question.constraints} />
+                      {(question.publicExamples ?? []).map((example, exampleIndex) => (
+                        <section className="exam-preview-example" key={`${question.id}-example-${exampleIndex}`}>
+                          <strong>예제 {exampleIndex + 1}</strong>
+                          <div><span>입력</span><pre>{example.input}</pre></div>
+                          <div><span>출력</span><pre>{example.expectedOutput}</pre></div>
+                          {example.explanation && <p>{example.explanation}</p>}
+                        </section>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="exam-preview-options">
+                      {(question.options ?? []).filter(Boolean).map((option) => <div key={option}>{option}</div>)}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}
+            </div>
+            <footer className="exam-preview-footer">
+              <button className="secondary-button" type="button" onClick={() => setIsExamPreviewOpen(false)}>닫기</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </section>
   );
+}
+
+function PreviewDetail({ title, content }) {
+  if (!content) return null;
+  return <section className="exam-preview-detail"><strong>{title}</strong><p>{content}</p></section>;
 }
