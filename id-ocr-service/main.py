@@ -6,14 +6,11 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from threading import Lock
 from typing import Final
 
-import cv2
-import numpy as np
 from fastapi import FastAPI, Header, HTTPException, status
-from paddleocr import PaddleOCR
 from pydantic import BaseModel, ConfigDict, Field
-from ultralytics import YOLO
 
 MAX_IMAGE_BYTES: Final[int] = 3_500_000
 MIN_YOLO_CONFIDENCE: Final[float] = 0.75
@@ -44,6 +41,9 @@ class RecognizedIdentity:
 
 
 def decode_data_url(value: str) -> np.ndarray:
+    import cv2
+    import numpy as np
+
     prefix, separator, encoded = value.partition(",")
     if not separator or not prefix.startswith("data:image/") or ";base64" not in prefix:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 데이터 형식이 올바르지 않습니다.")
@@ -72,6 +72,9 @@ def normalize_name(value: str) -> str:
 
 class IdentityOCRService:
     def __init__(self) -> None:
+        from paddleocr import PaddleOCR
+        from ultralytics import YOLO
+
         model_path = os.environ.get("ID_CARD_YOLO_MODEL_PATH", "models/best.pt")
         if not os.path.isfile(model_path):
             raise RuntimeError(f"YOLO 모델 파일을 찾을 수 없습니다: {model_path}")
@@ -107,8 +110,18 @@ class IdentityOCRService:
         )
 
 
-service = IdentityOCRService()
+service: IdentityOCRService | None = None
+service_lock = Lock()
 app = FastAPI(title="Aivle ID OCR", version="0.1.0")
+
+
+def get_service() -> IdentityOCRService:
+    global service
+    if service is None:
+        with service_lock:
+            if service is None:
+                service = IdentityOCRService()
+    return service
 
 
 @app.get("/health")
@@ -121,6 +134,7 @@ def recognize_id_card(payload: OCRRequest, authorization: str | None = Header(de
     expected_token = os.environ.get("ID_CARD_SERVICE_TOKEN")
     if expected_token and authorization != f"Bearer {expected_token}":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OCR 서비스 인증에 실패했습니다.")
-    card = service.detect_card(decode_data_url(payload.image))
-    identity = service.recognize_identity(card, payload.expectedName)
+    ocr_service = get_service()
+    card = ocr_service.detect_card(decode_data_url(payload.image))
+    identity = ocr_service.recognize_identity(card, payload.expectedName)
     return OCRResponse(residentNumberFront=identity.resident_number_front, nameMatched=identity.name_matched)
