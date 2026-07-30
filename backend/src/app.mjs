@@ -146,6 +146,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organization = store.organizations.find((item) => item.id === invitation.organizationId);
     const exam = store.exams.find((item) => item.id === invitation.examId);
     const candidate = store.candidates.find((item) => item.id === invitation.candidateId);
+    const assignment = store.assignments.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId);
+    const examinee = store.examinees.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId);
+    const gradingRequest = store.aiGradingRequests.find((item) => item.examId === invitation.examId && item.candidateId === invitation.candidateId && ["PENDING", "PROCESSING", "COMPLETED", "FAILED"].includes(item.status));
+    const examProgress = invitation.submittedAt ? "SUBMITTED" : invitation.verifiedAt ? "IN_PROGRESS" : "NOT_STARTED";
+    const diagnosisStatus = !invitation.submittedAt ? "NOT_READY" : assignment?.aiGradingStatus === "COMPLETED" || gradingRequest?.status === "COMPLETED" ? "COMPLETED" : gradingRequest?.status ?? "NOT_REQUESTED";
     return {
       id: invitation.id,
       organizationId: invitation.organizationId,
@@ -162,7 +167,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       revokedAt: invitation.revokedAt,
       revokedReason: invitation.revokedReason,
       deliveryStatus: invitation.deliveryStatus ?? "PREVIEW",
-      status: invitationStatus(invitation)
+      status: invitationStatus(invitation),
+      examProgress,
+      examineeStatus: examinee?.status ?? "NOT_STARTED",
+      examineeStatusText: examinee?.statusText ?? "미접속",
+      diagnosisStatus,
+      resultStatus: assignment?.resultStatus ?? "NOT_SUBMITTED"
     };
   };
   const addInvitationAudit = (action, actor, details = {}) => store.addInvitationAuditLog({ id: randomUUID(), action, actorId: actor.id, actorName: actor.name, createdAt: new Date().toISOString(), ...details });
@@ -560,7 +570,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const cheatDetection = request.body.cheatDetection;
       const invitationSecurity = request.body.invitationSecurity;
       const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean");
-      const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && typeof invitationSecurity.revokePreviousOnResend === "boolean" && typeof invitationSecurity.blockAfterSubmission === "boolean" && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440);
+      const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440 && Number.isInteger(invitationSecurity.applicantSessionMinutes) && invitationSecurity.applicantSessionMinutes >= 30 && invitationSecurity.applicantSessionMinutes <= 480 && Number.isInteger(invitationSecurity.reverificationCooldownMinutes) && invitationSecurity.reverificationCooldownMinutes >= 0 && invitationSecurity.reverificationCooldownMinutes <= 1440);
       if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection || !validInvitationSecurity) return response.status(400).json({ message: "정책 값을 확인해주세요." });
       const previous = { invitationExpiryHours: store.systemPolicies.invitationExpiryHours, invitationSecurity: store.systemPolicies.invitationSecurity };
       const updated = await store.updateSystemPolicies({ invitationExpiryHours, aiAnalysisEnabled, ...(cheatDetection === undefined ? {} : { cheatDetection }), ...(invitationSecurity === undefined ? {} : { invitationSecurity }) });
@@ -1042,7 +1052,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const createdInvitationIds = [];
       for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
         const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && invitationStatus(item) === "ACTIVE");
-        if (store.systemPolicies.invitationSecurity.revokePreviousOnResend) await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString(), revokedReason: "재발송으로 인한 자동 폐기" })));
+        await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString(), revokedReason: "재발송으로 인한 자동 폐기" })));
         const token = randomUUID();
         const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null, deliveryStatus: "PENDING" };
         await store.addInvitation(invitation);
@@ -1075,7 +1085,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/invitations/:token", (request, response) => {
     const invitation = invitationForToken(store.invitations, request.params.token);
-    if (invitation?.submittedAt && store.systemPolicies.invitationSecurity.blockAfterSubmission) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
+    if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
     if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
@@ -1084,8 +1094,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
       const invitation = invitationForToken(store.invitations, request.params.token);
-      if (invitation?.submittedAt && store.systemPolicies.invitationSecurity.blockAfterSubmission) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
+      if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
       if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
+      const cooldownMs = store.systemPolicies.invitationSecurity.reverificationCooldownMinutes * 60 * 1000;
+      if (invitation.verifiedAt && cooldownMs > 0 && Date.now() - new Date(invitation.verifiedAt).getTime() < cooldownMs) return response.status(429).json({ message: "동일 링크 재인증 제한 시간이 남아 있습니다. 잠시 후 다시 시도해주세요." });
       const failureKey = `${request.ip}:${invitation.id}`;
       const failure = candidateFailures.get(failureKey);
       if (failure && failure.blockedUntil > Date.now()) return response.status(429).json({ message: "응시번호 입력 횟수를 초과했습니다. 잠시 후 다시 시도해주세요." });
@@ -1101,7 +1113,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (existingExaminee) await store.updateExaminee(existingExaminee.id, { status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
       else await store.addExaminee({ id: randomUUID(), candidateId: invitation.candidateId, name: store.candidates.find((candidate) => candidate.id === invitation.candidateId)?.name ?? "응시자", organizationId: invitation.organizationId, examId: invitation.examId, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
       const accessToken = randomUUID();
-      const session = { tokenHash: hashToken(accessToken), role: "APPLICANT", invitationId: invitation.id, expiresAt: new Date(Date.now() + applicantSessionTtlMs).toISOString() };
+      const session = { tokenHash: hashToken(accessToken), role: "APPLICANT", invitationId: invitation.id, expiresAt: new Date(Date.now() + store.systemPolicies.invitationSecurity.applicantSessionMinutes * 60 * 1000).toISOString() };
       sessions.set(session.tokenHash, session);
       await store.updateInvitation(invitation.id, { verifiedAt: invitation.verifiedAt ?? new Date().toISOString() });
       await store.addSession(session);
