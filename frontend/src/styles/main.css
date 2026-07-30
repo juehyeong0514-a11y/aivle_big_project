@@ -1312,6 +1312,9 @@ main {
 .secondary-button:hover { background: #dbeafe; }
 .primary-button:active, .secondary-button:active { transform: translateY(1px); }
 .primary-button:disabled, .secondary-button:disabled { cursor: not-allowed; opacity: .5; }
+.form-error { color: #b42318; font-size: .86rem; }
+.spin { animation: ai-config-spin 1s linear infinite; }
+@keyframes ai-config-spin { to { transform: rotate(360deg); } }
 .organization-switcher { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .organization-switcher label { flex: 1; max-width: 460px; }
 .organization-switcher > span { color: var(--text-muted); font-size: 13px; }

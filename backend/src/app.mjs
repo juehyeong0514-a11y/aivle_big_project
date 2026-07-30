@@ -1,5 +1,5 @@
 import express from "express";
-import { createCipheriv, createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createStore, verifyPassword } from "./store.mjs";
 
@@ -27,9 +27,13 @@ const publicOrganization = (organization, users) => ({
 });
 const normalizeEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
 const aiProviderModels = {
-  OpenAI: new Set(["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"]),
-  Anthropic: new Set(["claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"]),
-  "Google Gemini": new Set(["gemini-2.0-flash", "gemini-2.5-flash"])
+  OpenAI: new Set(["gpt-5.6", "gpt-5.5", "gpt-5.4", "o3", "o3-mini", "gpt-4o", "gpt-4o-mini", "gpt-live", "gpt-realtime", "gpt-4.1-mini"]),
+  Anthropic: new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4.8", "claude-sonnet-4.6", "claude-haiku-4.5", "claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"]),
+  "Google Gemini": new Set(["gemini-3.5-flash", "gemini-3.1-pro", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"]),
+  DeepSeek: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2", "deepseek-r1"]),
+  Cohere: new Set(["command-a-plus", "command-a", "north-mini-code", "rerank-4-pro", "embed-4"]),
+  "Mistral AI": new Set(["mistral-large-3", "mistral-small-4", "codestral", "pixtral"]),
+  "Meta (Together AI, Groq 등)": new Set(["llama-3.3", "llama-3.2"])
 };
 const currentUsageMonth = (date = new Date()) => date.toISOString().slice(0, 7);
 const defaultOrganizationAiPolicy = (usageMonth = currentUsageMonth()) => ({ enabled: false, monthlyLimit: 0, monthlyUsage: 0, usageMonth });
@@ -138,6 +142,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const encrypted = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
     return `${initializationVector.toString("base64")}.${cipher.getAuthTag().toString("base64")}.${encrypted.toString("base64")}`;
   };
+  const decryptAiApiKey = (encryptedValue) => {
+    if (!encryptedValue || !aiSettingsEncryptionKey) return undefined;
+    const [iv, authTag, encrypted] = encryptedValue.split(".");
+    if (!iv || !authTag || !encrypted) return undefined;
+    const decipher = createDecipheriv("aes-256-gcm", createHash("sha256").update(aiSettingsEncryptionKey).digest(), Buffer.from(iv, "base64"));
+    decipher.setAuthTag(Buffer.from(authTag, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64")), decipher.final()]).toString("utf8");
+  };
   const organizationAiSettings = () => {
     const usageMonth = currentUsageMonth();
     return store.organizations.map((organization) => {
@@ -158,6 +170,68 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     apiKeyConfigured: Boolean(process.env.AI_API_KEY || store.systemPolicies.aiEncryptedApiKey),
     organizations: organizationAiSettings()
   });
+  const publicAiGradingRequest = (item) => {
+    const organization = store.organizations.find((candidate) => candidate.id === item.organizationId);
+    const candidate = store.candidates.find((candidate) => candidate.id === item.candidateId);
+    const exam = store.exams.find((exam) => exam.id === item.examId);
+    return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
+  };
+  const invokeAiGrading = async ({ apiKey, provider, model, prompt }) => {
+    const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
+    let response;
+    if (provider === "OpenAI") {
+      requestOptions.headers.Authorization = `Bearer ${apiKey}`;
+      requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
+      response = await fetch("https://api.openai.com/v1/chat/completions", requestOptions);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message ?? "OpenAI 채점 호출에 실패했습니다.");
+      return JSON.parse(payload.choices?.[0]?.message?.content ?? "{}");
+    }
+    if (provider === "Anthropic") {
+      requestOptions.headers["x-api-key"] = apiKey;
+      requestOptions.headers["anthropic-version"] = "2023-06-01";
+      requestOptions.body = JSON.stringify({ model, max_tokens: 1200, system: "You are an exam grader. Return JSON with score, feedback, and rubricBreakdown.", messages: [{ role: "user", content: prompt }] });
+      response = await fetch("https://api.anthropic.com/v1/messages", requestOptions);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message ?? "Anthropic 채점 호출에 실패했습니다.");
+      return JSON.parse(payload.content?.[0]?.text ?? "{}");
+    }
+    if (provider === "Google Gemini") {
+      requestOptions.body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: `You are an exam grader. Return JSON with score, feedback, and rubricBreakdown.\n${prompt}` }] }], generationConfig: { responseMimeType: "application/json" } });
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, requestOptions);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message ?? "Gemini 채점 호출에 실패했습니다.");
+      return JSON.parse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
+    }
+    throw new Error(`${provider} 채점 어댑터는 아직 서버에 구성되지 않았습니다.`);
+  };
+  const executeAiGrading = async (request) => {
+    const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+    if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
+    const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+    const questions = store.questions.filter((item) => item.examId === request.examId).map((item) => ({ id: item.id, title: item.title, type: item.type, description: item.description, rubric: item.rubric }));
+    const prompt = JSON.stringify({ examId: request.examId, candidateId: request.candidateId, questions, submission: submission ? { answers: submission.answers, submittedAt: submission.submittedAt } : null });
+    const grading = await invokeAiGrading({ apiKey, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, prompt });
+    const result = { ...grading, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, gradedAt: new Date().toISOString() };
+    await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result });
+    const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+    if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
+  };
+  const verifyAiApiKey = async ({ provider, apiKey }) => {
+    const checks = {
+      OpenAI: { url: "https://api.openai.com/v1/models", headers: { Authorization: `Bearer ${apiKey}` } },
+      Anthropic: { url: "https://api.anthropic.com/v1/models", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } },
+      "Google Gemini": { url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, headers: {} }
+    };
+    const check = checks[provider];
+    if (!check) return { valid: false, message: "지원하지 않는 AI 제공자입니다." };
+    try {
+      const result = await fetch(check.url, { headers: check.headers, signal: AbortSignal.timeout(8000) });
+      return result.ok ? { valid: true, message: "API 키가 유효합니다." } : { valid: false, message: "API 키가 유효하지 않거나 제공자 접근 권한이 없습니다." };
+    } catch {
+      return { valid: false, message: "AI 제공자에 연결하지 못했습니다. 네트워크와 키를 확인하세요." };
+    }
+  };
 
   app.use(express.json({ limit: "1mb" }));
   app.use((request, response, next) => {
@@ -406,12 +480,24 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/admin/ai-settings", authenticate, requireRole("ADMIN"), (_request, response) => response.json(publicAiSettings()));
+  app.post("/api/admin/ai-settings/verify-key", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
+      const apiKey = typeof request.body.apiKey === "string" ? request.body.apiKey.trim() : "";
+      if (!aiProviderModels[provider] || !apiKey) return response.status(400).json({ message: "AI 제공자와 API 키를 입력하세요." });
+      return response.json(await verifyAiApiKey({ provider, apiKey }));
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.patch("/api/admin/ai-settings", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
       const model = typeof request.body.model === "string" ? request.body.model.trim() : "";
       const apiKey = typeof request.body.apiKey === "string" ? request.body.apiKey.trim() : "";
-      const policies = request.body.organizations;
+      // Legacy policy data is retained only to render historical usage gauges; it is no
+      // longer editable nor used to authorize an organization's direct API access.
+      const policies = Array.isArray(request.body.organizations) ? request.body.organizations : organizationAiSettings();
       const organizationIds = new Set(store.organizations.map((organization) => organization.id));
       const validPolicies = Array.isArray(policies)
         && policies.length === organizationIds.size
@@ -432,6 +518,19 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       await store.updateSystemPolicies({ aiProvider: provider, aiModel: model, ...(apiKey ? { aiEncryptedApiKey: encryptAiApiKey(apiKey) } : {}) });
       await store.updateOrganizationAiPolicies(nextPolicies);
       return response.json(publicAiSettings());
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/admin/ai-grading-requests", authenticate, requireRole("ADMIN"), (_request, response) => response.json(store.aiGradingRequests.map(publicAiGradingRequest)));
+  app.post("/api/admin/ai-grading-requests/:id/accept", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
+      if (!gradingRequest) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
+      if (gradingRequest.status !== "PENDING") return response.status(409).json({ message: "이미 처리 중이거나 완료된 요청입니다." });
+      const processing = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: new Date().toISOString(), acceptedBy: request.user.id });
+      void executeAiGrading(processing).catch(async (error) => store.updateAiGradingRequest(processing.id, { status: "FAILED", failedAt: new Date().toISOString(), errorMessage: error.message }));
+      return response.status(202).json(publicAiGradingRequest(processing));
     } catch (error) {
       return next(error);
     }
@@ -565,6 +664,23 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const organization = { id: randomUUID(), name: name.trim(), code: normalizedCode, status: "PENDING", requestedBy: request.user.id, managerIds: [], createdAt: new Date().toISOString() };
       await store.addOrganization(organization);
       return response.status(201).json(publicOrganization(organization, store.users));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  // Organization managers can only request grading for an assignment in an organization they manage.
+  app.post("/api/manager/ai-grading-requests", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const examId = typeof request.body.examId === "string" ? request.body.examId : "";
+      const candidateId = typeof request.body.candidateId === "string" ? request.body.candidateId : "";
+      const exam = store.exams.find((item) => item.id === examId);
+      const candidate = store.candidates.find((item) => item.id === candidateId);
+      const canManage = exam && candidate && exam.organizationId === candidate.organizationId && managerOrganizationIds(request.user, store.organizations).includes(exam.organizationId);
+      if (!canManage || !store.assignments.some((item) => item.examId === examId && item.candidateId === candidateId)) return response.status(403).json({ message: "해당 응시자의 AI 채점 요청 권한이 없습니다." });
+      if (store.aiGradingRequests.some((item) => item.examId === examId && item.candidateId === candidateId && ["PENDING", "PROCESSING"].includes(item.status))) return response.status(409).json({ message: "이미 처리 대기 중인 AI 채점 요청입니다." });
+      const gradingRequest = { id: randomUUID(), organizationId: exam.organizationId, examId, candidateId, requestedBy: request.user.id, requestedAt: new Date().toISOString(), status: "PENDING" };
+      await store.addAiGradingRequest(gradingRequest);
+      return response.status(201).json(publicAiGradingRequest(gradingRequest));
     } catch (error) {
       return next(error);
     }
