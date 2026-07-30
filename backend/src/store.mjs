@@ -3,9 +3,6 @@ import { dirname } from "node:path";
 import { createHash, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { seedData } from "./seed.mjs";
-import pg from "pg";
-
-const { Pool } = pg;
 
 const scrypt = promisify(scryptCallback);
 
@@ -76,9 +73,16 @@ export const createStore = async (filePath) => {
   let shouldSave = false;
 
   const databaseUrl = process.env.DATABASE_URL?.trim();
-  const pool = databaseUrl
-    ? new Pool({ connectionString: databaseUrl })
-    : undefined;
+  let pool;
+  if (databaseUrl) {
+    try {
+      const { default: pg } = await import("pg");
+      pool = new pg.Pool({ connectionString: databaseUrl });
+    } catch (error) {
+      if (error?.code === "ERR_MODULE_NOT_FOUND") throw new Error("DATABASE_URL이 설정되어 있어 PostgreSQL 드라이버(pg)가 필요합니다. backend에서 npm ci를 실행해주세요.");
+      throw error;
+    }
+  }
 
   let databaseData;
 
