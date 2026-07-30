@@ -432,11 +432,17 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         auxiliaryCamera: Boolean(media.auxiliaryCamera),
         updatedAt: new Date().toISOString()
       };
+      const disconnecting = !mediaStatus.webcam && !mediaStatus.screen;
+      if (disconnecting) {
+        for (const [id, liveSession] of liveSessions) {
+          if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
+        }
+      }
       let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       if (!examinee) {
         examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전", mediaStatus };
         await store.addExaminee(examinee);
-      } else await store.updateExaminee(examinee.id, { mediaStatus });
+      } else await store.updateExaminee(examinee.id, { mediaStatus, ...(disconnecting ? { monitoringSnapshot: null } : {}) });
       return response.json({ mediaStatus });
     } catch (error) {
       return next(error);
@@ -534,7 +540,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
       await store.updateInvitation(invitation.id, { submittedAt: now });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      if (examinee) await store.updateExaminee(examinee.id, { status: "SUBMITTED", statusText: "제출 완료", currentProb: "제출 완료" });
+      for (const [id, liveSession] of liveSessions) {
+        if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
+      }
+      if (examinee) {
+        await store.updateExaminee(examinee.id, {
+          status: "SUBMITTED",
+          statusText: "제출 완료",
+          currentProb: "제출 완료",
+          mediaStatus: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt: now },
+          monitoringSnapshot: null
+        });
+      }
       return response.json({ examId: exam.id, score, correctCount, totalCount: questions.length, status: "SUBMITTED", gradingStatus: codingQuestions.length ? "PENDING_REVIEW" : "COMPLETED" });
     } catch (error) {
       return next(error);

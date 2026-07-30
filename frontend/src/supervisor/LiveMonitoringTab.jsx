@@ -18,6 +18,7 @@ export default function LiveMonitoringTab() {
   const frontLiveRef = useRef(null);
   const screenLiveRef = useRef(null);
   const livePeerRef = useRef(null);
+  const livePollTimerRef = useRef(null);
 
   useEffect(() => {
     api.get('/manager/organizations', { headers: authHeaders() })
@@ -94,8 +95,12 @@ export default function LiveMonitoringTab() {
     .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
 
   const closeLive = () => {
+    if (livePollTimerRef.current) window.clearInterval(livePollTimerRef.current);
+    livePollTimerRef.current = null;
     livePeerRef.current?.close();
     livePeerRef.current = null;
+    if (frontLiveRef.current) frontLiveRef.current.srcObject = null;
+    if (screenLiveRef.current) screenLiveRef.current.srcObject = null;
     setLiveExaminee(null);
     setLiveError('');
     setFrontLiveReady(false);
@@ -108,6 +113,14 @@ export default function LiveMonitoringTab() {
     try {
       const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
       livePeerRef.current = peer;
+      peer.onconnectionstatechange = () => {
+        if (livePeerRef.current !== peer || !['closed', 'disconnected', 'failed'].includes(peer.connectionState)) return;
+        if (frontLiveRef.current) frontLiveRef.current.srcObject = null;
+        if (screenLiveRef.current) screenLiveRef.current.srcObject = null;
+        setFrontLiveReady(false);
+        setScreenLiveReady(false);
+        setLiveError('응시자 영상 연결이 종료되었습니다.');
+      };
       peer.addTransceiver('video', { direction: 'recvonly' });
       const screenVideoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
       peer.addTransceiver('audio', { direction: 'recvonly' });
@@ -123,6 +136,12 @@ export default function LiveMonitoringTab() {
             setLiveError('');
           }).catch(() => setLiveError('응시자 영상을 재생하지 못했습니다.'));
         }
+        event.track.onended = () => {
+          if (livePeerRef.current !== peer) return;
+          if (isScreen) setScreenLiveReady(false);
+          else setFrontLiveReady(false);
+          setLiveError('응시자 영상 연결이 종료되었습니다.');
+        };
       };
       await peer.setLocalDescription(await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true }));
       await new Promise((resolve) => {
@@ -142,16 +161,20 @@ export default function LiveMonitoringTab() {
           const response = await api.get('/supervisor/live-offers/' + data.id, { headers: authHeaders() });
           if (response.data.answer) {
             window.clearInterval(timer);
+            livePollTimerRef.current = null;
             await peer.setRemoteDescription(response.data.answer);
           } else if (Date.now() - startedAt > 30000) {
             window.clearInterval(timer);
+            livePollTimerRef.current = null;
             setLiveError('응시자 영상 연결 요청이 만료되었습니다.');
           }
         } catch {
           window.clearInterval(timer);
+          livePollTimerRef.current = null;
           setLiveError('응시자 라이브 연결에 실패했습니다.');
         }
       }, 1200);
+      livePollTimerRef.current = timer;
     } catch {
       setLiveError('라이브 연결을 시작하지 못했습니다.');
     }
@@ -241,7 +264,7 @@ export default function LiveMonitoringTab() {
             </div>
             <div className="monitoring-video-grid">
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 정면 라이브 화면 열기'}>
-                <span>정면 화면</span>{examinee.monitoringSnapshot?.image ? <img src={examinee.monitoringSnapshot.image} alt={examinee.name + ' 응시자 웹캠 정지 화면'} /> : <Video size={24} />}<small>{webcamConnected ? `정지 화면 · ${snapshotTime}` : '웹캠 연결 안 됨'}</small>
+                <span>정면 화면</span>{webcamConnected && examinee.monitoringSnapshot?.image ? <img src={examinee.monitoringSnapshot.image} alt={examinee.name + ' 응시자 웹캠 정지 화면'} /> : <Video size={24} />}<small>{webcamConnected ? `정지 화면 · ${snapshotTime}` : '웹캠 연결 안 됨'}</small>
               </button>
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 보조 라이브 화면 열기'}>
                 <span>보조 모니터링</span><Monitor size={24} /><small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>

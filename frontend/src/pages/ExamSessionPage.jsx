@@ -3,7 +3,7 @@ import { CheckCircle2, Clock, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
-import { hasActiveLiveStream } from '../applicant/liveMonitoring';
+import { hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
 
 export default function ExamSessionPage() {
   const navigate = useNavigate();
@@ -20,6 +20,23 @@ export default function ExamSessionPage() {
   useEffect(() => {
     if (!hasActiveLiveStream('webcam') || !hasActiveLiveStream('screen')) navigate('/exam/check', { replace: true });
   }, [navigate]);
+
+  useEffect(() => {
+    const disconnectMonitoring = () => {
+      stopLiveMonitoring();
+      const token = localStorage.getItem('candidateAccessToken');
+      if (!token) return;
+      const baseUrl = (api.defaults.baseURL ?? '/api').replace(/\/$/, '');
+      void fetch(baseUrl + '/applicant/media-status', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ media: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false } }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener('pagehide', disconnectMonitoring);
+    return () => window.removeEventListener('pagehide', disconnectMonitoring);
+  }, []);
 
   useEffect(() => {
     api.get('/applicant/exam', { headers: candidateAuthHeaders() })
@@ -45,6 +62,7 @@ export default function ExamSessionPage() {
     setSubmissionError('');
     try {
       const { data } = await api.post('/applicant/exam/submit', { answers, runResults }, { headers: candidateAuthHeaders() });
+      stopLiveMonitoring();
       setSubmitted(data);
       localStorage.removeItem('candidateAccessToken');
     } catch (reason) {
