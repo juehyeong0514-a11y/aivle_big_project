@@ -6,6 +6,7 @@ const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
 const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
 const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
+const NoticeManagementTab = lazy(() => import('../admin/NoticeManagementTab'));
 const ManagerWorkspaceTab = lazy(() => import('../manager/ManagerWorkspaceTab'));
 const ManagerExamManagementTab = lazy(() => import('../manager/ManagerExamManagementTab'));
 
@@ -69,6 +70,7 @@ export default function HomePage() {
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
             {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
+            {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
           </div>
         )}
 

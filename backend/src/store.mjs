@@ -271,6 +271,25 @@ const save = async () => {
       data.warnings.push(warning);
       await queuedSave();
     },
+    addNotice: async (notice) => {
+      data.notices.unshift(notice);
+      await queuedSave();
+      return notice;
+    },
+    updateNotice: async (id, patch) => {
+      const notice = data.notices.find((item) => item.id === id);
+      if (!notice) return undefined;
+      Object.assign(notice, patch);
+      await queuedSave();
+      return notice;
+    },
+    removeNotice: async (id) => {
+      const index = data.notices.findIndex((item) => item.id === id);
+      if (index < 0) return undefined;
+      const [removed] = data.notices.splice(index, 1);
+      await queuedSave();
+      return removed;
+    },
     addOrganization: async (organization) => {
       data.organizations.unshift(organization);
       await queuedSave();

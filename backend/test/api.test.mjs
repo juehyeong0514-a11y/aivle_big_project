@@ -66,6 +66,50 @@ test("serves public data and protects administration endpoints", async (context)
   assert.equal((await assignedSeedExaminees.json()).some((item) => item.candidateId === "candidate-1"), true);
 });
 
+test("allows ADMIN to manage searchable and scheduled public notices", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+
+  const login = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@aivle.com", password: "123" })
+  });
+  const { token } = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  const denied = await fetch(`${baseUrl}/api/admin/notices`);
+  assert.equal(denied.status, 401);
+
+  const created = await fetch(`${baseUrl}/api/admin/notices`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ title: "긴급 점검 안내", content: "오늘 18시에 점검합니다.", category: "URGENT", pinned: true })
+  });
+  assert.equal(created.status, 201);
+  const notice = await created.json();
+  assert.equal(notice.pinned, true);
+
+  const search = await fetch(`${baseUrl}/api/notices?q=18시&category=URGENT`);
+  assert.equal(search.status, 200);
+  assert.equal((await search.json()).some((item) => item.id === notice.id), true);
+
+  const detail = await fetch(`${baseUrl}/api/notices/${notice.id}`);
+  assert.equal((await detail.json()).viewCount, 1);
+
+  const updated = await fetch(`${baseUrl}/api/admin/notices/${notice.id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ title: "긴급 점검 시간 변경", content: "오늘 19시에 점검합니다.", category: "MAINTENANCE" })
+  });
+  assert.equal(updated.status, 200);
+  assert.equal((await updated.json()).title, "긴급 점검 시간 변경");
+
+  const removed = await fetch(`${baseUrl}/api/admin/notices/${notice.id}`, { method: "DELETE", headers });
+  assert.equal(removed.status, 204);
+  assert.equal((await fetch(`${baseUrl}/api/notices/${notice.id}`)).status, 404);
+});
+
 test("registers managers for ADMIN approval before login", async (context) => {
   const { baseUrl, server } = await startServer();
   context.after(() => server.close());

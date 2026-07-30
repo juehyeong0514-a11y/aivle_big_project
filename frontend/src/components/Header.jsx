@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
   Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
-  Building2
+  Building2, Megaphone
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
 
@@ -20,7 +20,8 @@ const ADMIN_GROUPS = [
     label: '시험 조회 및 설정', icon: ClipboardList,
     items: [
       { key: 'AI_CONFIG', label: '중앙 AI 채점 설정', icon: Cpu },
-      { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText }
+      { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText },
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone }
     ]
   }
 ];
