@@ -7,6 +7,13 @@ const resultTabs = [
   { id: 'submission', label: '제출 결과' },
 ];
 
+const initialJavaScriptSource = `const message = 'Hello, JavaScript!';
+console.log(message);
+
+const numbers = [1, 2, 3, 4, 5];
+const total = numbers.reduce((sum, number) => sum + number, 0);
+console.log('합계:', total);`;
+
 function sourceFileName(language) {
   if (language === 'Java') return 'Main.java';
   if (language === 'JavaScript') return 'solution.js';
@@ -17,7 +24,13 @@ function runJavaScript(source) {
   const workerSource = `
     const format = (value) => {
       if (typeof value === 'string') return value;
-      try { return JSON.stringify(value); } catch { return String(value); }
+      if (value instanceof Error) return value.stack || value.message;
+      try {
+        const serialized = JSON.stringify(value);
+        return serialized === undefined ? String(value) : serialized;
+      } catch {
+        return String(value);
+      }
     };
     self.onmessage = async ({ data }) => {
       const output = [];
@@ -27,11 +40,13 @@ function runJavaScript(source) {
         error: (...values) => output.push(values.map(format).join(' ')),
       };
       try {
-        const result = await new Function('console', '"use strict";\\n' + data.source)(console);
+        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+        const execute = new AsyncFunction('console', '"use strict";\\n' + data.source);
+        const result = await execute(console);
         if (result !== undefined) output.push(format(result));
         self.postMessage({ type: 'success', output: output.join('\\n') || '출력이 없습니다.' });
       } catch (error) {
-        self.postMessage({ type: 'error', output: error instanceof Error ? error.message : String(error) });
+        self.postMessage({ type: 'error', output: format(error) });
       }
     };
   `;
@@ -39,8 +54,11 @@ function runJavaScript(source) {
   return new Promise((resolve) => {
     const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
     const worker = new Worker(workerUrl);
+    let finished = false;
     const timeout = window.setTimeout(() => finish({ type: 'error', output: '실행 시간이 3초를 초과했습니다.' }), 3000);
     const finish = (result) => {
+      if (finished) return;
+      finished = true;
       window.clearTimeout(timeout);
       worker.terminate();
       URL.revokeObjectURL(workerUrl);
@@ -52,7 +70,7 @@ function runJavaScript(source) {
   });
 }
 
-export function CodingExamWorkspace({ answers, exam, questions, runResults, saveProgress, saveStatus, submissionError, updateAnswers, updateRunResults }) {
+export function CodingExamWorkspace({ answers, exam, questions, remainingTime, runResults, saveProgress, saveStatus, submissionError, updateAnswers, updateRunResults }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeResultTab, setActiveResultTab] = useState('run');
   const [panelSizes, setPanelSizes] = useState({ navigation: 18, statement: 27, editor: 66 });
@@ -60,10 +78,12 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
   const editorPaneRef = useRef(null);
   const lineNumberRef = useRef(null);
   const question = questions[activeIndex] ?? questions[0];
-  const languages = question.languages?.length ? question.languages : ['Python'];
+  const isCodingQuestion = question.type === 'CODING';
+  const configuredLanguages = question.languages?.length ? question.languages : ['Python'];
+  const languages = [...new Set([...configuredLanguages, 'JavaScript'])];
   const answer = answers[question.id] ?? {};
-  const language = answer.language ?? languages[0];
-  const source = answer.source ?? '';
+  const language = answer.language ?? 'JavaScript';
+  const source = answer.source ?? question.starterCode ?? initialJavaScriptSource;
   const sourceLines = Math.max(source.split('\n').length, 16);
   const runResult = runResults[question.id] ?? { type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' };
 
@@ -80,8 +100,12 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
 
   const runCode = async () => {
     setActiveResultTab('run');
-    if (language !== 'JavaScript') {
+    if (language.toLowerCase() !== 'javascript') {
       updateRunResults({ ...runResults, [question.id]: { type: 'error', output: `${language} 실행은 채점 서버 연결 후 제공됩니다. 현재는 JavaScript만 브라우저에서 실행할 수 있습니다.`, executedAt: new Date().toISOString() } });
+      return;
+    }
+    if (!source.trim()) {
+      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: '실행할 JavaScript 코드를 입력해 주세요.', executedAt: new Date().toISOString() } });
       return;
     }
     updateRunResults({ ...runResults, [question.id]: { type: 'running', output: '실행 중...', executedAt: new Date().toISOString() } });
@@ -149,7 +173,7 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
         >
           <aside className="coding-navigation-pane" aria-label="문제 선택">
             <div className="coding-problem-toolbar">
-              <span><Clock size={16} /> 남은 시간 <strong>{exam.duration}</strong></span>
+              <span><Clock size={16} /> 남은 시간 <strong>{remainingTime}</strong></span>
             </div>
             <nav className="coding-problem-list" aria-label="문제 선택">
               {questions.map((codingQuestion, index) => (
@@ -160,7 +184,7 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
                   type="button"
                   onClick={() => setActiveIndex(index)}
                 >
-                  <span>{index + 1}.</span> {codingQuestion.title}
+                  <span>{index + 1}.</span> {codingQuestion.title || codingQuestion.prompt}
                 </button>
               ))}
             </nav>
@@ -171,13 +195,13 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
           <aside className="coding-problem-pane" aria-label="문제 설명">
             <div className="coding-problem-heading">
               <span>문제 {activeIndex + 1}</span>
-              <h1>{question.title}</h1>
+              <h1>{question.title || question.prompt}</h1>
             </div>
             <StatementSection title="문제 설명" value={question.description || question.prompt} />
-            <StatementSection title="입력" value={question.inputFormat} />
-            <StatementSection title="출력" value={question.outputFormat} />
-            {question.constraints && <StatementSection title="제한" value={question.constraints} />}
-            {question.publicExamples?.length > 0 && (
+            {isCodingQuestion && <StatementSection title="입력" value={question.inputFormat} />}
+            {isCodingQuestion && <StatementSection title="출력" value={question.outputFormat} />}
+            {isCodingQuestion && question.constraints && <StatementSection title="제한" value={question.constraints} />}
+            {isCodingQuestion && question.publicExamples?.length > 0 && (
               <section className="coding-statement-section">
                 <h2>입출력 예시</h2>
                 <div className="coding-example-list">
@@ -196,36 +220,57 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
 
           <PanelResizer direction="vertical" label="문제 설명 너비 조절" onKeyDown={(event) => adjustPanelWithKeyboard('statement', event)} onPointerDown={(event) => resizePanel('statement', event)} />
 
-          <section className="coding-editor-pane" aria-label="코드 작성 및 결과" ref={editorPaneRef} style={{ '--editor-height': `${panelSizes.editor}%` }}>
+          <section className={`coding-editor-pane${isCodingQuestion ? '' : ' objective'}`} aria-label={isCodingQuestion ? '코드 작성 및 결과' : '객관식 답안 작성'} ref={editorPaneRef} style={{ '--editor-height': `${panelSizes.editor}%` }}>
             <div className="coding-editor-workspace">
               <div className="coding-editor-toolbar">
-                <strong>{sourceFileName(language)}</strong>
-                <label>
-                  <span className="sr-only">프로그래밍 언어</span>
-                  <select value={language} onChange={(event) => updateAnswer({ language: event.target.value })}>
-                    {languages.map((item) => <option key={item}>{item}</option>)}
-                  </select>
-                </label>
+                <strong>{isCodingQuestion ? sourceFileName(language) : '객관식 답안'}</strong>
+                {isCodingQuestion && (
+                  <label>
+                    <span className="sr-only">프로그래밍 언어</span>
+                    <select value={language} onChange={(event) => updateAnswer({ language: event.target.value })}>
+                      {languages.map((item) => <option key={item}>{item}</option>)}
+                    </select>
+                  </label>
+                )}
               </div>
-              <div className="coding-editor-body">
-                <ol className="coding-line-numbers" aria-hidden="true" ref={lineNumberRef}>
-                  {Array.from({ length: sourceLines }, (_, index) => <li key={index}>{index + 1}</li>)}
-                </ol>
-                <textarea
-                  aria-label="답안 코드"
-                  className="coding-source-editor"
-                  placeholder="여기에 코드를 작성하세요."
-                  spellCheck="false"
-                  value={source}
-                  onChange={(event) => updateAnswer({ source: event.target.value })}
-                  onScroll={(event) => { if (lineNumberRef.current) lineNumberRef.current.scrollTop = event.currentTarget.scrollTop; }}
-                />
-              </div>
+              {isCodingQuestion ? (
+                <div className="coding-editor-body">
+                  <ol className="coding-line-numbers" aria-hidden="true" ref={lineNumberRef}>
+                    {Array.from({ length: sourceLines }, (_, index) => <li key={index}>{index + 1}</li>)}
+                  </ol>
+                  <textarea
+                    aria-label="답안 코드"
+                    className="coding-source-editor"
+                    placeholder="여기에 코드를 작성하세요."
+                    spellCheck="false"
+                    value={source}
+                    onChange={(event) => updateAnswer({ source: event.target.value })}
+                    onScroll={(event) => { if (lineNumberRef.current) lineNumberRef.current.scrollTop = event.currentTarget.scrollTop; }}
+                  />
+                </div>
+              ) : (
+                <fieldset className="coding-objective-body">
+                  <legend>정답을 하나 선택하세요.</legend>
+                  {(question.options ?? []).map((option, index) => (
+                    <label className="coding-objective-option" key={option}>
+                      <input
+                        checked={answers[question.id] === option}
+                        name={`objective-${question.id}`}
+                        type="radio"
+                        value={option}
+                        onChange={(event) => updateAnswers({ ...answers, [question.id]: event.target.value })}
+                      />
+                      <span>{index + 1}</span>
+                      <strong>{option}</strong>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
             </div>
 
-            <PanelResizer direction="horizontal" label="코드 편집기 높이 조절" onKeyDown={(event) => adjustPanelWithKeyboard('editor', event)} onPointerDown={(event) => resizePanel('editor', event)} />
+            {isCodingQuestion && <PanelResizer direction="horizontal" label="코드 편집기 높이 조절" onKeyDown={(event) => adjustPanelWithKeyboard('editor', event)} onPointerDown={(event) => resizePanel('editor', event)} />}
 
-            <section className="coding-result-panel" aria-label="실행 및 제출 결과">
+            {isCodingQuestion && <section className="coding-result-panel" aria-label="실행 및 제출 결과">
               <div className="coding-result-tabs" role="tablist" aria-label="결과 탭">
                 {resultTabs.map((tab) => (
                   <button
@@ -254,7 +299,14 @@ export function CodingExamWorkspace({ answers, exam, questions, runResults, save
                   {saveStatus && <span className="coding-save-status" role="status">{saveStatus}</span>}
                 </div>
               </footer>
-            </section>
+            </section>}
+            {!isCodingQuestion && (
+              <footer className="coding-objective-controls">
+                <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 답안 저장</button>
+                <button className="coding-submit-button" type="submit"><Send size={15} /> 답안 저장하고 제출</button>
+                {saveStatus && <span className="coding-save-status" role="status">{saveStatus}</span>}
+              </footer>
+            )}
           </section>
         </div>
       </div>

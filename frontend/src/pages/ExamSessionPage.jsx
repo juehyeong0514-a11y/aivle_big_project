@@ -5,6 +5,21 @@ import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
 import { getLiveMediaStatus, hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
 
+const durationInSeconds = (duration) => {
+  const minutes = Number.parseInt(String(duration ?? '').match(/\d+/)?.[0] ?? '', 10);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : 0;
+};
+
+const formatRemainingTime = (seconds) => {
+  const safeSeconds = Math.max(0, seconds);
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainder = safeSeconds % 60;
+  return hours > 0
+    ? [hours, minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':')
+    : [minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':');
+};
+
 export default function ExamSessionPage() {
   const navigate = useNavigate();
   const [exam, setExam] = useState(null);
@@ -15,6 +30,7 @@ export default function ExamSessionPage() {
   const [submitted, setSubmitted] = useState(null);
   const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
 
   useEffect(() => {
@@ -40,6 +56,20 @@ export default function ExamSessionPage() {
   }, []);
 
   useEffect(() => {
+    if (!exam?.id) return undefined;
+    const totalSeconds = durationInSeconds(exam.duration);
+    if (!totalSeconds) return undefined;
+    const timerKey = `examEndAt:${exam.id}`;
+    const savedEndAt = Number(sessionStorage.getItem(timerKey));
+    const endAt = Number.isFinite(savedEndAt) && savedEndAt > Date.now() ? savedEndAt : Date.now() + totalSeconds * 1000;
+    sessionStorage.setItem(timerKey, String(endAt));
+    const updateTimer = () => setRemainingSeconds(Math.max(0, Math.ceil((endAt - Date.now()) / 1000)));
+    updateTimer();
+    const timer = window.setInterval(updateTimer, 1000);
+    return () => window.clearInterval(timer);
+  }, [exam?.id, exam?.duration]);
+
+  useEffect(() => {
     const reportMediaHeartbeat = () => {
       void api.put('/applicant/media-status', { media: getLiveMediaStatus() }, { headers: candidateAuthHeaders() }).catch(() => {});
     };
@@ -54,19 +84,31 @@ export default function ExamSessionPage() {
 
   useEffect(() => {
     api.get('/applicant/exam', { headers: candidateAuthHeaders() })
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         const normalized = Array.isArray(data.questions)
           ? data.questions.map((question) => ({ ...question, options: Array.isArray(question.options) ? question.options.filter(Boolean) : [] }))
           : [];
         setExam(data.exam ?? null);
         setQuestions(normalized);
-        return api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
+        const progress = await api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
+        return { progress, questions: normalized };
       })
-      .then((response) => {
-        if (!response) return;
-        setAnswers(response.data.answers ?? {});
-        setRunResults(response.data.runResults ?? {});
-        if (response.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(response.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+      .then(({ progress, questions: loadedQuestions }) => {
+        const initializedAnswers = { ...(progress.data.answers ?? {}) };
+        loadedQuestions.forEach((question) => {
+          if (question.type !== 'CODING' || !question.starterCode) return;
+          const savedAnswer = initializedAnswers[question.id];
+          if (!savedAnswer || !savedAnswer.source?.trim()) {
+            initializedAnswers[question.id] = {
+              ...savedAnswer,
+              language: savedAnswer?.language ?? 'JavaScript',
+              source: question.starterCode,
+            };
+          }
+        });
+        setAnswers(initializedAnswers);
+        setRunResults(progress.data.runResults ?? {});
+        if (progress.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(progress.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       })
       .catch((reason) => setError(apiErrorMessage(reason, '시험 세션을 확인할 수 없습니다. 초대 링크로 다시 입장해 주세요.')));
   }, []);
@@ -97,11 +139,12 @@ export default function ExamSessionPage() {
   if (submitted) return <ResultPage submitted={submitted} navigate={navigate} />;
   if (error) return <ErrorPage error={error} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
-  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={codingQuestions} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} /></form>;
+  const remainingTime = formatRemainingTime(remainingSeconds);
+  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={questions} remainingTime={remainingTime} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} /></form>;
 
   return (
     <main className="container exam-session-page">
-      <div className="workspace-heading"><div><span className="workspace-eyebrow">EXAM SESSION</span><h1>{exam.title}</h1><p>답안을 제출하면 시험이 종료됩니다. 제출 전 답안을 확인해 주세요.</p></div><div className="workspace-role-mark manager"><Clock size={18} /> {exam.duration}</div></div>
+      <div className="workspace-heading"><div><span className="workspace-eyebrow">EXAM SESSION</span><h1>{exam.title}</h1><p>답안을 제출하면 시험이 종료됩니다. 제출 전 답안을 확인해 주세요.</p></div><div className="workspace-role-mark manager"><Clock size={18} /> {remainingTime}</div></div>
       <form onSubmit={submitExam}>
         {submissionError && <div className="workspace-alert error">{submissionError}</div>}
         <div className="exam-question-list">

@@ -135,7 +135,8 @@ const normalizeTestCases = (testCases, requireAtLeastOne = false) => {
   return normalized;
 };
 const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJudgeCode, ...question }) => question;
-const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questions.filter((question) => question.type === "CODING").map((question) => {
+const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questions.map((question) => {
+  if (question.type !== "CODING") return [question.id, typeof answers[question.id] === "string" ? answers[question.id].slice(0, 10000) : ""];
   const answer = answers[question.id] && typeof answers[question.id] === "object" ? answers[question.id] : {};
   const languages = question.languages?.length ? question.languages : ["Python"];
   return [question.id, {
