@@ -499,10 +499,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     for (const [id, liveSession] of liveSessions) {
       if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
     }
-    for (const [token, device] of auxiliaryDevices) {
-      if (device.examId === exam.id && device.candidateId === candidate.id) auxiliaryDevices.delete(token);
+    for (const device of auxiliaryDevices.values()) {
+      if (device.examId !== exam.id || device.candidateId !== candidate.id) continue;
+      device.deviceToken = null;
+      await store.updateAuxiliaryDevice(device.token, { deviceToken: null });
     }
-    await store.removeAuxiliaryDevices(exam.id, candidate.id);
     const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     if (examinee) {
       const disconnectedMediaStatus = { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt };
