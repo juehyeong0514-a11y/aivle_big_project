@@ -888,7 +888,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     response.json(store.exams.filter((exam) => organizationIds.includes(exam.organizationId)).map((exam) => ({
       ...exam,
-      questionCount: store.questions.filter((question) => question.examId === exam.id).length
+      organizationName: store.organizations.find((organization) => organization.id === exam.organizationId)?.name ?? "조직",
+      questionCount: store.questions.filter((question) => question.examId === exam.id).length,
+      examineeCount: store.assignments.filter((assignment) => assignment.examId === exam.id).length
     })));
   });
   app.post("/api/manager/exams", authenticate, requireManager, async (request, response, next) => {
@@ -960,7 +962,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const normalizedAnswer = answer.trim();
       if (normalizedOptions.length < 2) return response.status(400).json({ message: "선택지는 2개 이상 입력해주세요." });
       if (!normalizedOptions.includes(normalizedAnswer)) return response.status(400).json({ message: "정답은 보기 중 하나여야 합니다." });
-      const question = { id: randomUUID(), examId: request.params.id, prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, createdAt: new Date().toISOString() };
+      const question = { id: randomUUID(), examId: request.params.id, type: "MULTIPLE_CHOICE", prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, createdAt: new Date().toISOString() };
       await store.addQuestion(question);
       return response.status(201).json(question);
     } catch (error) {
@@ -972,7 +974,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
       const current = store.questions.find((question) => question.id === request.params.questionId && question.examId === request.params.examId);
       if (!current) return response.status(404).json({ message: "문제를 찾을 수 없습니다." });
-      if (current.type !== "CODING" || request.body.type !== "CODING") return response.status(400).json({ message: "코딩 문제만 이 화면에서 수정할 수 있습니다." });
+      if (current.type !== "CODING" && request.body.type === "CODING") return response.status(400).json({ message: "문제 유형은 변경할 수 없습니다." });
+      if (current.type === "CODING" && request.body.type !== "CODING") return response.status(400).json({ message: "문제 유형은 변경할 수 없습니다." });
+      if (current.type !== "CODING") {
+        const { prompt, options, answer } = request.body;
+        const normalizedOptions = Array.isArray(options) ? [...new Set(options.map((option) => String(option).trim()).filter(Boolean))] : [];
+        const normalizedAnswer = typeof answer === "string" ? answer.trim() : "";
+        if (!isNonEmptyText(prompt) || normalizedOptions.length < 2 || !normalizedOptions.includes(normalizedAnswer)) return response.status(400).json({ message: "문제, 두 개 이상의 선택지, 선택지에 포함된 정답을 입력해주세요." });
+        const question = await store.updateQuestion(current.id, { type: "MULTIPLE_CHOICE", prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, updatedAt: new Date().toISOString() });
+        return response.json(question);
+      }
       const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
       const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
       const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
@@ -988,6 +999,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         referenceSolutions: normalizedReferenceSolutions, updatedAt: new Date().toISOString()
       });
       return response.json(question);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/exams/:examId/questions/:questionId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
+      const question = store.questions.find((item) => item.id === request.params.questionId && item.examId === request.params.examId);
+      if (!question) return response.status(404).json({ message: "문제를 찾을 수 없습니다." });
+      if (store.invitations.some((invitation) => invitation.examId === request.params.examId)) return response.status(409).json({ message: "초대 발송 이력이 있는 시험의 문제는 삭제할 수 없습니다." });
+      await store.removeQuestion(question.id);
+      return response.status(204).end();
     } catch (error) {
       return next(error);
     }

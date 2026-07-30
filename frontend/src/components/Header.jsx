@@ -30,8 +30,7 @@ const SUPERVISOR_GROUPS = [
   {
     label: '시험 운영', icon: Users,
     items: [
-      { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
-      { key: 'EXAMS', label: '전체 시험 조회', icon: ClipboardList },
+      { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]
@@ -95,10 +94,10 @@ export default function Header() {
   const getDefaultTab = () => 'HOME';
 
   const defaultTab = getDefaultTab();
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAM_MANAGEMENT' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
 
   const handleTabClick = (tabName) => {
-    if (isSupervisor && tabName === 'EXAM_MANAGEMENT') {
+    if (isSupervisor && tabName === 'EXAMS') {
       navigate('/manager/exams');
       return;
     }

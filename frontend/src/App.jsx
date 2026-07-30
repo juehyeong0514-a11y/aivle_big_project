@@ -12,7 +12,7 @@ const MobileScanPage = lazy(() => import('./pages/MobileScanPage'));
 const MobileMonitoringPage = lazy(() => import('./pages/MobileProctoringPage'));
 const InvitePage = lazy(() => import('./pages/InvitePage'));
 const AdminRoute = lazy(() => import('./components/AdminRoute'));
-const ManagerExamManagementTab = lazy(() => import('./manager/ManagerExamManagementTab'));
+const SupervisorExamDashboard = lazy(() => import('./supervisor/SupervisorExamDashboard'));
 const ManagerExamCreatePage = lazy(() => import('./manager/ManagerExamCreatePage'));
 const ManagerExamDetailPage = lazy(() => import('./manager/ManagerExamDetailPage'));
 
@@ -55,7 +55,7 @@ export default function App() {
 
           {/* 🌟 회원가입/로그인을 안 하더라도 홈 화면의 탭과 카드 목록은 열람이 가능합니다 */}
           <Route path="/home" element={<HomePage />} />
-          <Route path="/manager/exams" element={<ManagerRoute><ManagerExamManagementTab /></ManagerRoute>} />
+          <Route path="/manager/exams" element={<ManagerRoute><SupervisorExamDashboard /></ManagerRoute>} />
           <Route path="/manager/exams/new" element={<ManagerRoute><ManagerExamCreatePage /></ManagerRoute>} />
           <Route path="/manager/exams/:examId" element={<ManagerRoute><ManagerExamDetailPage /></ManagerRoute>} />
 

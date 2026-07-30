@@ -7,7 +7,6 @@ const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
 const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
 const ManagerWorkspaceTab = lazy(() => import('../manager/ManagerWorkspaceTab'));
-const ManagerExamManagementTab = lazy(() => import('../manager/ManagerExamManagementTab'));
 
 // 🌟 응시자 전용 탭 컴포넌트 임포트
 const HomeTab = lazy(() => import('../applicant/HomeTab'));
@@ -23,7 +22,7 @@ const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
 const ExamStatusTab = lazy(() => import('../supervisor/ExamStatusTab'));
 const SupervisorReportsTab = lazy(() => import('../supervisor/ReportsTab'));
 const ExamPolicyTab = lazy(() => import('../supervisor/ExamPolicyTab'));
-const SupervisorExamDirectoryTab = lazy(() => import('../supervisor/SupervisorExamDirectoryTab'));
+const SupervisorExamDashboard = lazy(() => import('../supervisor/SupervisorExamDashboard'));
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -78,7 +77,7 @@ export default function HomePage() {
         {isSupervisor && !showHome && (
           <div>
             {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
-            {activeTab === 'EXAMS' && <SupervisorExamDirectoryTab />}
+            {activeTab === 'EXAMS' && <SupervisorExamDashboard />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}
