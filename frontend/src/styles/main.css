@@ -1259,6 +1259,10 @@ main {
 .status-badge.pending { background: #fef3c7; color: #92400e; }
 .status-badge.approved { background: #dcfce7; color: #166534; }
 .status-badge.rejected, .status-badge.suspended { background: #fee2e2; color: #991b1b; }
+.status-badge.active { background: #dcfce7; color: #166534; }
+.status-badge.expired { background: #e2e8f0; color: #475569; }
+.status-badge.revoked { background: #fee2e2; color: #991b1b; }
+.status-badge.submitted { background: #dbeafe; color: #1d4ed8; }
 .icon-action { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border-default); border-radius: 8px; cursor: pointer; background: var(--surface-secondary); }
 .icon-action.approve { color: var(--status-success); }
 .icon-action.reject { color: var(--status-error); }
@@ -1458,6 +1462,24 @@ main {
 .coding-save-status { display: inline-block; margin-left: 10px; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 900px) { .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
+.form-panel .toggle-row input[type="checkbox"] { width: 16px; min-height: 16px; height: 16px; margin: 0; padding: 0; flex: 0 0 16px; accent-color: var(--accent-primary); }
+.invitation-security-panel { gap: 16px; }
+.invitation-security-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.invitation-security-panel .toggle-row { min-height: 44px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-soft); font-size: 13px; font-weight: 500; }
+.invitation-filter-bar { display: grid; grid-template-columns: 180px minmax(240px, 1fr); gap: 12px; margin-bottom: 12px; }
+.invitation-filter-bar select, .invitation-filter-fields select, .invitation-filter-fields input { width: 100%; min-height: 40px; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 12px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; font-size: 13px; }
+.invitation-filter-bar select:focus, .invitation-filter-fields select:focus, .invitation-filter-fields input:focus { outline: 3px solid rgba(37, 99, 235, .18); border-color: var(--accent-primary); }
+.invitation-filter-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.invitation-filter-fields label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.invitation-expiring-toggle { width: fit-content; min-height: 36px; margin-top: 10px; padding: 0 10px; border-radius: 8px; color: var(--text-secondary); font-size: 13px; }
+.invitation-expiring-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-primary); }
+.invitation-inventory-table { max-height: 700px; margin-top: 12px; overflow: auto; border: 1px solid var(--border-default); border-radius: 10px; }
+.invitation-inventory-table table { width: 100%; min-width: 940px; border-collapse: collapse; text-align: left; font-size: 13px; }
+.invitation-inventory-table th, .invitation-inventory-table td { padding: 12px; border-bottom: 1px solid var(--border-default); vertical-align: middle; }
+.invitation-inventory-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-soft); color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.invitation-inventory-table tbody tr:last-child td { border-bottom: 0; }
+@media (max-width: 900px) { .invitation-security-options, .invitation-filter-fields { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .invitation-filter-bar, .invitation-security-options, .invitation-filter-fields { grid-template-columns: 1fr; } }
 .ai-org-toggle input { width: 16px !important; height: 16px; min-height: 16px !important; margin: 0; padding: 0; flex: 0 0 16px; }
 .ai-quota-meter { min-width: 190px; }
 .ai-quota-meter-track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--surface-soft); }
