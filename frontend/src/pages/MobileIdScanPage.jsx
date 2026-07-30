@@ -88,7 +88,15 @@ export default function MobileIdScanPage() {
         }
         setAutoCaptureMessage('신분증 전체가 가이드 중앙에 보이도록 맞춰주세요.');
       } catch (reason) {
-        if (!cancelled) setError(apiErrorMessage(reason, '신분증 자동 감지를 시작하지 못했습니다. 수동으로 촬영해주세요.'));
+        if (!cancelled) {
+          const message = apiErrorMessage(reason, '신분증 자동 감지를 시작하지 못했습니다. 수동으로 촬영해주세요.');
+        if (reason.response?.status === 404 && /^not found$/i.test(String(message).trim())) {
+            setError('');
+            setAutoCaptureMessage('자동 감지 서버가 준비되지 않아 수동 촬영 모드로 전환했습니다. 아래 촬영하기 버튼을 눌러주세요.');
+          } else {
+            setError(message);
+          }
+        }
         return;
       }
       if (!cancelled) timerId = window.setTimeout(detectCard, 2000);

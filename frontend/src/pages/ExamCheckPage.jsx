@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Camera,
@@ -17,30 +16,18 @@ import { registerLiveStream } from '../applicant/liveMonitoring';
 export default function ExamCheckPage() {
   const navigate = useNavigate();
 
-  // 신분증 촬영용 영상
   const idVideoRef = useRef(null);
-  const idCaptureModalVideoRef = useRef(null);
 
   // 화면 공유 영상
   const displayRef = useRef(null);
 
-  // 영상 캡처용 canvas
-  const canvasRef = useRef(null);
-
   // 스트림 보관
   const webcamStreamRef = useRef(null);
-  const idWebcamStreamRef = useRef(null);
   const displayStreamRef = useRef(null);
 
   // 촬영 결과
   const [idCardImage, setIdCardImage] = useState('');
   const [idCardVerification, setIdCardVerification] = useState({ status: 'PENDING', message: '' });
-  // 점검 상태
-  const [idCaptureModalOpen, setIdCaptureModalOpen] = useState(false);
-  const [idWebcamReady, setIdWebcamReady] = useState(false);
-  const [capturedIdImage, setCapturedIdImage] = useState('');
-
-
   const [webcamReady, setWebcamReady] = useState(false);
   const [displayReady, setDisplayReady] = useState(false);
   const [qrConnected, setQrConnected] = useState(false);
@@ -85,12 +72,7 @@ export default function ExamCheckPage() {
       .then(({ data }) => setExamSession(data))
       .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
-    return () => {
-      // 모달용 웹캠 스트림 정리
-      if (idWebcamStreamRef.current) {
-        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -204,92 +186,6 @@ export default function ExamCheckPage() {
     }
   };
 
-  // 신분증 촬영 모달 열기 및 웹캠 시작
-  const openIdCaptureModal = async () => {
-    setCapturedIdImage('');
-    setIdCaptureModalOpen(true);
-    setIdWebcamReady(false);
-    try {
-      // 기존 스트림 정리
-      if (idWebcamStreamRef.current) {
-        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-      idWebcamStreamRef.current = stream;
-      if (idCaptureModalVideoRef.current) {
-        idCaptureModalVideoRef.current.srcObject = stream;
-      }
-      setIdWebcamReady(true);
-    } catch (err) {
-      setErrorMsg('웹캠을 연결할 수 없습니다. 카메라 권한을 확인해주세요.');
-      console.error("Error accessing webcam for ID capture:", err);
-      closeIdCaptureModal();
-    }
-  };
-
-  // 신분증 촬영 모달 닫기 및 웹캠 정지
-  const closeIdCaptureModal = () => {
-    if (idWebcamStreamRef.current) {
-      idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
-      idWebcamStreamRef.current = null;
-    }
-    setIdCaptureModalOpen(false);
-    setIdWebcamReady(false);
-    setCapturedIdImage('');
-  };
-
-  // 모달 안에서 신분증 촬영
-  const handleCaptureInModal = () => {
-    const image = captureVideoFrame(idCaptureModalVideoRef.current);
-    if (image) {
-      setCapturedIdImage(image);
-    } else {
-      setErrorMsg('카메라가 준비되지 않았습니다. 잠시 후 다시 시도해주세요.');
-    }
-  };
-
-  // 촬영한 신분증 이미지 확정
-  const confirmIdCardImage = async () => {
-    if (!capturedIdImage || !idScanToken) return;
-    try {
-      const { data } = await api.post(`/applicant/id-card-scans/${idScanToken}/capture`, { image: capturedIdImage }, { headers: candidateAuthHeaders() });
-      setIdCardImage(data.image ?? '');
-      setIdCardVerification({ status: data.status, message: data.message ?? '' });
-      closeIdCaptureModal();
-    } catch (error) {
-      setErrorMsg(apiErrorMessage(error, '신분증 생년월일을 확인하지 못했습니다.'));
-    }
-  };
-
-  // 모달 안에서 재촬영
-  const retakeIdCardInModal = () => {
-    setCapturedIdImage('');
-    if (idCaptureModalVideoRef.current) {
-      idCaptureModalVideoRef.current.play().catch(console.error);
-    }
-  };
-
-  /**
-   * 비디오 화면 한 장을 이미지로 캡처
-   */
-  const captureVideoFrame = (videoElement) => {
-    const canvas = canvasRef.current;
-    if (!videoElement || !canvas) return null;
-    if (videoElement.readyState < 2) return null;
-
-    const width = videoElement.videoWidth || 1280;
-    const height = videoElement.videoHeight || 720;
-
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext('2d');
-    if (!context) return null;
-
-    context.drawImage(videoElement, 0, 0, width, height);
-    return canvas.toDataURL('image/jpeg', 0.92);
-  };
-
   /**
    * PC 화면 공유
    */
@@ -332,6 +228,12 @@ export default function ExamCheckPage() {
     setErrorMsg('');
   };
 
+  const markIdCardVerifiedForTest = () => {
+    setIdCardVerification({ status: 'VERIFIED', message: '임시 인증으로 신원확인이 완료되었습니다.' });
+    setIdCardImage('');
+    setErrorMsg('');
+  };
+
   const isAllReady =
     webcamReady &&
     idCardVerification.status === 'VERIFIED' &&
@@ -368,13 +270,22 @@ export default function ExamCheckPage() {
           </div>
 
           <div className="qr-connection-box">
-            {idCardVerification.status === 'VERIFIED' && idCardImage ? (
-              <img src={idCardImage} alt="촬영한 신분증" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
-            ) : (
+            {idCardVerification.status === 'VERIFIED' ? (
+              idCardImage ? (
+                <img src={idCardImage} alt="촬영한 신분증" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
+              ) : (
+                <div className="identity-empty-state text-success">
+                  <CheckCircle2 size={40} />
+                  <strong>신원확인 완료</strong>
+                </div>
+              )
+            ) : idScanToken ? (
               <>
                 <QRCodeCanvas value={`${window.location.origin}/mobile/id-scan?token=${idScanToken}`} size={120} />
                 <span style={{ marginTop: '10px' }}>휴대폰으로 QR코드를 스캔하여<br/>신분증을 촬영해주세요.</span>
               </>
+            ) : (
+              <span>신분증 촬영 QR 코드를 생성하는 중입니다.</span>
             )}
           </div>
 
@@ -391,8 +302,8 @@ export default function ExamCheckPage() {
             </button>
           ) : (
             <div className="identity-action-row" style={{ gridTemplateColumns: '1fr', marginTop: '0.75rem' }}>
-              <button type="button" onClick={openIdCaptureModal} className="secondary-button compact-button" style={{ justifyContent: 'center', minHeight: '44px' }}>
-                PC 카메라로 인증
+              <button type="button" onClick={markIdCardVerifiedForTest} className="secondary-button compact-button" style={{ justifyContent: 'center', minHeight: '44px' }}>
+                [임시] 신분증 인증 완료
               </button>
             </div>
           )}
@@ -512,47 +423,6 @@ export default function ExamCheckPage() {
         </button>
       </div>
 
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-      {/* 신분증 촬영 모달 (Portal 사용) */}
-      {idCaptureModalOpen && createPortal(
-          <div className="modal-overlay">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h3>PC 카메라로 신분증 촬영</h3>
-                <button onClick={closeIdCaptureModal} className="modal-close-btn">&times;</button>
-              </div>
-              <div className="modal-body">
-                <div className="identity-camera-box">
-                  <video ref={idCaptureModalVideoRef} autoPlay playsInline muted className="video-stream" />
-                  {!idWebcamReady && <span className="video-placeholder">웹캠을 불러오는 중...</span>}
-
-                  {/* 촬영 가이드 UI */}
-                  {!capturedIdImage && idWebcamReady && (
-                    <div className="id-card-guide">
-                      <div className="id-card-guide-frame"></div>
-                      <span>가이드 선 안에 신분증을 맞춰주세요</span>
-                    </div>
-                  )}
-
-                  {/* 촬영 후 이미지 미리보기 */}
-                  {capturedIdImage && <img src={capturedIdImage} alt="촬영된 신분증" className="captured-image-overlay" />}
-                </div>
-              </div>
-              <div className="modal-footer">
-                {capturedIdImage ? (
-                  <>
-                    <button onClick={retakeIdCardInModal} className="btn-secondary">다시 촬영</button>
-                    <button onClick={confirmIdCardImage} className="btn-primary">이 사진 사용</button>
-                  </>
-                ) : (
-                  <button onClick={handleCaptureInModal} className="btn-primary" disabled={!idWebcamReady}>촬영하기</button>
-                )}
-              </div>
-            </div>
-          </div>,
-          document.body
-      )}
     </div>
   );
 }
