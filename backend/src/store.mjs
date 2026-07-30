@@ -153,6 +153,18 @@ export const createStore = async (filePath) => {
       data = { ...data, questions: clone(seedData.questions) };
       shouldSave = true;
     }
+    const legacyDemoQuestion = data.questions.find((question) => question.examId === "exam-2026-second-half" && question.type === "CODING" && question.title === "123");
+    const seededDemoQuestions = seedData.questions.filter((question) => question.id === "coding-example-1" || question.id === "coding-example-2");
+    if (legacyDemoQuestion && !seededDemoQuestions.every((demo) => data.questions.some((question) => question.id === demo.id))) {
+      data = {
+        ...data,
+        questions: [
+          ...data.questions.filter((question) => question.id !== legacyDemoQuestion.id && !seededDemoQuestions.some((demo) => demo.id === question.id)),
+          ...clone(seededDemoQuestions)
+        ]
+      };
+      shouldSave = true;
+    }
     const migratedUsers = data.users.map((user) => user.role === "SUPERVISOR" ? { ...user, role: "MANAGER", name: user.name === "감독관" ? "김관리자" : user.name, organizationIds: user.organizationIds ?? data.organizations.filter((organization) => organization.managerIds?.includes(user.id)).map((organization) => organization.id) } : user);
     if (migratedUsers.some((user, index) => user.role !== data.users[index].role || user.name !== data.users[index].name)) {
       data = { ...data, users: migratedUsers };

@@ -37,7 +37,25 @@ export const seedData = {
   ],
   questions: [
     { id: "question-seed-1", examId: "exam-2026-second-half", prompt: "2 + 2 = ?", options: ["3", "4", "5"], answer: "4", createdAt: "2026-07-20T09:20:00.000Z" },
-    { id: "question-seed-2", examId: "exam-2026-second-half", prompt: "JavaScript에서 불변 배열을 만들 때 사용하는 메서드는?", options: ["map", "push", "splice"], answer: "map", createdAt: "2026-07-20T09:21:00.000Z" }
+    { id: "question-seed-2", examId: "exam-2026-second-half", prompt: "JavaScript에서 불변 배열을 만들 때 사용하는 메서드는?", options: ["map", "push", "splice"], answer: "map", createdAt: "2026-07-20T09:21:00.000Z" },
+    {
+      id: "coding-example-1", examId: "exam-2026-second-half", type: "CODING", title: "두 수 더하기",
+      prompt: "2와 3을 더한 결과를 출력하세요.", description: "2와 3을 더한 결과를 출력하세요.", languages: ["JavaScript"],
+      inputFormat: "입력 없음", outputFormat: "5", constraints: "JavaScript로 작성하세요.",
+      publicExamples: [{ input: "입력 없음", expectedOutput: "5", explanation: "2 + 3은 5입니다." }],
+      hiddenTestCases: [{ input: "입력 없음", expectedOutput: "5" }], judgeMode: "EXACT",
+      starterCode: "const a = 2;\nconst b = 3;\nconsole.log(a + b);", referenceSolutions: { JavaScript: "const a = 2;\nconst b = 3;\nconsole.log(a + b);" },
+      createdAt: "2026-07-20T09:22:00.000Z"
+    },
+    {
+      id: "coding-example-2", examId: "exam-2026-second-half", type: "CODING", title: "1부터 5까지 더하기",
+      prompt: "1부터 5까지의 합을 출력하세요.", description: "1부터 5까지의 정수를 모두 더한 결과를 출력하세요.", languages: ["JavaScript"],
+      inputFormat: "입력 없음", outputFormat: "15", constraints: "반복문을 사용하세요.",
+      publicExamples: [{ input: "입력 없음", expectedOutput: "15", explanation: "1 + 2 + 3 + 4 + 5는 15입니다." }],
+      hiddenTestCases: [{ input: "입력 없음", expectedOutput: "15" }], judgeMode: "EXACT",
+      starterCode: "let total = 0;\n\n// TODO: 1부터 5까지 더한 값을 total에 저장하세요.\n\nconsole.log(total);", referenceSolutions: { JavaScript: "let total = 0;\nfor (let number = 1; number <= 5; number += 1) {\n  total += number;\n}\nconsole.log(total);" },
+      createdAt: "2026-07-20T09:23:00.000Z"
+    }
   ],
   assignments: [
     { id: "assignment-1", examId: "exam-2026-second-half", candidateId: "candidate-1", status: "INVITED" }
