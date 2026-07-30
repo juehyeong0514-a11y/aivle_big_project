@@ -28,15 +28,19 @@ const ADMIN_GROUPS = [
 // 2. 감독관(매니저) 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
-    label: '조직 및 시험 운영', icon: Users,
+    label: '시험 운영', icon: Users,
     items: [
-      { key: 'MANAGER_WORKSPACE', label: '조직 운영', icon: Users },
       { key: 'EXAM_MANAGEMENT', label: '시험 관리', icon: ClipboardList },
       { key: 'EXAMS', label: '전체 시험 조회', icon: ClipboardList },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
-      { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert },
-      { key: 'EXAM_STATUS', label: '응시자 현황 관리', icon: BarChart3 },
-      { key: 'AI_REPORTS', label: '응시자 결과 관리', icon: FileText }
+      { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
+    ]
+  },
+  {
+    label: '응시자 관리', icon: BarChart3,
+    items: [
+      { key: 'EXAM_STATUS', label: '응시 현황 ', icon: BarChart3 },
+      { key: 'AI_REPORTS', label: '응시 결과 ', icon: FileText }
     ]
   },
   {
@@ -150,6 +154,9 @@ export default function Header() {
             <>
               <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
                 <Monitor size={16} style={{ marginRight: 6 }} /> 홈
+              </button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'MANAGER_WORKSPACE' ? 'active' : ''}`} onClick={() => handleTabClick('MANAGER_WORKSPACE')}>
+                <Users size={16} style={{ marginRight: 6 }} /> 조직 운영
               </button>
               {SUPERVISOR_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
