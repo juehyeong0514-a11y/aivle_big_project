@@ -92,6 +92,22 @@ export default function ExamCheckPage() {
       .catch((reason) => console.warn('장비 연결 상태 초기 동기화 실패:', reason));
   }, [displayReady, examSession, qrConnected, webcamReady]);
 
+  // 🌟 폰이 실제로 QR을 스캔해 보조 카메라를 연결하면 서버에 물어봐서 자동 감지
+  useEffect(() => {
+    if (!auxCamToken || qrConnected) return;
+    const interval = setInterval(() => {
+      api.get(`/device-pairing/${auxCamToken}`)
+        .then(({ data }) => {
+          if (data.connected) {
+            setQrConnected(true);
+            syncMediaStatus({ auxiliaryCamera: true });
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [auxCamToken, qrConnected]);
+
   // 토큰 생성 함수
   const generateNewToken = () => {
     const generate = () => window.crypto.randomUUID ? window.crypto.randomUUID() : `${Math.random().toString(36).substring(2)}-${Date.now().toString(36)}`;
@@ -451,7 +467,7 @@ export default function ExamCheckPage() {
                 <div className="identity-camera-box">
                   <video ref={idCaptureModalVideoRef} autoPlay playsInline muted className="video-stream" />
                   {!idWebcamReady && <span className="video-placeholder">웹캠을 불러오는 중...</span>}
-                  
+
                   {/* 촬영 가이드 UI */}
                   {!capturedIdImage && idWebcamReady && (
                     <div className="id-card-guide">
