@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
   Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
-  Building2, Megaphone, MessageSquare
+  Building2, Megaphone, MessageSquare, HelpCircle
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
 
@@ -62,9 +62,10 @@ function NavGroup({ group, currentTab, onSelect }) {
 
   return (
     <div className="header-nav-group" style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
-      <button type="button" className={`header-tab-btn ${isGroupActive ? 'active' : ''}`}>
-        <GroupIcon size={16} style={{ marginRight: 6 }} /> {group.label}
-        <ChevronDown size={14} style={{ marginLeft: 4 }} />
+      <button type="button" className={`header-tab-btn ${isGroupActive ? 'active' : ''}`} aria-label={group.label} title={group.label}>
+        <GroupIcon size={16} className="header-tab-icon" />
+        <span className="header-tab-label">{group.label}</span>
+        <ChevronDown size={14} className="header-tab-chevron" />
       </button>
       <div className="header-nav-dropdown">
         {group.items.map(({ key, label, icon: Icon }) => (
@@ -131,8 +132,8 @@ export default function Header() {
   const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : '/';
 
   return (
-    <header className="header" style={{ overflow: 'visible' }}>
-      <div className="header-left-group" style={{ overflow: 'visible' }}>
+    <header className="header">
+      <div className="header-left-group">
         <div className="logo-area" onClick={() => navigate(homeRoute)}>
           <div className="logo-icon" style={{ width: 34, height: 34 }}>
             <ShieldCheck color="#ffffff" size={20} />
@@ -141,12 +142,12 @@ export default function Header() {
         </div>
 
         {/* 로그인/회원가입 페이지에서도 네비게이션이 보이도록 제어 조건(!isAuthPage) 제거 */}
-        <nav className="header-nav" style={{ overflow: 'visible' }}>
+        <nav className="header-nav" aria-label="주요 메뉴">
           {isAdmin ? (
             /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
             <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
-                <Monitor size={16} style={{ marginRight: 6 }} /> 홈
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}>
+                <Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span>
               </button>
               {ADMIN_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
@@ -155,11 +156,11 @@ export default function Header() {
           ) : isSupervisor ? (
             /* ================= 2. 매니저 전용 (그룹 드롭다운) ================= */
             <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
-                <Monitor size={16} style={{ marginRight: 6 }} /> 홈
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}>
+                <Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span>
               </button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'MANAGER_WORKSPACE' ? 'active' : ''}`} onClick={() => handleTabClick('MANAGER_WORKSPACE')}>
-                <Users size={16} style={{ marginRight: 6 }} /> 조직 운영
+              <button type="button" className={`header-tab-btn ${currentTab === 'MANAGER_WORKSPACE' ? 'active' : ''}`} aria-label="조직 운영" title="조직 운영" onClick={() => handleTabClick('MANAGER_WORKSPACE')}>
+                <Users size={16} className="header-tab-icon" /><span className="header-tab-label">조직 운영</span>
               </button>
               {SUPERVISOR_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
@@ -168,9 +169,9 @@ export default function Header() {
           ) : (
             /* ================= 3. 일반 사용자/게스트 전용 ================= */
             <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>홈</button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} onClick={() => handleTabClick('NOTICE')}>공지사항</button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} onClick={() => handleTabClick('FAQ')}>FAQ</button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}><Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span></button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} aria-label="공지사항" title="공지사항" onClick={() => handleTabClick('NOTICE')}><Megaphone size={16} className="header-tab-icon" /><span className="header-tab-label">공지사항</span></button>
+              <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} aria-label="FAQ" title="FAQ" onClick={() => handleTabClick('FAQ')}><HelpCircle size={16} className="header-tab-icon" /><span className="header-tab-label">FAQ</span></button>
             </>
           )}
         </nav>
@@ -178,7 +179,7 @@ export default function Header() {
 
       <div className="nav-right">
         {userRole && userRole !== 'GUEST' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="header-account-actions">
             <div className="header-user-badge">
               <User size={14} color={isAdmin ? '#7c3aed' : isSupervisor ? '#16a34a' : '#2563EB'} />
               <span>
