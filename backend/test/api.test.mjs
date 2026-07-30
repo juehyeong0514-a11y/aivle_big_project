@@ -23,6 +23,23 @@ const signupManager = async (baseUrl, email, name = "신규 조직 관리자") =
   return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password", verificationToken: confirmPayload.verificationToken }) });
 };
 
+test("allows browser preflight for applicant media status PUT requests", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+
+  const preflight = await fetch(`${baseUrl}/api/applicant/media-status`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "http://localhost:5173",
+      "Access-Control-Request-Method": "PUT",
+      "Access-Control-Request-Headers": "authorization,content-type"
+    }
+  });
+
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get("access-control-allow-methods") ?? "", /(?:^|,)PUT(?:,|$)/);
+});
+
 test("serves public data and protects administration endpoints", async (context) => {
   const { baseUrl, directory, server } = await startServer();
   context.after(() => server.close());

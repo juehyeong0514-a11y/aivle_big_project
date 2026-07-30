@@ -279,7 +279,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const origin = request.header("origin");
     if (origin && allowedOrigins.has(origin)) response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    response.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     response.setHeader("Vary", "Origin");
     if (request.method === "OPTIONS") return response.sendStatus(204);
     return next();
