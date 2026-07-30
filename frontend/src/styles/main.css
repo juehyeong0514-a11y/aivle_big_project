@@ -1219,11 +1219,15 @@ main {
 .monitoring-card.warning { border-color: #f59e0b; }
 .monitoring-card.danger { border-color: var(--status-error); border-width: 2px; }
 .monitoring-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.monitoring-media-status { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.monitoring-media-status span { border: 1px solid var(--border-default); border-radius: 999px; padding: 4px 7px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.monitoring-media-status span.connected { border-color: #86efac; background: #f0fdf4; color: var(--status-success); }
 .monitoring-video-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 12px; border-radius: 8px; background: var(--text-primary); }
 .monitoring-snapshot { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 130px; border: 0; border-radius: 4px; color: #94a3b8; background: #1e293b; cursor: pointer; transition: background-color .12s ease-out; }
 .monitoring-snapshot:hover, .monitoring-snapshot:focus-visible { background: #334155; outline: 2px solid var(--accent-primary); outline-offset: -2px; }
-.monitoring-snapshot > span { position: absolute; top: 8px; left: 8px; color: #7dd3fc; font-size: 11px; font-weight: 700; }
-.monitoring-snapshot small { color: #cbd5e1; font-size: 10px; }
+.monitoring-snapshot > span { position: absolute; z-index: 1; top: 8px; left: 8px; color: #7dd3fc; font-size: 11px; font-weight: 700; }
+.monitoring-snapshot small { position: relative; z-index: 1; color: #cbd5e1; font-size: 10px; }
+.monitoring-snapshot img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; }
 .monitoring-status-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-bottom: 12px; color: var(--text-secondary); font-size: 13px; }
 .monitoring-status-row strong { color: var(--text-primary); }
 .monitoring-status-row small { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 11px; }
@@ -1245,6 +1249,8 @@ main {
 .monitoring-live-heading p { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 .monitoring-live-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .monitoring-live-surface { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 260px; padding: 36px 24px 24px; border-radius: 8px; color: #94a3b8; background: #1e293b; text-align: center; }
+.monitoring-live-video { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; border-radius: 8px; background: #1e293b; object-fit: cover; opacity: 0; }
+.monitoring-live-video.connected { opacity: 1; }
 .monitoring-live-surface > span { position: absolute; top: 12px; left: 12px; color: #7dd3fc; font-size: 12px; font-weight: 700; }
 .monitoring-live-surface strong { margin-top: 12px; color: #f8fafc; font-size: 15px; }
 .monitoring-live-surface small { max-width: 320px; margin-top: 6px; color: #cbd5e1; font-size: 12px; line-height: 1.5; }

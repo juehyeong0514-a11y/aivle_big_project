@@ -3,6 +3,7 @@ import { CheckCircle2, Clock, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
+import { hasActiveLiveStream } from '../applicant/liveMonitoring';
 
 export default function ExamSessionPage() {
   const navigate = useNavigate();
@@ -15,6 +16,10 @@ export default function ExamSessionPage() {
   const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
+
+  useEffect(() => {
+    if (!hasActiveLiveStream('webcam') || !hasActiveLiveStream('screen')) navigate('/exam/check', { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     api.get('/applicant/exam', { headers: candidateAuthHeaders() })

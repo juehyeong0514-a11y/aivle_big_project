@@ -8,11 +8,11 @@ import {
   CreditCard,
   Monitor,
   QrCode,
-  ScanFace,
   RefreshCw,
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
+import { registerLiveStream } from '../applicant/liveMonitoring';
 
 export default function ExamCheckPage() {
   const navigate = useNavigate();
@@ -20,9 +20,6 @@ export default function ExamCheckPage() {
   // 신분증 촬영용 영상
   const idVideoRef = useRef(null);
   const idCaptureModalVideoRef = useRef(null);
-
-  // 얼굴 촬영용 영상
-  const faceVideoRef = useRef(null);
 
   // 화면 공유 영상
   const displayRef = useRef(null);
@@ -37,8 +34,6 @@ export default function ExamCheckPage() {
 
   // 촬영 결과
   const [idCardImage, setIdCardImage] = useState('');
-  const [faceImage, setFaceImage] = useState('');
-
   // 점검 상태
   const [idCaptureModalOpen, setIdCaptureModalOpen] = useState(false);
   const [idWebcamReady, setIdWebcamReady] = useState(false);
@@ -46,8 +41,6 @@ export default function ExamCheckPage() {
 
 
   const [webcamReady, setWebcamReady] = useState(false);
-  const [identityReady, setIdentityReady] = useState(false);
-  const [verifying, setVerifying] = useState(false);
   const [displayReady, setDisplayReady] = useState(false);
   const [qrConnected, setQrConnected] = useState(false);
 
@@ -70,23 +63,34 @@ export default function ExamCheckPage() {
       if (!event.data) return;
       if (event.data.type === 'QR_CONNECTED' && event.data.token === auxCamToken) {
         setQrConnected(true);
+        syncMediaStatus({ auxiliaryCamera: true });
       }
       if (event.data.type === 'ID_CARD_CAPTURED' && event.data.token === idScanToken) {
         setIdCardImage(event.data.image);
-        setIdentityReady(false); // 재인증 필요
       }
     };
 
     return () => {
       channel.close();
-      webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
       // 모달용 웹캠 스트림 정리
       if (idWebcamStreamRef.current) {
         idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (!examSession) return;
+    api.put('/applicant/media-status', {
+      media: {
+        webcam: webcamReady,
+        microphone: webcamReady,
+        screen: displayReady,
+        auxiliaryCamera: qrConnected
+      }
+    }, { headers: candidateAuthHeaders() })
+      .catch((reason) => setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.')));
+  }, [displayReady, examSession, qrConnected, webcamReady]);
 
   // 토큰 생성 함수
   const generateNewToken = () => {
@@ -96,11 +100,14 @@ export default function ExamCheckPage() {
 
     // 상태 초기화
     setIdCardImage('');
-    setFaceImage('');
-    setIdentityReady(false);
     setQrConnected(false);
     setErrorMsg('');
   };
+
+  const syncMediaStatus = (patch) => api.put('/applicant/media-status', {
+    media: { webcam: webcamReady, microphone: webcamReady, screen: displayReady, ...patch }
+  }, { headers: candidateAuthHeaders() })
+    .catch((reason) => setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.')));
 
   /**
    * 웹캠과 마이크 연결
@@ -119,23 +126,18 @@ export default function ExamCheckPage() {
       });
 
       webcamStreamRef.current = stream;
+      registerLiveStream('webcam', stream);
 
       if (idVideoRef.current) {
         idVideoRef.current.srcObject = stream;
       }
 
-      if (faceVideoRef.current) {
-        faceVideoRef.current.srcObject = stream;
-      }
-
       setWebcamReady(true);
-      setFaceImage('');
-      setIdentityReady(false);
       setErrorMsg('');
+      syncMediaStatus({ webcam: true, microphone: stream.getAudioTracks().length > 0 });
     } catch (error) {
       console.error('웹캠 연결 오류:', error);
       setWebcamReady(false);
-      setIdentityReady(false);
       setErrorMsg('웹캠 및 마이크 권한을 허용해야 합니다.');
     }
   };
@@ -188,7 +190,6 @@ export default function ExamCheckPage() {
   const confirmIdCardImage = () => {
     if (capturedIdImage) {
       setIdCardImage(capturedIdImage);
-      setIdentityReady(false);
       closeIdCaptureModal();
     }
   };
@@ -222,41 +223,6 @@ export default function ExamCheckPage() {
     return canvas.toDataURL('image/jpeg', 0.92);
   };
 
-  const captureFace = () => {
-    if (!webcamReady) {
-      setErrorMsg('웹캠과 마이크를 먼저 연결해주세요.');
-      return;
-    }
-    const capturedImage = captureVideoFrame(faceVideoRef.current);
-    if (!capturedImage) {
-      setErrorMsg('카메라 화면이 준비될 때까지 잠시 기다려주세요.');
-      return;
-    }
-    setFaceImage(capturedImage);
-    setIdentityReady(false);
-    setErrorMsg('');
-  };
-
-  const verifyIdentity = () => {
-    if (!idCardImage) {
-      setErrorMsg('신분증을 먼저 촬영해주세요.');
-      return;
-    }
-    if (!faceImage) {
-      setErrorMsg('현재 얼굴을 먼저 촬영해주세요.');
-      return;
-    }
-
-    setVerifying(true);
-    setIdentityReady(false);
-    setErrorMsg('');
-
-    window.setTimeout(() => {
-      setVerifying(false);
-      setIdentityReady(true);
-    }, 1500);
-  };
-
   /**
    * PC 화면 공유
    */
@@ -269,6 +235,7 @@ export default function ExamCheckPage() {
       });
 
       displayStreamRef.current = stream;
+      registerLiveStream('screen', stream);
 
       if (displayRef.current) {
         displayRef.current.srcObject = stream;
@@ -276,11 +243,13 @@ export default function ExamCheckPage() {
 
       setDisplayReady(true);
       setErrorMsg('');
+      syncMediaStatus({ screen: true });
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.onended = () => {
           setDisplayReady(false);
+          syncMediaStatus({ screen: false });
         };
       }
     } catch (error) {
@@ -291,15 +260,16 @@ export default function ExamCheckPage() {
   };
 
   const toggleQrConnection = () => {
-    setQrConnected((previous) => !previous);
+    setQrConnected((previous) => {
+      syncMediaStatus({ auxiliaryCamera: !previous });
+      return !previous;
+    });
     setErrorMsg('');
   };
 
   const isAllReady =
     webcamReady &&
     Boolean(idCardImage) &&
-    Boolean(faceImage) &&
-    identityReady &&
     displayReady &&
     qrConnected;
 
@@ -363,62 +333,11 @@ export default function ExamCheckPage() {
           )}
         </div>
 
-        {/* 2. 얼굴 촬영 및 본인 인증 */}
-        <div className="card">
-          <div className="card-header">
-            <div className="check-card-title">
-              <ScanFace size={20} color="#2563EB" />
-              <h3>2. 얼굴 인증</h3>
-            </div>
-            {identityReady && <CheckCircle2 color="#16a34a" />}
-          </div>
-
-          <div className="video-box">
-            <video ref={faceVideoRef} autoPlay playsInline muted className="video-stream" />
-            {!webcamReady && <span className="video-placeholder">웹캠과 마이크가 연결되지 않았습니다.</span>}
-            {faceImage && <img src={faceImage} alt="촬영한 현재 얼굴" className="face-capture-thumbnail" />}
-          </div>
-
-          <div className="identity-status-list">
-            <div>
-              <span>현재 얼굴 촬영</span>
-              <strong className={faceImage ? 'text-success' : 'text-danger'}>{faceImage ? '완료' : '대기'}</strong>
-            </div>
-            <div>
-              <span>신분증 얼굴 비교</span>
-              <strong className={identityReady ? 'text-success' : 'text-danger'}>
-                {verifying ? '확인 중' : identityReady ? '인증 완료' : '대기'}
-              </strong>
-            </div>
-          </div>
-
-          {!webcamReady ? (
-            <button type="button" className="btn-primary identity-full-button" onClick={startWebcam}>
-              <Camera size={18} /> 웹캠/마이크 연결하기
-            </button>
-          ) : (
-            <>
-              <button type="button" className="btn-secondary identity-full-button" onClick={captureFace}>
-                <Camera size={18} /> {faceImage ? '현재 얼굴 다시 촬영' : '현재 얼굴 촬영'}
-              </button>
-              <button
-                type="button"
-                className="btn-primary identity-full-button"
-                disabled={verifying || !idCardImage || !faceImage}
-                onClick={verifyIdentity}
-              >
-                {verifying ? '신분증과 얼굴 비교 중...' : identityReady ? '본인 인증 완료' : '본인 인증 시작'}
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* 3. PC 화면 공유 */}
         <div className="card">
           <div className="card-header">
             <div className="check-card-title">
               <Monitor size={20} color="#2563EB" />
-              <h3>3. PC 화면 공유</h3>
+              <h3>2. PC 화면 공유</h3>
             </div>
             {displayReady && <CheckCircle2 color="#16a34a" />}
           </div>
@@ -430,6 +349,29 @@ export default function ExamCheckPage() {
 
           <button type="button" className="btn-primary identity-full-button" onClick={startDisplayShare}>
             <Monitor size={18} /> 화면 공유 권한 요청
+          </button>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <div className="check-card-title">
+              <Camera size={20} color="#2563EB" />
+              <h3>3. 웹캠·마이크 연결 확인</h3>
+            </div>
+            {webcamReady && <CheckCircle2 color="#16a34a" />}
+          </div>
+
+          <div className="video-box">
+            <video ref={idVideoRef} autoPlay playsInline muted className="video-stream" />
+            {!webcamReady && <span className="video-placeholder">웹캠과 마이크가 연결되지 않았습니다.</span>}
+          </div>
+
+          <div className="identity-status-list">
+            <div><span>웹캠</span><strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '연결됨' : '대기'}</strong></div>
+            <div><span>마이크</span><strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '연결됨' : '대기'}</strong></div>
+          </div>
+          <button type="button" className="btn-primary identity-full-button" onClick={startWebcam}>
+            <Camera size={18} /> {webcamReady ? '웹캠/마이크 다시 연결' : '웹캠/마이크 연결하기'}
           </button>
         </div>
 
@@ -480,7 +422,7 @@ export default function ExamCheckPage() {
             신분증: <strong className={idCardImage ? 'text-success' : 'text-danger'}>{idCardImage ? '촬영 완료' : '미촬영'}</strong>
           </span>
           <span>
-            얼굴 인증: <strong className={identityReady ? 'text-success' : 'text-danger'}>{identityReady ? '완료' : '미완료'}</strong>
+            웹캠/마이크: <strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '연결됨' : '미연결'}</strong>
           </span>
           <span>
             화면 공유: <strong className={displayReady ? 'text-success' : 'text-danger'}>{displayReady ? '연결됨' : '미완료'}</strong>

@@ -3,6 +3,9 @@ import { dirname } from "node:path";
 import { createHash, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { seedData } from "./seed.mjs";
+import pg from "pg";
+
+const { Pool } = pg;
 
 const scrypt = promisify(scryptCallback);
 
@@ -71,8 +74,47 @@ const normalizeSeed = async () => ({
 export const createStore = async (filePath) => {
   let data;
   let shouldSave = false;
+
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const pool = databaseUrl
+    ? new Pool({ connectionString: databaseUrl })
+    : undefined;
+
+  let databaseData;
+
+  if (pool) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        id SMALLINT PRIMARY KEY,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    const result = await pool.query(
+      "SELECT data FROM app_state WHERE id = 1"
+    );
+
+    if (result.rowCount > 0) {
+      databaseData = result.rows[0].data;
+    } else {
+      databaseData = await normalizeSeed();
+
+      await pool.query(
+        `INSERT INTO app_state (id, data)
+         VALUES (1, $1::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+        [JSON.stringify(databaseData)]
+      );
+    }
+  }
+
   try {
-    data = withDefaults(JSON.parse(await readFile(filePath, "utf8")));
+    data = withDefaults(
+      pool
+        ? databaseData
+        : JSON.parse(await readFile(filePath, "utf8"))
+    );
     const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...data.systemPolicies, cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) }, invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
     if (JSON.stringify(normalizedPolicies) !== JSON.stringify(data.systemPolicies)) {
       data = { ...data, systemPolicies: normalizedPolicies };
@@ -133,11 +175,24 @@ export const createStore = async (filePath) => {
     await writeFile(filePath, JSON.stringify(data, null, 2));
   }
 
-  const save = async () => {
-    const temporaryPath = `${filePath}.tmp`;
-    await writeFile(temporaryPath, JSON.stringify(data, null, 2));
-    await rename(temporaryPath, filePath);
-  };
+const save = async () => {
+  if (pool) {
+    await pool.query(
+      `INSERT INTO app_state (id, data, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET
+         data = EXCLUDED.data,
+         updated_at = NOW()`,
+      [JSON.stringify(data)]
+    );
+    return;
+  }
+
+  const temporaryPath = `${filePath}.tmp`;
+  await writeFile(temporaryPath, JSON.stringify(data, null, 2));
+  await rename(temporaryPath, filePath);
+};
 
   let saveQueue = Promise.resolve();
   const queuedSave = () => {
