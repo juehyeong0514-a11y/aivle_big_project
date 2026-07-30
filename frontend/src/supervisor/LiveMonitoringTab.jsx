@@ -11,14 +11,19 @@ export default function LiveMonitoringTab() {
   const [warnings, setWarnings] = useState([]);
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [liveExaminee, setLiveExaminee] = useState(null);
+  const [warningLogExaminee, setWarningLogExaminee] = useState(null);
   const [liveError, setLiveError] = useState('');
   const [frontLiveReady, setFrontLiveReady] = useState(false);
+  const [auxiliaryLiveReady, setAuxiliaryLiveReady] = useState(false);
   const [screenLiveReady, setScreenLiveReady] = useState(false);
   const [loadError, setLoadError] = useState('');
   const frontLiveRef = useRef(null);
+  const auxiliaryLiveRef = useRef(null);
   const screenLiveRef = useRef(null);
   const livePeerRef = useRef(null);
+  const auxiliaryPeerRef = useRef(null);
   const livePollTimerRef = useRef(null);
+  const auxiliaryPollTimerRef = useRef(null);
 
   useEffect(() => {
     api.get('/manager/organizations', { headers: authHeaders() })
@@ -52,6 +57,7 @@ export default function LiveMonitoringTab() {
       setWarnings([]);
       setLastSnapshotAt(null);
       setLiveExaminee(null);
+      setWarningLogExaminee(null);
       return undefined;
     }
     const loadMonitoringData = () => Promise.all([
@@ -94,22 +100,80 @@ export default function LiveMonitoringTab() {
     .filter((warning) => warning.examineeId === examineeId)
     .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
 
+  const closeWarningLog = () => setWarningLogExaminee(null);
+
   const closeLive = () => {
     if (livePollTimerRef.current) window.clearInterval(livePollTimerRef.current);
+    if (auxiliaryPollTimerRef.current) window.clearInterval(auxiliaryPollTimerRef.current);
     livePollTimerRef.current = null;
+    auxiliaryPollTimerRef.current = null;
     livePeerRef.current?.close();
+    auxiliaryPeerRef.current?.close();
     livePeerRef.current = null;
+    auxiliaryPeerRef.current = null;
     if (frontLiveRef.current) frontLiveRef.current.srcObject = null;
+    if (auxiliaryLiveRef.current) auxiliaryLiveRef.current.srcObject = null;
     if (screenLiveRef.current) screenLiveRef.current.srcObject = null;
     setLiveExaminee(null);
     setLiveError('');
     setFrontLiveReady(false);
+    setAuxiliaryLiveReady(false);
     setScreenLiveReady(false);
+  };
+
+  const startAuxiliaryLive = async (examinee) => {
+    try {
+      const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      auxiliaryPeerRef.current = peer;
+      peer.addTransceiver('video', { direction: 'recvonly' });
+      peer.onconnectionstatechange = () => {
+        if (auxiliaryPeerRef.current !== peer || !['closed', 'disconnected', 'failed'].includes(peer.connectionState)) return;
+        if (auxiliaryLiveRef.current) auxiliaryLiveRef.current.srcObject = null;
+        setAuxiliaryLiveReady(false);
+      };
+      peer.ontrack = (event) => {
+        if (event.track.kind !== 'video' || !auxiliaryLiveRef.current) return;
+        auxiliaryLiveRef.current.srcObject = new MediaStream([event.track]);
+        void auxiliaryLiveRef.current.play().then(() => setAuxiliaryLiveReady(true));
+        event.track.onended = () => {
+          if (auxiliaryPeerRef.current === peer) setAuxiliaryLiveReady(false);
+        };
+      };
+      await peer.setLocalDescription(await peer.createOffer({ offerToReceiveVideo: true }));
+      await new Promise((resolve) => {
+        if (peer.iceGatheringState === 'complete') return resolve();
+        const timeout = window.setTimeout(resolve, 3000);
+        peer.addEventListener('icegatheringstatechange', () => {
+          if (peer.iceGatheringState === 'complete') {
+            window.clearTimeout(timeout);
+            resolve();
+          }
+        }, { once: true });
+      });
+      const { data } = await api.post('/supervisor/examinees/' + examinee.id + '/auxiliary-live-offers', { offer: peer.localDescription }, { headers: authHeaders() });
+      const timer = window.setInterval(async () => {
+        try {
+          const response = await api.get('/supervisor/live-offers/' + data.id, { headers: authHeaders() });
+          if (response.data.answer) {
+            window.clearInterval(timer);
+            auxiliaryPollTimerRef.current = null;
+            await peer.setRemoteDescription(response.data.answer);
+          }
+        } catch {
+          window.clearInterval(timer);
+          auxiliaryPollTimerRef.current = null;
+        }
+      }, 1200);
+      auxiliaryPollTimerRef.current = timer;
+    } catch {
+      setAuxiliaryLiveReady(false);
+    }
   };
 
   const openLive = async (examinee) => {
     closeLive();
     setLiveExaminee(examinee);
+    void startAuxiliaryLive(examinee);
     try {
       const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
       livePeerRef.current = peer;
@@ -235,7 +299,14 @@ export default function LiveMonitoringTab() {
               <small>응시자 카메라 스트림을 기다리고 있습니다.</small>
             </div>
             <div className="monitoring-live-surface">
-              <span>보조 라이브</span>
+              <span>휴대폰 보조 카메라 라이브</span>
+              <video ref={auxiliaryLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (auxiliaryLiveReady ? 'connected' : '')} />
+              <Video size={36} />
+              <strong>{auxiliaryLiveReady ? '영상 연결됨' : '휴대폰 카메라 연결 대기'}</strong>
+              <small>QR로 연결한 휴대폰 보조 카메라 스트림을 기다리고 있습니다.</small>
+            </div>
+            <div className="monitoring-live-surface">
+              <span>PC 화면 공유 라이브</span>
               <video ref={screenLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (screenLiveReady ? 'connected' : '')} />
               <Monitor size={36} />
               <strong>{liveError || '영상 연결 중'}</strong>
@@ -244,9 +315,24 @@ export default function LiveMonitoringTab() {
           </div>
         </section>
       </div>}
+      {warningLogExaminee && <div className="monitoring-live-modal" role="dialog" aria-modal="true" aria-labelledby="monitoring-warning-log-title">
+        <button className="monitoring-live-backdrop" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기" />
+        <section className="monitoring-warning-log-panel">
+          <div className="monitoring-live-heading">
+            <div>
+              <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING LOG</span>
+              <h2 id="monitoring-warning-log-title">{warningLogExaminee.name} 응시자 전체 감시 로그</h2>
+              <p>최신 기록부터 표시됩니다.</p>
+            </div>
+            <button className="icon-button" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기"><X size={18} /></button>
+          </div>
+          {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><strong>{warning.message}</strong><span>AI 감시 알림</span></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 AI 감시 알림이 없습니다.</p>}
+        </section>
+      </div>}
       <div className="monitoring-grid">
         {examinees.map((examinee) => {
           const examineeWarnings = warningsFor(examinee.id);
+          const latestWarning = examineeWarnings[0];
           const webcamConnected = Boolean(examinee.mediaStatus?.webcam);
           const microphoneConnected = Boolean(examinee.mediaStatus?.microphone);
           const screenConnected = Boolean(examinee.mediaStatus?.screen);
@@ -267,14 +353,14 @@ export default function LiveMonitoringTab() {
                 <span>정면 화면</span>{webcamConnected && examinee.monitoringSnapshot?.image ? <img src={examinee.monitoringSnapshot.image} alt={examinee.name + ' 응시자 웹캠 정지 화면'} /> : <Video size={24} />}<small>{webcamConnected ? `정지 화면 · ${snapshotTime}` : '웹캠 연결 안 됨'}</small>
               </button>
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 보조 라이브 화면 열기'}>
-                <span>보조 모니터링</span><Monitor size={24} /><small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>
+                <span>보조 모니터링</span>{auxiliaryConnected && examinee.auxiliarySnapshot?.image ? <img src={examinee.auxiliarySnapshot.image} alt={examinee.name + ' 응시자 휴대폰 보조 카메라 정지 화면'} /> : <Video size={24} />}<small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>
               </button>
             </div>
             <div className="monitoring-status-row"><span>진행 현황</span><strong>{examinee.currentProb}</strong><small><Clock3 size={13} /> 10초마다 갱신</small></div>
-            <div className="monitoring-alert-log">
+            <button className="monitoring-alert-log" type="button" onClick={() => setWarningLogExaminee(examinee)} aria-label={examinee.name + ' 응시자의 전체 AI 감시 로그 보기'}>
               <div><strong><AlertTriangle size={15} /> AI 감시 알림</strong><span>{examineeWarnings.length ? `${examineeWarnings.length}건` : '없음'}</span></div>
-              {examineeWarnings.length ? <ul>{examineeWarnings.slice(0, 2).map((warning) => <li key={warning.id}><span>{warning.message}</span><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></li>)}</ul> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
-            </div>
+              {latestWarning ? <div className="monitoring-alert-caption"><span className="monitoring-alert-ticker">{latestWarning.message}</span><time dateTime={latestWarning.createdAt}>{new Date(latestWarning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></div> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
+            </button>
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>
           </article>;
         })}

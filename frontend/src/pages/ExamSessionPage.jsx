@@ -3,7 +3,7 @@ import { CheckCircle2, Clock, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
-import { hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
+import { getLiveMediaStatus, hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
 
 export default function ExamSessionPage() {
   const navigate = useNavigate();
@@ -27,16 +27,29 @@ export default function ExamSessionPage() {
       const token = localStorage.getItem('candidateAccessToken');
       if (!token) return;
       const baseUrl = (api.defaults.baseURL ?? '/api').replace(/\/$/, '');
-      if (navigator.sendBeacon?.(baseUrl + '/applicant/media-disconnect', new URLSearchParams({ accessToken: token }))) return;
-      void fetch(baseUrl + '/applicant/media-status', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ media: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false } }),
+      const disconnectUrl = baseUrl + '/applicant/media-disconnect';
+      navigator.sendBeacon?.(disconnectUrl, new URLSearchParams({ accessToken: token }));
+      void fetch(disconnectUrl, {
+        method: 'POST',
+        body: new URLSearchParams({ accessToken: token }),
         keepalive: true,
       }).catch(() => {});
     };
     window.addEventListener('pagehide', disconnectMonitoring);
     return () => window.removeEventListener('pagehide', disconnectMonitoring);
+  }, []);
+
+  useEffect(() => {
+    const reportMediaHeartbeat = () => {
+      void api.put('/applicant/media-status', { media: getLiveMediaStatus() }, { headers: candidateAuthHeaders() }).catch(() => {});
+    };
+    reportMediaHeartbeat();
+    const timer = window.setInterval(reportMediaHeartbeat, 10_000);
+    document.addEventListener('visibilitychange', reportMediaHeartbeat);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', reportMediaHeartbeat);
+    };
   }, []);
 
   useEffect(() => {

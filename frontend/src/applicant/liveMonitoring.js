@@ -36,6 +36,16 @@ export const registerLiveStream = (kind, stream) => {
 
 export const hasActiveLiveStream = (kind) => streams.get(kind)?.getVideoTracks().some((track) => track.readyState === 'live') ?? false;
 
+export const getLiveMediaStatus = () => {
+  const webcamStream = streams.get('webcam');
+  const screenStream = streams.get('screen');
+  return {
+    webcam: webcamStream?.getVideoTracks().some((track) => track.readyState === 'live') ?? false,
+    microphone: webcamStream?.getAudioTracks().some((track) => track.readyState === 'live') ?? false,
+    screen: screenStream?.getVideoTracks().some((track) => track.readyState === 'live') ?? false,
+  };
+};
+
 export const stopLiveMonitoring = () => {
   if (snapshotTimer) window.clearInterval(snapshotTimer);
   if (offerPollTimer) window.clearInterval(offerPollTimer);

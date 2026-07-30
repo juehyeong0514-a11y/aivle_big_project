@@ -19,6 +19,7 @@ const collectionDefaults = {
   invitations: [],
   invitationAuditLogs: [],
   warnings: [],
+  auxiliaryDevices: [],
   organizationJoinRequests: [],
   sessions: [],
   emailVerifications: [],
@@ -215,6 +216,7 @@ const save = async () => {
     get communityPosts() { return data.communityPosts; },
     get communityComments() { return data.communityComments; },
     get warnings() { return data.warnings; },
+    get auxiliaryDevices() { return data.auxiliaryDevices; },
     get examinees() { return data.examinees; },
     get organizations() { return data.organizations; },
     get candidates() { return data.candidates; },
@@ -277,6 +279,23 @@ const save = async () => {
     },
     addWarning: async (warning) => {
       data.warnings.push(warning);
+      await queuedSave();
+    },
+    addAuxiliaryDevice: async (device) => {
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.expiresAt > Date.now());
+      data.auxiliaryDevices.push(device);
+      await queuedSave();
+      return device;
+    },
+    updateAuxiliaryDevice: async (token, patch) => {
+      const device = data.auxiliaryDevices.find((item) => item.token === token);
+      if (!device) return undefined;
+      Object.assign(device, patch);
+      await queuedSave();
+      return device;
+    },
+    removeAuxiliaryDevices: async (examId, candidateId) => {
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.examId !== examId || item.candidateId !== candidateId);
       await queuedSave();
     },
     addNotice: async (notice) => {
