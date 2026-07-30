@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -50,6 +50,33 @@ export default function ExamCheckPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [examSession, setExamSession] = useState(null);
 
+  const persistMediaStatus = useCallback(async (media, { silent = false } = {}) => {
+    const token = localStorage.getItem('candidateAccessToken');
+    if (!token || !examSession) return;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await api.put('/applicant/media-status', { media }, { headers: candidateAuthHeaders() });
+        return;
+      } catch (reason) {
+        if (reason.response || attempt === 2) {
+          if (silent) console.warn('장비 연결 상태 동기화 실패:', reason);
+          else setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.'));
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));
+      }
+    }
+  }, [examSession]);
+
+  const syncMediaStatus = useCallback((patch, options) => persistMediaStatus({
+    webcam: webcamReady,
+    microphone: webcamReady,
+    screen: displayReady,
+    auxiliaryCamera: qrConnected,
+    ...patch
+  }, options), [displayReady, persistMediaStatus, qrConnected, webcamReady]);
+
 
   useEffect(() => {
     generateNewToken();
@@ -57,6 +84,16 @@ export default function ExamCheckPage() {
       .then(({ data }) => setExamSession(data))
       .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
+    return () => {
+      // 모달용 웹캠 스트림 정리
+      if (idWebcamStreamRef.current) {
+        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!auxCamToken && !idScanToken) return undefined;
     // 🌟 모바일 페이지(MobileScanPage 등)에서 보낸 연동 완료 신호 수신 리스너
     const channel = new BroadcastChannel('exam_qr_channel'); // 채널 이름 통일
     channel.onmessage = (event) => {
@@ -69,28 +106,13 @@ export default function ExamCheckPage() {
         setIdCardImage(event.data.image);
       }
     };
-
-    return () => {
-      channel.close();
-      // 모달용 웹캠 스트림 정리
-      if (idWebcamStreamRef.current) {
-        idWebcamStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
+    return () => channel.close();
+  }, [auxCamToken, idScanToken, syncMediaStatus]);
 
   useEffect(() => {
     if (!examSession) return;
-    api.put('/applicant/media-status', {
-      media: {
-        webcam: webcamReady,
-        microphone: webcamReady,
-        screen: displayReady,
-        auxiliaryCamera: qrConnected
-      }
-    }, { headers: candidateAuthHeaders() })
-      .catch((reason) => console.warn('장비 연결 상태 초기 동기화 실패:', reason));
-  }, [displayReady, examSession, qrConnected, webcamReady]);
+    syncMediaStatus({}, { silent: true });
+  }, [displayReady, examSession, qrConnected, syncMediaStatus, webcamReady]);
 
   // 🌟 폰이 실제로 QR을 스캔해 보조 카메라를 연결하면 서버에 물어봐서 자동 감지
   useEffect(() => {
@@ -106,7 +128,7 @@ export default function ExamCheckPage() {
         .catch(() => {});
     }, 2000);
     return () => clearInterval(interval);
-  }, [auxCamToken, qrConnected]);
+  }, [auxCamToken, qrConnected, syncMediaStatus]);
 
   // 토큰 생성 함수
   const generateNewToken = () => {
@@ -119,11 +141,6 @@ export default function ExamCheckPage() {
     setQrConnected(false);
     setErrorMsg('');
   };
-
-  const syncMediaStatus = (patch) => api.put('/applicant/media-status', {
-    media: { webcam: webcamReady, microphone: webcamReady, screen: displayReady, auxiliaryCamera: qrConnected, ...patch }
-  }, { headers: candidateAuthHeaders() })
-    .catch((reason) => setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.')));
 
   /**
    * 웹캠과 마이크 연결
