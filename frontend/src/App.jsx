@@ -2,9 +2,13 @@ import React, { lazy, Suspense } from 'react';
 import './styles/main.css';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
+import Footer from './components/Footer';
 const AuthPage = lazy(() => import('./pages/StaffAuthPage'));
 const StaffSignupPage = lazy(() => import('./pages/StaffSignupPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const FaqPage = lazy(() => import('./pages/FaqPage'));
 const ExamCheckPage = lazy(() => import('./pages/ExamCheckPage'));
 const ExamSessionPage = lazy(() => import('./pages/ExamSessionPage'));
 const MobileProctoringPage = lazy(() => import('./pages/MobileProctoringPage'));
@@ -37,6 +41,7 @@ function Layout({ children }) {
     <div className="app-wrapper">
       {!isMobilePage && !isInvitePage && !isExamSessionPage && <Header />}
       {children}
+      <Footer />
     </div>
   );
 }
@@ -55,6 +60,9 @@ export default function App() {
 
           {/* 🌟 회원가입/로그인을 안 하더라도 홈 화면의 탭과 카드 목록은 열람이 가능합니다 */}
           <Route path="/home" element={<HomePage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/faq" element={<FaqPage />} />
           <Route path="/manager/exams" element={<ManagerRoute><SupervisorExamDashboard /></ManagerRoute>} />
           <Route path="/manager/exams/new" element={<ManagerRoute><ManagerExamCreatePage /></ManagerRoute>} />
           <Route path="/manager/exams/:examId" element={<ManagerRoute><ManagerExamDetailPage /></ManagerRoute>} />
