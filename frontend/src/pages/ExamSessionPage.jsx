@@ -27,6 +27,7 @@ export default function ExamSessionPage() {
       const token = localStorage.getItem('candidateAccessToken');
       if (!token) return;
       const baseUrl = (api.defaults.baseURL ?? '/api').replace(/\/$/, '');
+      if (navigator.sendBeacon?.(baseUrl + '/applicant/media-disconnect', new URLSearchParams({ accessToken: token }))) return;
       void fetch(baseUrl + '/applicant/media-status', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
