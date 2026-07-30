@@ -14,6 +14,7 @@ const ExamSessionPage = lazy(() => import('./pages/ExamSessionPage'));
 const MobileProctoringPage = lazy(() => import('./pages/MobileProctoringPage'));
 const MobileScanPage = lazy(() => import('./pages/MobileScanPage'));
 const MobileMonitoringPage = lazy(() => import('./pages/MobileProctoringPage'));
+const MobileIdScanPage = lazy(() => import('./pages/MobileIdScanPage'));
 const InvitePage = lazy(() => import('./pages/InvitePage'));
 const AdminRoute = lazy(() => import('./components/AdminRoute'));
 const SupervisorExamDashboard = lazy(() => import('./supervisor/SupervisorExamDashboard'));
@@ -74,6 +75,7 @@ export default function App() {
           {/* 🌟 분리된 모바일 스캔 및 모니터링 페이지 */}
           <Route path="/mobile/scan" element={<MobileScanPage />} />
           <Route path="/mobile/monitoring" element={<MobileMonitoringPage />} />
+          <Route path="/mobile/id-scan" element={<MobileIdScanPage />} />
 
           {/* 기존 통합 페이지 (필요시 유지) */}
           <Route path="/mobile/proctoring" element={<MobileProctoringPage />} />
