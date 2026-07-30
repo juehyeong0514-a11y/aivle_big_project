@@ -105,7 +105,7 @@ export default function ExamCheckPage() {
   };
 
   const syncMediaStatus = (patch) => api.put('/applicant/media-status', {
-    media: { webcam: webcamReady, microphone: webcamReady, screen: displayReady, ...patch }
+    media: { webcam: webcamReady, microphone: webcamReady, screen: displayReady, auxiliaryCamera: qrConnected, ...patch }
   }, { headers: candidateAuthHeaders() })
     .catch((reason) => setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.')));
 

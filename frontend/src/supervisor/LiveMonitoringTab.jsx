@@ -225,6 +225,8 @@ export default function LiveMonitoringTab() {
         {examinees.map((examinee) => {
           const examineeWarnings = warningsFor(examinee.id);
           const webcamConnected = Boolean(examinee.mediaStatus?.webcam);
+          const microphoneConnected = Boolean(examinee.mediaStatus?.microphone);
+          const screenConnected = Boolean(examinee.mediaStatus?.screen);
           const auxiliaryConnected = Boolean(examinee.mediaStatus?.auxiliaryCamera);
           return <article key={examinee.id} className={'monitoring-card ' + (examineeWarnings.length ? 'warning ' : '') + examinee.status.toLowerCase()}>
             <div className="monitoring-card-heading">
@@ -232,8 +234,9 @@ export default function LiveMonitoringTab() {
               <span className={'status-badge ' + (examinee.status === 'NORMAL' ? 'approved' : examinee.status.toLowerCase())}>{examinee.statusText}</span>
             </div>
             <div className="monitoring-media-status">
-              <span className={examinee.mediaStatus?.webcam ? 'connected' : ''}>웹캠 {examinee.mediaStatus?.webcam ? '연결' : '대기'}</span>
-              <span className={examinee.mediaStatus?.microphone ? 'connected' : ''}>마이크 {examinee.mediaStatus?.microphone ? '연결' : '대기'}</span>
+              <span className={webcamConnected ? 'connected' : ''}>웹캠 {webcamConnected ? '연결' : '대기'}</span>
+              <span className={microphoneConnected ? 'connected' : ''}>마이크 {microphoneConnected ? '연결' : '대기'}</span>
+              <span className={screenConnected ? 'connected' : ''}>PC 화면 공유 {screenConnected ? '연결' : '대기'}</span>
               <span className={auxiliaryConnected ? 'connected' : ''}>모바일 보조 카메라 {auxiliaryConnected ? '연결' : '대기'}</span>
             </div>
             <div className="monitoring-video-grid">
