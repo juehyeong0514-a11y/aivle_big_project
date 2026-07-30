@@ -93,32 +93,34 @@ export default function ExamCheckPage() {
   }, []);
 
   useEffect(() => {
-    if (!auxCamToken && !idScanToken) return undefined;
+    if (!idScanToken) return undefined;
     // 🌟 모바일 페이지(MobileScanPage 등)에서 보낸 연동 완료 신호 수신 리스너
     const channel = new BroadcastChannel('exam_qr_channel'); // 채널 이름 통일
     channel.onmessage = (event) => {
       if (!event.data) return;
-      if (event.data.type === 'QR_CONNECTED' && event.data.token === auxCamToken) {
-        setQrConnected(true);
-        syncMediaStatus({ auxiliaryCamera: true });
-      }
       if (event.data.type === 'ID_CARD_CAPTURED' && event.data.token === idScanToken) {
         setIdCardImage(event.data.image);
       }
     };
     return () => channel.close();
-  }, [auxCamToken, idScanToken, syncMediaStatus]);
+  }, [idScanToken]);
 
   useEffect(() => {
     if (!examSession) return;
     syncMediaStatus({}, { silent: true });
   }, [displayReady, examSession, qrConnected, syncMediaStatus, webcamReady]);
 
+  useEffect(() => {
+    if (!examSession) return undefined;
+    const timer = window.setInterval(() => syncMediaStatus({}, { silent: true }), 10_000);
+    return () => window.clearInterval(timer);
+  }, [examSession, syncMediaStatus]);
+
   // 🌟 폰이 실제로 QR을 스캔해 보조 카메라를 연결하면 서버에 물어봐서 자동 감지
   useEffect(() => {
     if (!auxCamToken || qrConnected) return;
     const interval = setInterval(() => {
-      api.get(`/device-pairing/${auxCamToken}`)
+      api.get(`/applicant/auxiliary-devices/${auxCamToken}`, { headers: candidateAuthHeaders() })
         .then(({ data }) => {
           if (data.connected) {
             setQrConnected(true);
@@ -131,15 +133,21 @@ export default function ExamCheckPage() {
   }, [auxCamToken, qrConnected, syncMediaStatus]);
 
   // 토큰 생성 함수
-  const generateNewToken = () => {
+  const generateNewToken = async () => {
     const generate = () => window.crypto.randomUUID ? window.crypto.randomUUID() : `${Math.random().toString(36).substring(2)}-${Date.now().toString(36)}`;
     setIdScanToken(generate());
-    setAuxCamToken(generate());
+    setAuxCamToken('');
 
     // 상태 초기화
     setIdCardImage('');
     setQrConnected(false);
     setErrorMsg('');
+    try {
+      const { data } = await api.post('/applicant/auxiliary-devices', {}, { headers: candidateAuthHeaders() });
+      setAuxCamToken(data.token);
+    } catch (error) {
+      setErrorMsg(apiErrorMessage(error, '보조 카메라 QR 코드를 생성하지 못했습니다.'));
+    }
   };
 
   /**
@@ -292,11 +300,9 @@ export default function ExamCheckPage() {
     }
   };
 
-  const toggleQrConnection = () => {
-    setQrConnected((previous) => {
-      syncMediaStatus({ auxiliaryCamera: !previous });
-      return !previous;
-    });
+  const markAuxiliaryCameraForTest = () => {
+    setQrConnected(true);
+    syncMediaStatus({ auxiliaryCamera: true });
     setErrorMsg('');
   };
 
@@ -436,15 +442,24 @@ export default function ExamCheckPage() {
             </span>
           </div>
 
+          <div
+            className="identity-full-button"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '46px',
+              backgroundColor: qrConnected ? '#dcfce7' : '#f8fafc',
+              color: qrConnected ? '#15803d' : '#64748b', border: `1px solid ${qrConnected ? '#86efac' : '#cbd5e1'}`,
+            }}
+          >
+            {qrConnected ? '모바일 보조 카메라 연결 완료' : '휴대폰으로 QR을 스캔해 카메라를 연결해주세요.'}
+          </div>
           <button
             type="button"
-            className="btn-primary identity-full-button"
-            style={{
-              backgroundColor: qrConnected ? '#16a34a' : '#475569',
-            }}
-            onClick={toggleQrConnection}
+            className="btn-secondary identity-full-button"
+            onClick={markAuxiliaryCameraForTest}
+            disabled={qrConnected}
+            style={{ marginTop: '10px' }}
           >
-            {qrConnected ? '모바일 연동 완료됨 (클릭 시 해제)' : '[테스트용] 모바일 연동 완료 처리'}
+            {qrConnected ? '테스트 인증 완료' : '[임시] 보조 카메라 인증 완료'}
           </button>
         </div>
       </div>

@@ -133,6 +133,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const loginFailures = new Map();
   const candidateFailures = new Map();
   const liveSessions = new Map();
+  const auxiliaryDevices = new Map();
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
@@ -414,19 +415,54 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (accessToken && !request.header("authorization")) request.headers.authorization = "Bearer " + accessToken;
     return authenticateApplicant(request, response, next);
   };
-  const disconnectApplicantMedia = async ({ candidate, exam }) => {
+  const recordMediaDisconnectWarnings = async (examinee, nextMediaStatus) => {
+    const previousMediaStatus = examinee.mediaStatus ?? {};
+    const labels = {
+      webcam: "웹캠 연결이 끊겼습니다.",
+      microphone: "마이크 연결이 끊겼습니다.",
+      screen: "PC 화면 공유가 중단되었습니다.",
+      auxiliaryCamera: "모바일 보조 카메라 연결이 끊겼습니다."
+    };
+    for (const [key, message] of Object.entries(labels)) {
+      if (previousMediaStatus[key] && !nextMediaStatus[key]) {
+        await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, createdAt: new Date().toISOString() });
+      }
+    }
+  };
+  const disconnectApplicantMedia = async ({ candidate, exam, recordWarnings = true }) => {
     const updatedAt = new Date().toISOString();
     for (const [id, liveSession] of liveSessions) {
       if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
     }
+    for (const [token, device] of auxiliaryDevices) {
+      if (device.examId === exam.id && device.candidateId === candidate.id) auxiliaryDevices.delete(token);
+    }
     const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     if (examinee) {
+      const disconnectedMediaStatus = { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt };
+      if (recordWarnings) await recordMediaDisconnectWarnings(examinee, disconnectedMediaStatus);
       await store.updateExaminee(examinee.id, {
-        mediaStatus: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt },
-        monitoringSnapshot: null
+        mediaStatus: disconnectedMediaStatus,
+        monitoringSnapshot: null,
+        auxiliarySnapshot: null
       });
     }
   };
+  const staleMediaStatusTimer = setInterval(() => {
+    void (async () => {
+      const cutoff = Date.now() - 30_000;
+      for (const examinee of store.examinees) {
+        const mediaStatus = examinee.mediaStatus ?? {};
+        const updatedAt = Date.parse(mediaStatus.updatedAt ?? "");
+        const hasActiveMedia = mediaStatus.webcam || mediaStatus.microphone || mediaStatus.screen || mediaStatus.auxiliaryCamera;
+        if (!hasActiveMedia || Number.isNaN(updatedAt) || updatedAt > cutoff) continue;
+        const disconnectedMediaStatus = { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt: new Date().toISOString() };
+        await recordMediaDisconnectWarnings(examinee, disconnectedMediaStatus);
+        await store.updateExaminee(examinee.id, { mediaStatus: disconnectedMediaStatus, monitoringSnapshot: null, auxiliarySnapshot: null });
+      }
+    })().catch((error) => console.error("Stale media status cleanup failed", error));
+  }, 10_000);
+  staleMediaStatusTimer.unref?.();
   app.post("/api/auth/logout", authenticate, async (request, response) => {
     const token = request.header("authorization")?.replace("Bearer ", "");
     if (token) {
@@ -444,23 +480,26 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       const { candidate, exam } = request.applicantSession;
       const media = request.body.media && typeof request.body.media === "object" ? request.body.media : {};
+      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       const mediaStatus = {
         webcam: Boolean(media.webcam),
         microphone: Boolean(media.microphone),
         screen: Boolean(media.screen),
-        auxiliaryCamera: Boolean(media.auxiliaryCamera),
+        auxiliaryCamera: typeof media.auxiliaryCamera === "boolean" ? media.auxiliaryCamera : Boolean(examinee?.mediaStatus?.auxiliaryCamera),
         updatedAt: new Date().toISOString()
       };
-      const disconnecting = !mediaStatus.webcam && !mediaStatus.screen;
+      const disconnecting = !mediaStatus.webcam && !mediaStatus.screen && !mediaStatus.auxiliaryCamera;
       if (disconnecting) {
         await disconnectApplicantMedia({ candidate, exam });
         return response.json({ mediaStatus });
       }
-      let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       if (!examinee) {
         examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전", mediaStatus };
         await store.addExaminee(examinee);
-      } else await store.updateExaminee(examinee.id, { mediaStatus, ...(disconnecting ? { monitoringSnapshot: null } : {}) });
+      } else {
+        await recordMediaDisconnectWarnings(examinee, mediaStatus);
+        await store.updateExaminee(examinee.id, { mediaStatus, ...(disconnecting ? { monitoringSnapshot: null } : {}) });
+      }
       return response.json({ mediaStatus });
     } catch (error) {
       return next(error);
@@ -469,6 +508,84 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/applicant/media-disconnect", authenticateApplicantBeacon, async (request, response, next) => {
     try {
       await disconnectApplicantMedia(request.applicantSession);
+      return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/applicant/auxiliary-devices", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const token = randomUUID();
+    auxiliaryDevices.set(token, { token, examId: exam.id, candidateId: candidate.id, expiresAt: Date.now() + 60 * 60 * 1000 });
+    return response.status(201).json({ token });
+  });
+  app.get("/api/applicant/auxiliary-devices/:token", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const device = auxiliaryDevices.get(request.params.token);
+    if (!device || device.examId !== exam.id || device.candidateId !== candidate.id || device.expiresAt <= Date.now()) return response.status(404).json({ message: "보조 카메라 연결 요청을 찾을 수 없습니다." });
+    return response.json({ connected: Boolean(device.deviceToken) });
+  });
+  app.post("/api/mobile-devices/pair", async (request, response, next) => {
+    try {
+      const token = typeof request.body.token === "string" ? request.body.token : "";
+      const device = auxiliaryDevices.get(token);
+      if (!device || device.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 보조 카메라 QR 코드입니다." });
+      device.deviceToken ??= randomUUID();
+      const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      if (examinee) await store.updateExaminee(examinee.id, { mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: true, updatedAt: new Date().toISOString() } });
+      return response.json({ deviceToken: device.deviceToken });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/mobile-devices/:deviceToken/live-offers", (request, response) => {
+    const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
+    if (!device) return response.status(401).json({ message: "유효하지 않은 보조 카메라 연결입니다." });
+    const session = [...liveSessions.values()].find((item) => item.source === "auxiliary" && item.examId === device.examId && item.candidateId === device.candidateId && !item.answer && Date.now() - item.createdAt < 30000);
+    return response.json(session ? { id: session.id, offer: session.offer } : null);
+  });
+  app.post("/api/mobile-devices/:deviceToken/live-offers/:id/answer", (request, response) => {
+    const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
+    const session = liveSessions.get(request.params.id);
+    if (!device || !session || session.source !== "auxiliary" || session.examId !== device.examId || session.candidateId !== device.candidateId || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "보조 카메라 라이브 연결 요청을 찾을 수 없습니다." });
+    session.answer = request.body.answer;
+    return response.sendStatus(204);
+  });
+  app.put("/api/mobile-devices/:deviceToken/snapshot", async (request, response, next) => {
+    try {
+      const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
+      const image = typeof request.body.image === "string" ? request.body.image : "";
+      if (!device || !image.startsWith("data:image/") || image.length > 120000) return response.status(400).json({ message: "보조 카메라 화면 형식이 올바르지 않습니다." });
+      const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      if (examinee) {
+        const updatedAt = new Date().toISOString();
+        await store.updateExaminee(examinee.id, {
+          mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: true, updatedAt },
+          auxiliarySnapshot: { image, updatedAt }
+        });
+      }
+      return response.sendStatus(204);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/mobile-devices/:deviceToken/disconnect", async (request, response, next) => {
+    try {
+      const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken);
+      if (!device) return response.sendStatus(204);
+      for (const [id, liveSession] of liveSessions) {
+        if (liveSession.source === "auxiliary" && liveSession.examId === device.examId && liveSession.candidateId === device.candidateId) liveSessions.delete(id);
+      }
+      const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      if (examinee) {
+        const mediaStatus = { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: false, updatedAt: new Date().toISOString() };
+        await recordMediaDisconnectWarnings(examinee, mediaStatus);
+        await store.updateExaminee(examinee.id, {
+          mediaStatus,
+          auxiliarySnapshot: null
+        });
+      }
+      device.deviceToken = null;
       return response.sendStatus(204);
     } catch (error) {
       return next(error);
@@ -492,13 +609,13 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/applicant/live-offers", authenticateApplicant, (request, response) => {
     const { candidate, exam } = request.applicantSession;
-    const session = [...liveSessions.values()].find((item) => item.examId === exam.id && item.candidateId === candidate.id && !item.answer && Date.now() - item.createdAt < 30000);
+    const session = [...liveSessions.values()].find((item) => item.source === "candidate" && item.examId === exam.id && item.candidateId === candidate.id && !item.answer && Date.now() - item.createdAt < 30000);
     return response.json(session ? { id: session.id, offer: session.offer } : null);
   });
   app.post("/api/applicant/live-offers/:id/answer", authenticateApplicant, (request, response) => {
     const { candidate, exam } = request.applicantSession;
     const session = liveSessions.get(request.params.id);
-    if (!session || session.examId !== exam.id || session.candidateId !== candidate.id || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "라이브 연결 요청을 찾을 수 없습니다." });
+    if (!session || session.source !== "candidate" || session.examId !== exam.id || session.candidateId !== candidate.id || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "라이브 연결 요청을 찾을 수 없습니다." });
     session.answer = request.body.answer;
     return response.sendStatus(204);
   });
@@ -566,7 +683,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
       await store.updateInvitation(invitation.id, { submittedAt: now });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      await disconnectApplicantMedia({ candidate, exam });
+      await disconnectApplicantMedia({ candidate, exam, recordWarnings: false });
       if (examinee) {
         await store.updateExaminee(examinee.id, {
           status: "SUBMITTED",
@@ -1195,7 +1312,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
     if (!examinee || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "라이브 연결 대상을 확인해주세요." });
     const id = randomUUID();
-    liveSessions.set(id, { id, examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    liveSessions.set(id, { id, source: "candidate", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    return response.status(201).json({ id });
+  });
+  app.post("/api/supervisor/examinees/:id/auxiliary-live-offers", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
+    const device = examinee && [...auxiliaryDevices.values()].find((item) => item.examId === examinee.examId && item.candidateId === examinee.candidateId && item.deviceToken && item.expiresAt > Date.now());
+    if (!examinee || !device || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "연결된 보조 카메라를 확인해주세요." });
+    const id = randomUUID();
+    liveSessions.set(id, { id, source: "auxiliary", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
     return response.status(201).json({ id });
   });
   app.get("/api/supervisor/live-offers/:id", authenticate, requireManager, (request, response) => {

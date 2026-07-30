@@ -1,22 +1,48 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ShieldCheck, Camera } from 'lucide-react';
+import { api, apiErrorMessage } from '../api/client';
+import { startMobileLiveMonitoring } from '../applicant/mobileLiveMonitoring';
 
 export default function MobileProctoringPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
   const mobileVideoRef = useRef(null);
+  const streamRef = useRef(null);
+  const stopMonitoringRef = useRef(null);
   const [isStarted, setIsStarted] = useState(false);
+  const [deviceReady, setDeviceReady] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
+    setDeviceReady(false);
+    sessionStorage.removeItem('auxiliaryDeviceToken');
     if (!token) {
       setErrorMsg('유효하지 않은 접근입니다.');
       return;
     }
-    const channel = new BroadcastChannel('exam_qr_channel');
-    channel.postMessage({ type: 'QR_CONNECTED', token });
+    let active = true;
+    api.post('/mobile-devices/pair', { token })
+      .then(({ data }) => {
+        if (active) {
+          sessionStorage.setItem('auxiliaryDeviceToken', data.deviceToken);
+          setDeviceReady(true);
+        }
+      })
+      .catch((error) => active && setErrorMsg(apiErrorMessage(error, '보조 카메라 QR 연결에 실패했습니다. PC에서 새 QR 코드를 생성해주세요.')));
+    return () => {
+      active = false;
+      stopMonitoringRef.current?.();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      const deviceToken = sessionStorage.getItem('auxiliaryDeviceToken');
+      if (deviceToken) {
+        void fetch(`${api.defaults.baseURL}/mobile-devices/${encodeURIComponent(deviceToken)}/disconnect`, {
+          method: 'POST',
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
   }, [token]);
 
   const startFrontCamera = async () => {
@@ -41,6 +67,11 @@ export default function MobileProctoringPage() {
         mobileVideoRef.current.srcObject = stream;
         await mobileVideoRef.current.play();
       }
+      const deviceToken = sessionStorage.getItem('auxiliaryDeviceToken');
+      if (!deviceToken) throw new Error('보조 카메라 연결 정보를 찾을 수 없습니다.');
+      streamRef.current = stream;
+      stopMonitoringRef.current?.();
+      stopMonitoringRef.current = startMobileLiveMonitoring(deviceToken, stream);
       setIsStarted(true);
     } catch (err) {
       console.error("NotReadableError caught:", err);
@@ -66,6 +97,11 @@ export default function MobileProctoringPage() {
             {isStarted ? '연결 완료' : '대기 중'}
           </span>
         </div>
+      </div>
+
+      <div role="note" style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', margin: '10px 12px 0', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(146, 64, 14, 0.28)', border: '1px solid rgba(251, 191, 36, 0.45)', color: '#fde68a', fontSize: '0.72rem', lineHeight: 1.45, flexShrink: 0 }}>
+        <AlertTriangle size={17} style={{ flexShrink: 0, marginTop: '1px' }} />
+        <span><strong>연결 유지 안내</strong><br />화면 잠금, 다른 앱 전환, 전화 수신, 브라우저 종료 또는 배터리 절약 모드에서는 카메라 전송이 중단될 수 있습니다. 시험이 끝날 때까지 이 화면을 켜두세요.</span>
       </div>
 
       <div style={{ width: '100%', flex: 1, position: 'relative', backgroundColor: '#000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -98,10 +134,11 @@ export default function MobileProctoringPage() {
                   </p>
                   <button
                     onClick={startFrontCamera}
+                    disabled={!deviceReady}
                     style={{
                       width: '80%', padding: '12px', backgroundColor: '#2563EB', color: '#fff',
                       border: 'none', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 'bold',
-                      cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
+                      cursor: deviceReady ? 'pointer' : 'wait', opacity: deviceReady ? 1 : .6, boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
                     }}
                   >
                     전면 카메라 켜기

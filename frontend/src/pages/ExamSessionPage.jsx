@@ -3,7 +3,7 @@ import { CheckCircle2, Clock, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
-import { hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
+import { getLiveMediaStatus, hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
 
 export default function ExamSessionPage() {
   const navigate = useNavigate();
@@ -37,6 +37,19 @@ export default function ExamSessionPage() {
     };
     window.addEventListener('pagehide', disconnectMonitoring);
     return () => window.removeEventListener('pagehide', disconnectMonitoring);
+  }, []);
+
+  useEffect(() => {
+    const reportMediaHeartbeat = () => {
+      void api.put('/applicant/media-status', { media: getLiveMediaStatus() }, { headers: candidateAuthHeaders() }).catch(() => {});
+    };
+    reportMediaHeartbeat();
+    const timer = window.setInterval(reportMediaHeartbeat, 10_000);
+    document.addEventListener('visibilitychange', reportMediaHeartbeat);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', reportMediaHeartbeat);
+    };
   }, []);
 
   useEffect(() => {
