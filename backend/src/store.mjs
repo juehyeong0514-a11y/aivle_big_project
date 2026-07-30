@@ -25,10 +25,10 @@ const collectionDefaults = {
   systemPolicies: {
     invitationExpiryHours: 24,
     invitationSecurity: {
-      revokePreviousOnResend: true,
-      blockAfterSubmission: true,
       maxVerificationAttempts: 5,
-      verificationLockoutMinutes: 15
+      verificationLockoutMinutes: 15,
+      applicantSessionMinutes: 240,
+      reverificationCooldownMinutes: 0
     },
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",
