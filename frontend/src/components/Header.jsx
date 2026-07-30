@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
   Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
-  Building2, Megaphone
+  Building2, Megaphone, MessageSquare
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
 
@@ -21,7 +21,8 @@ const ADMIN_GROUPS = [
     items: [
       { key: 'AI_CONFIG', label: '중앙 AI 채점 설정', icon: Cpu },
       { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText },
-      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone }
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
+      { key: 'COMMUNITY', label: '커뮤니티 관리', icon: MessageSquare }
     ]
   }
 ];
@@ -33,6 +34,7 @@ const SUPERVISOR_GROUPS = [
     items: [
       { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
       { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
+      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]

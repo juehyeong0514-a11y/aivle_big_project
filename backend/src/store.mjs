@@ -14,6 +14,8 @@ const collectionDefaults = {
   questions: [],
   assignments: [],
   codingSubmissions: [],
+  communityPosts: [],
+  communityComments: [],
   invitations: [],
   invitationAuditLogs: [],
   warnings: [],
@@ -210,6 +212,8 @@ const save = async () => {
     get users() { return data.users; },
     get exams() { return data.exams; },
     get notices() { return data.notices; },
+    get communityPosts() { return data.communityPosts; },
+    get communityComments() { return data.communityComments; },
     get warnings() { return data.warnings; },
     get examinees() { return data.examinees; },
     get organizations() { return data.organizations; },
@@ -291,6 +295,45 @@ const save = async () => {
       const index = data.notices.findIndex((item) => item.id === id);
       if (index < 0) return undefined;
       const [removed] = data.notices.splice(index, 1);
+      await queuedSave();
+      return removed;
+    },
+    addCommunityPost: async (post) => {
+      data.communityPosts.unshift(post);
+      await queuedSave();
+      return post;
+    },
+    updateCommunityPost: async (id, patch) => {
+      const post = data.communityPosts.find((item) => item.id === id);
+      if (!post) return undefined;
+      Object.assign(post, patch);
+      await queuedSave();
+      return post;
+    },
+    removeCommunityPost: async (id) => {
+      const index = data.communityPosts.findIndex((item) => item.id === id);
+      if (index < 0) return undefined;
+      const [removed] = data.communityPosts.splice(index, 1);
+      data.communityComments = data.communityComments.filter((item) => item.postId !== id);
+      await queuedSave();
+      return removed;
+    },
+    addCommunityComment: async (comment) => {
+      data.communityComments.push(comment);
+      await queuedSave();
+      return comment;
+    },
+    updateCommunityComment: async (id, patch) => {
+      const comment = data.communityComments.find((item) => item.id === id);
+      if (!comment) return undefined;
+      Object.assign(comment, patch);
+      await queuedSave();
+      return comment;
+    },
+    removeCommunityComment: async (id) => {
+      const index = data.communityComments.findIndex((item) => item.id === id);
+      if (index < 0) return undefined;
+      const [removed] = data.communityComments.splice(index, 1);
       await queuedSave();
       return removed;
     },
