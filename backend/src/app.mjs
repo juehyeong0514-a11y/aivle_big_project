@@ -133,7 +133,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const loginFailures = new Map();
   const candidateFailures = new Map();
   const liveSessions = new Map();
-  const auxiliaryDevices = new Map();
+  const auxiliaryDevices = new Map(store.auxiliaryDevices.map((device) => [device.token, device]));
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
@@ -502,6 +502,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     for (const [token, device] of auxiliaryDevices) {
       if (device.examId === exam.id && device.candidateId === candidate.id) auxiliaryDevices.delete(token);
     }
+    await store.removeAuxiliaryDevices(exam.id, candidate.id);
     const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     if (examinee) {
       const disconnectedMediaStatus = { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt };
@@ -608,11 +609,17 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
-  app.post("/api/applicant/auxiliary-devices", authenticateApplicant, (request, response) => {
-    const { candidate, exam } = request.applicantSession;
-    const token = randomUUID();
-    auxiliaryDevices.set(token, { token, examId: exam.id, candidateId: candidate.id, expiresAt: Date.now() + 60 * 60 * 1000 });
-    return response.status(201).json({ token });
+  app.post("/api/applicant/auxiliary-devices", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const token = randomUUID();
+      const device = { token, examId: exam.id, candidateId: candidate.id, expiresAt: Date.now() + 60 * 60 * 1000 };
+      auxiliaryDevices.set(token, device);
+      await store.addAuxiliaryDevice(device);
+      return response.status(201).json({ token });
+    } catch (error) {
+      return next(error);
+    }
   });
   app.get("/api/applicant/auxiliary-devices/:token", authenticateApplicant, (request, response) => {
     const { candidate, exam } = request.applicantSession;
@@ -626,6 +633,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const device = auxiliaryDevices.get(token);
       if (!device || device.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 보조 카메라 QR 코드입니다." });
       device.deviceToken ??= randomUUID();
+      await store.updateAuxiliaryDevice(device.token, { deviceToken: device.deviceToken });
       const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
       if (examinee) await store.updateExaminee(examinee.id, { mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: true, updatedAt: new Date().toISOString() } });
       return response.json({ deviceToken: device.deviceToken });
@@ -681,6 +689,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         });
       }
       device.deviceToken = null;
+      await store.updateAuxiliaryDevice(device.token, { deviceToken: null });
       return response.sendStatus(204);
     } catch (error) {
       return next(error);
