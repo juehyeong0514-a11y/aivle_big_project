@@ -61,7 +61,7 @@ export default function ExamCheckPage() {
       } catch (reason) {
         if (reason.response || attempt === 2) {
           if (silent) console.warn('장비 연결 상태 동기화 실패:', reason);
-          else setErrorMsg(apiErrorMessage(reason, '감독관 화면에 장비 연결 상태를 저장하지 못했습니다.'));
+          else setErrorMsg(apiErrorMessage(reason, '매니저 화면에 장비 연결 상태를 저장하지 못했습니다.'));
           return;
         }
         await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));

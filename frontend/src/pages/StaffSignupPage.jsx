@@ -97,7 +97,7 @@ export default function StaffSignupPage() {
         agreedToPrivacy,
         agreedToMarketing
       });
-      navigate('/login', { replace: true, state: { message: '회원가입 신청이 완료되었습니다. ADMIN 승인 후 로그인할 수 있습니다.' } });
+      navigate('/login', { replace: true, state: { message: '회원가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.' } });
     } catch (reason) {
       setError(apiErrorMessage(reason, '회원가입 신청에 실패했습니다.'));
     } finally {
@@ -269,7 +269,7 @@ export default function StaffSignupPage() {
                   <p style={{ margin: '0 0 6px 0' }}>본 약관은 AI 리터러시 역량 테스트 플랫폼이 제공하는 모든 서비스의 이용 조건 및 절차, 이용자와 플랫폼 간의 권리 및 책임사항을 규정함을 목적으로 합니다.</p>
 
                   <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>제2조 (계정 관리 및 의무)</p>
-                  <p style={{ margin: '0 0 6px 0' }}>운영자 계정은 관리자(ADMIN)의 승인 후에 활성화되며, 계정 정보의 보안 유지 책임은 이용자에게 있습니다.</p>
+                  <p style={{ margin: '0 0 6px 0' }}>운영자 계정은 관리자의 승인 후에 활성화되며, 계정 정보의 보안 유지 책임은 이용자에게 있습니다.</p>
 
                   <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>제3조 (서비스 이용 제한)</p>
                   <p style={{ margin: '0' }}>부정한 방법으로 가입을 시도하거나 시스템 보안을 위협하는 행위가 적발될 경우 계정 이용이 제한될 수 있습니다.</p>

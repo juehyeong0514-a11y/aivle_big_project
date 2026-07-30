@@ -25,7 +25,7 @@ const ADMIN_GROUPS = [
   }
 ];
 
-// 2. 감독관(매니저) 전용 카테고리 그룹 정의
+// 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
     label: '시험 운영', icon: Users,
@@ -149,7 +149,7 @@ export default function Header() {
               ))}
             </>
           ) : isSupervisor ? (
-            /* ================= 2. 감독관 전용 (그룹 드롭다운) ================= */
+            /* ================= 2. 매니저 전용 (그룹 드롭다운) ================= */
             <>
               <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} onClick={() => handleTabClick('HOME')}>
                 <Monitor size={16} style={{ marginRight: 6 }} /> 홈
@@ -178,7 +178,7 @@ export default function Header() {
             <div className="header-user-badge">
               <User size={14} color={isAdmin ? '#7c3aed' : isSupervisor ? '#16a34a' : '#2563EB'} />
               <span>
-                {userName}님{!isAdmin && ` (${isSupervisor ? '감독관' : '응시자'})`}
+                {userName}님{!isAdmin && ` (${isSupervisor ? '매니저' : '응시자'})`}
               </span>
             </div>
             <button type="button" className="logout-btn header-logout-btn" onClick={handleLogout}>

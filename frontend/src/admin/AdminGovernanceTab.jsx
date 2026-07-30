@@ -43,7 +43,7 @@ export default function AdminGovernanceTab() {
   return (
     <section className="workspace-shell">
       <div className="workspace-heading">
-        <div><span className="workspace-eyebrow">ADMIN CONTROL CENTER</span><h1>조직 승인 및 관리자 관리</h1><p>플랫폼 전체 조직, 구성원, 관리자 가입 상태를 검토합니다.</p></div>
+        <div><span className="workspace-eyebrow">관리자 운영 센터</span><h1>조직 승인 및 관리자 관리</h1><p>플랫폼 전체 조직, 구성원, 관리자 가입 상태를 검토합니다.</p></div>
         <div className="workspace-role-mark admin"><ShieldCheck size={20} /> 전체 운영자</div>
       </div>
       {message && <div className="workspace-alert">{message}</div>}
@@ -61,7 +61,7 @@ export default function AdminGovernanceTab() {
             {organizations.length === 0 && <p className="empty-state">등록된 조직이 없습니다.</p>}
           </div>
         </div>
-        <div className="data-panel"><div className="panel-heading"><div><h2>관리자 가입 승인</h2><p>관리자가 회원가입하면 ADMIN 승인 후 로그인할 수 있습니다.</p></div><UserCheck size={20} /></div><div className="organization-list">{managers.map((manager) => <article className="organization-row" key={manager.id}><div><strong>{manager.name}</strong><span>{manager.email}</span></div><div className="organization-actions"><span className={`status-badge ${(manager.approvalStatus || 'PENDING').toLowerCase()}`}>{statusLabels[manager.approvalStatus] || '승인 대기'}</span>{manager.approvalStatus === 'PENDING' && <><button className="icon-action approve" onClick={() => updateManagerStatus(manager.id, 'APPROVED')} title="관리자 승인"><Check size={16} /></button><button className="icon-action reject" onClick={() => updateManagerStatus(manager.id, 'REJECTED')} title="관리자 거절"><X size={16} /></button></>}</div></article>)}{!managers.length && <p className="empty-state">가입한 관리자가 없습니다.</p>}</div></div>
+        <div className="data-panel"><div className="panel-heading"><div><h2>관리자 가입 승인</h2><p>관리자가 회원가입하면 관리자 승인 후 로그인할 수 있습니다.</p></div><UserCheck size={20} /></div><div className="organization-list">{managers.map((manager) => <article className="organization-row" key={manager.id}><div><strong>{manager.name}</strong><span>{manager.email}</span></div><div className="organization-actions"><span className={`status-badge ${(manager.approvalStatus || 'PENDING').toLowerCase()}`}>{statusLabels[manager.approvalStatus] || '승인 대기'}</span>{manager.approvalStatus === 'PENDING' && <><button className="icon-action approve" onClick={() => updateManagerStatus(manager.id, 'APPROVED')} title="관리자 승인"><Check size={16} /></button><button className="icon-action reject" onClick={() => updateManagerStatus(manager.id, 'REJECTED')} title="관리자 거절"><X size={16} /></button></>}</div></article>)}{!managers.length && <p className="empty-state">가입한 관리자가 없습니다.</p>}</div></div>
       </div>
     </section>
   );

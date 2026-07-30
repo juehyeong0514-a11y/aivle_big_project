@@ -352,7 +352,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const user = { id: randomUUID(), name: name.trim(), email, password, role: "MANAGER", approvalStatus: "PENDING", organizationIds: [] };
       await store.addUser(user);
       await store.updateEmailVerification(verification.id, { consumedAt: new Date().toISOString() });
-      return response.status(201).json({ user: publicUser(user), message: "관리자 가입 신청이 접수되었습니다. ADMIN 승인 후 로그인할 수 있습니다." });
+      return response.status(201).json({ user: publicUser(user), message: "관리자 가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다." });
     } catch (error) {
       return next(error);
     }
@@ -368,7 +368,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const user = store.users.find((candidate) => candidate.email === email);
       const roleMatches = user && (!role || user.role === role || (isManagerRole(user.role) && isManagerRole(role)));
       if (!roleMatches || user.role === "APPLICANT" || role === "APPLICANT" || user.approvalStatus !== "APPROVED" || !(await verifyPassword(password ?? "", user.passwordHash))) {
-        if (user && user.approvalStatus !== "APPROVED") return response.status(403).json({ message: "ADMIN 승인 후 로그인할 수 있습니다." });
+        if (user && user.approvalStatus !== "APPROVED") return response.status(403).json({ message: "관리자 승인 후 로그인할 수 있습니다." });
         const failures = (loginFailures.get(key)?.failures ?? 0) + 1;
         loginFailures.set(key, { failures, blockedUntil: failures >= loginFailureLimit ? Date.now() + loginLockoutMs : 0 });
         return response.status(401).json({ message: "이메일, 비밀번호 또는 권한을 확인해주세요." });

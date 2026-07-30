@@ -16,7 +16,7 @@ const PracticeTab = lazy(() => import('../applicant/PracticeTab'));
 const NoticeTab = lazy(() => import('../applicant/NoticeTab'));
 const FaqTab = lazy(() => import('../applicant/FaqTab'));
 
-// 🌟 감독관 전용 탭 컴포넌트 임포트
+// 🌟 매니저 전용 탭 컴포넌트 임포트
 const LiveMonitoringTab = lazy(() => import('../supervisor/LiveMonitoringTab'));
 const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
 const ExamStatusTab = lazy(() => import('../supervisor/ExamStatusTab'));
@@ -60,7 +60,7 @@ export default function HomePage() {
         <Suspense fallback={<div className="workspace-loading">화면을 불러오는 중입니다...</div>}>
 
         {/* =========================================================================
-            🛡️ [관리자(ADMIN) 전용 탭 라우팅 허브]
+            🛡️ [관리자 전용 탭 라우팅 허브]
             ========================================================================= */}
         {isAdmin && !showHome && (
           <div>
@@ -72,7 +72,7 @@ export default function HomePage() {
         )}
 
         {/* =========================================================================
-            👁️ [감독관(SUPERVISOR) 전용 탭 라우팅 허브] 🌟 새로 추가됨
+            👁️ [매니저 전용 탭 라우팅 허브] 🌟 새로 추가됨
             ========================================================================= */}
         {isSupervisor && !showHome && (
           <div>
