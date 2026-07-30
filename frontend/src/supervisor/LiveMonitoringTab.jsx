@@ -11,6 +11,7 @@ export default function LiveMonitoringTab() {
   const [warnings, setWarnings] = useState([]);
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [liveExaminee, setLiveExaminee] = useState(null);
+  const [warningLogExaminee, setWarningLogExaminee] = useState(null);
   const [liveError, setLiveError] = useState('');
   const [frontLiveReady, setFrontLiveReady] = useState(false);
   const [auxiliaryLiveReady, setAuxiliaryLiveReady] = useState(false);
@@ -56,6 +57,7 @@ export default function LiveMonitoringTab() {
       setWarnings([]);
       setLastSnapshotAt(null);
       setLiveExaminee(null);
+      setWarningLogExaminee(null);
       return undefined;
     }
     const loadMonitoringData = () => Promise.all([
@@ -97,6 +99,8 @@ export default function LiveMonitoringTab() {
   const warningsFor = (examineeId) => warnings
     .filter((warning) => warning.examineeId === examineeId)
     .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+
+  const closeWarningLog = () => setWarningLogExaminee(null);
 
   const closeLive = () => {
     if (livePollTimerRef.current) window.clearInterval(livePollTimerRef.current);
@@ -311,9 +315,24 @@ export default function LiveMonitoringTab() {
           </div>
         </section>
       </div>}
+      {warningLogExaminee && <div className="monitoring-live-modal" role="dialog" aria-modal="true" aria-labelledby="monitoring-warning-log-title">
+        <button className="monitoring-live-backdrop" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기" />
+        <section className="monitoring-warning-log-panel">
+          <div className="monitoring-live-heading">
+            <div>
+              <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING LOG</span>
+              <h2 id="monitoring-warning-log-title">{warningLogExaminee.name} 응시자 전체 감시 로그</h2>
+              <p>최신 기록부터 표시됩니다.</p>
+            </div>
+            <button className="icon-button" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기"><X size={18} /></button>
+          </div>
+          {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><strong>{warning.message}</strong><span>AI 감시 알림</span></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 AI 감시 알림이 없습니다.</p>}
+        </section>
+      </div>}
       <div className="monitoring-grid">
         {examinees.map((examinee) => {
           const examineeWarnings = warningsFor(examinee.id);
+          const latestWarning = examineeWarnings[0];
           const webcamConnected = Boolean(examinee.mediaStatus?.webcam);
           const microphoneConnected = Boolean(examinee.mediaStatus?.microphone);
           const screenConnected = Boolean(examinee.mediaStatus?.screen);
@@ -338,10 +357,10 @@ export default function LiveMonitoringTab() {
               </button>
             </div>
             <div className="monitoring-status-row"><span>진행 현황</span><strong>{examinee.currentProb}</strong><small><Clock3 size={13} /> 10초마다 갱신</small></div>
-            <div className="monitoring-alert-log">
+            <button className="monitoring-alert-log" type="button" onClick={() => setWarningLogExaminee(examinee)} aria-label={examinee.name + ' 응시자의 전체 AI 감시 로그 보기'}>
               <div><strong><AlertTriangle size={15} /> AI 감시 알림</strong><span>{examineeWarnings.length ? `${examineeWarnings.length}건` : '없음'}</span></div>
-              {examineeWarnings.length ? <ul>{examineeWarnings.slice(0, 2).map((warning) => <li key={warning.id}><span>{warning.message}</span><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></li>)}</ul> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
-            </div>
+              {latestWarning ? <div className="monitoring-alert-caption"><span className="monitoring-alert-ticker">{latestWarning.message}</span><time dateTime={latestWarning.createdAt}>{new Date(latestWarning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></div> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
+            </button>
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>
           </article>;
         })}
