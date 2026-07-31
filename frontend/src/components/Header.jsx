@@ -6,6 +6,7 @@ import {
   Building2, Megaphone, MessageSquare, HelpCircle
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
+import { getInvitationAwarePublicRoute } from './invitationNavigation.mjs';
 
 // 1. 관리자 전용 카테고리 그룹 정의
 const ADMIN_GROUPS = [
@@ -110,6 +111,9 @@ export default function Header() {
 
   const defaultTab = getDefaultTab();
   const requestedTab = searchParams.get('tab') || defaultTab;
+  const invitationToken = location.pathname === '/exam/enter'
+    ? searchParams.get('token')
+    : searchParams.get('inviteToken');
   const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab);
 
   const handleTabClick = (tabName) => {
@@ -117,8 +121,10 @@ export default function Header() {
       navigate('/manager/exams');
       return;
     }
-    if (!isAdmin && !isSupervisor && tabName === 'HOME') {
-      navigate('/');
+    if (!isAdmin && !isSupervisor) {
+      navigate(invitationToken
+        ? getInvitationAwarePublicRoute(tabName, invitationToken)
+        : tabName === 'HOME' ? '/' : `/home?tab=${tabName}`);
     } else {
       navigate(`/home?tab=${tabName}`);
     }
@@ -140,7 +146,9 @@ export default function Header() {
     navigate('/login');
   };
 
-  const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : '/';
+  const homeRoute = isAdmin || isSupervisor ? '/home?tab=HOME' : invitationToken
+    ? getInvitationAwarePublicRoute('HOME', invitationToken)
+    : '/';
 
   useLayoutEffect(() => {
     const header = headerRef.current;
