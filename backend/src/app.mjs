@@ -107,10 +107,12 @@ const requestIdCardOcr = async (path, payload) => {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(90_000)
+      signal: AbortSignal.timeout(180_000)
     });
-  } catch {
-    const error = new Error("신분증 OCR 서비스에 연결하지 못했습니다. OCR 서비스 배포 상태와 주소를 확인해주세요.");
+  } catch (reason) {
+    const error = new Error(reason?.name === "TimeoutError"
+      ? "OCR 모델을 준비하는 데 시간이 오래 걸리고 있습니다. 잠시 후 다시 촬영해주세요."
+      : "신분증 OCR 서비스에 연결하지 못했습니다. OCR 서비스 배포 상태와 주소를 확인해주세요.");
     error.status = 503;
     throw error;
   }
@@ -132,7 +134,7 @@ const verifyIdCardWithOcr = async (image, expectedName) => {
   }
   return { residentNumberFront, nameMatched: nameMatchedFromOcr(payload, expectedName) };
 };
-const detectIdCardWithOcr = async (image) => requestIdCardOcr("/detect", { image });
+const detectIdCardWithOcr = async (image) => requestIdCardOcr("/ocr/id-card/detect", { image });
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
 const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
 const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
