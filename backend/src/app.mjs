@@ -123,7 +123,7 @@ const requestIdCardOcr = async (path, payload) => {
   return ocrResponse.json();
 };
 const verifyIdCardWithOcr = async (image, expectedName) => {
-  const payload = await requestIdCardOcr("", { image, expectedName });
+  const payload = await requestIdCardOcr("/ocr/id-card", { image, expectedName });
   const residentNumberFront = residentNumberFrontFromOcr(payload);
   if (!residentNumberFront) {
     const error = new Error("신분증에서 주민번호 앞 6자리를 읽지 못했습니다. 빛 반사를 피해서 다시 촬영해주세요.");
