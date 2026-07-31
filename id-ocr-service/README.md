@@ -1,6 +1,6 @@
 # 신분증 OCR 서비스
 
-이 서비스는 학습된 `models/best.pt`를 변환한 `models/best.onnx`로 사진에서 신분증을 찾고, PaddleOCR로 이름과 주민번호 앞 6자리(`YYMMDD`)를 읽습니다. 운영 서버에서는 OpenCV DNN으로 ONNX 모델을 실행하므로 PyTorch와 Ultralytics를 설치하지 않습니다. 원본 이미지, 신분증 자른 이미지, OCR 전체 문자열은 파일이나 데이터베이스에 저장하지 않습니다.
+이 서비스는 학습된 `models/best.pt`를 변환한 `models/best.onnx`로 사진에서 신분증을 찾고, PaddleOCR의 ONNX Runtime 엔진으로 이름과 주민번호 앞 6자리(`YYMMDD`)를 읽습니다. 운영 서버에서는 OpenCV DNN과 ONNX Runtime만 추론에 사용하므로 PyTorch, Ultralytics, PaddlePaddle 런타임을 설치하지 않습니다. 메모리가 작은 인스턴스에서 요청이 겹치지 않도록 OCR 추론은 한 번에 하나씩 처리합니다. 원본 이미지, 신분증 자른 이미지, OCR 전체 문자열은 파일이나 데이터베이스에 저장하지 않습니다.
 
 ## 실행
 

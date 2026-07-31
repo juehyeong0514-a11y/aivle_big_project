@@ -1274,7 +1274,7 @@ main {
   left: 50%;
   transform: translate(-50%, -50%); /* 정확히 화면 중앙에 위치 */
   
-  width: 68%;
+  width: min(85%, 28rem);
   aspect-ratio: 85.6 / 54; /* 세로 높이 대신 비율 사용 */
   
   border: 3px solid #ffffff;

@@ -98,10 +98,12 @@ class IdentityOCRService:
         self._ocr = PaddleOCR(
             text_detection_model_name="PP-OCRv5_mobile_det",
             text_recognition_model_name="korean_PP-OCRv5_mobile_rec",
+            text_recognition_batch_size=1,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             device="cpu",
+            engine="onnxruntime",
             enable_mkldnn=False,
             cpu_threads=1,
         )
@@ -153,6 +155,7 @@ service: IdentityOCRService | None = None
 service_error: str | None = None
 service_warming = False
 service_lock = Lock()
+inference_lock = Lock()
 app = FastAPI(title="Aivle ID OCR", version="0.1.0")
 logger = logging.getLogger("aivle-id-ocr")
 
@@ -221,19 +224,21 @@ def warm_ocr_models() -> None:
 @app.post("/ocr/id-card/detect", response_model=CardDetectionResponse)
 def detect_id_card(payload: CardDetectionRequest, authorization: str | None = Header(default=None)) -> CardDetectionResponse:
     require_service_token(authorization)
-    try:
-        card = get_service().detect_card(decode_data_url(payload.image))
-    except HTTPException as error:
-        if error.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
-            return CardDetectionResponse(aligned=False)
-        raise
+    with inference_lock:
+        try:
+            card = get_service().detect_card(decode_data_url(payload.image))
+        except HTTPException as error:
+            if error.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+                return CardDetectionResponse(aligned=False)
+            raise
     return CardDetectionResponse(aligned=card.aligned)
 
 
 @app.post("/ocr/id-card", response_model=OCRResponse)
 def recognize_id_card(payload: OCRRequest, authorization: str | None = Header(default=None)) -> OCRResponse:
     require_service_token(authorization)
-    ocr_service = get_service()
-    card = ocr_service.detect_card(decode_data_url(payload.image))
-    identity = ocr_service.recognize_identity(card, payload.expectedName)
+    with inference_lock:
+        ocr_service = get_service()
+        card = ocr_service.detect_card(decode_data_url(payload.image))
+        identity = ocr_service.recognize_identity(card, payload.expectedName)
     return OCRResponse(residentNumberFront=identity.resident_number_front, nameMatched=identity.name_matched)

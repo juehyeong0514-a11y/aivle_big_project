@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Camera, CheckCircle, RefreshCw, UploadCloud } from 'lucide-react';
 import { api, apiErrorMessage } from '../api/client';
+import { cropVideoFrameToGuide } from './idCardCapture';
 
 export default function MobileIdScanPage() {
   const [searchParams] = useSearchParams();
@@ -9,6 +10,7 @@ export default function MobileIdScanPage() {
   const token = searchParams.get('token');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const guideFrameRef = useRef(null);
   const streamRef = useRef(null);
   const [capturedImage, setCapturedImage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,12 +41,9 @@ export default function MobileIdScanPage() {
   const captureFrame = (maximumWidth, quality) => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2) return '';
-    const scale = Math.min(1, maximumWidth / video.videoWidth);
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', quality);
+    const guide = guideFrameRef.current;
+    if (!video || !canvas || !guide) return '';
+    return cropVideoFrameToGuide(video, guide, canvas, maximumWidth, quality);
   };
 
   useEffect(() => {
@@ -113,7 +112,7 @@ export default function MobileIdScanPage() {
           <>
             <video ref={videoRef} autoPlay playsInline muted className="video-stream" />
             <div className="id-card-guide">
-              <div className="id-card-guide-frame" style={{ width: '85%', height: 'auto', aspectRatio: '85.6 / 54' }} />
+              <div ref={guideFrameRef} className="id-card-guide-frame" />
               <span>신분증을 가이드 안에 맞춰주세요.</span>
             </div>
           </>

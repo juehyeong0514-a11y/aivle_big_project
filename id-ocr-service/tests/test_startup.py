@@ -83,7 +83,39 @@ def test_runtime_uses_onnx_detector_without_ultralytics() -> None:
     assert (service_root / "models" / "best.onnx").is_file()
 
 
+def test_ocr_runtime_serializes_inference_and_uses_onnxruntime() -> None:
+    # Given: the OCR service and mobile capture source
+    service_root = Path(__file__).parents[1]
+    service_source = (service_root / "main.py").read_text(encoding="utf-8")
+    requirements = (service_root / "requirements.txt").read_text(encoding="utf-8")
+
+    # When: deployment runtime and request synchronization are inspected
+    route_source = service_source[service_source.index('@app.post("/ocr/id-card/detect"'):]
+
+    # Then: one low-memory ONNX OCR request runs at a time
+    assert 'engine="onnxruntime"' in service_source
+    assert "inference_lock = Lock()" in service_source
+    assert route_source.count("with inference_lock:") == 2
+    assert "onnxruntime" in requirements
+    assert "paddlepaddle" not in requirements
+
+
+def test_mobile_id_capture_uses_only_the_visible_guide_area() -> None:
+    # Given: the mobile ID capture page
+    project_root = Path(__file__).parents[2]
+    page_source = (project_root / "frontend" / "src" / "pages" / "MobileIdScanPage.jsx").read_text(encoding="utf-8")
+    crop_source = (project_root / "frontend" / "src" / "pages" / "idCardCapture.js").read_text(encoding="utf-8")
+
+    # When: the camera capture path is inspected
+    # Then: it measures the rendered guide and crops the source video to that area
+    assert "guideFrameRef" in page_source
+    assert "cropVideoFrameToGuide" in page_source
+    assert "getBoundingClientRect()" in crop_source
+
+
 if __name__ == "__main__":
     test_ocr_models_are_not_initialized_during_module_import()
     test_ocr_models_start_warming_after_application_startup()
     test_runtime_uses_onnx_detector_without_ultralytics()
+    test_ocr_runtime_serializes_inference_and_uses_onnxruntime()
+    test_mobile_id_capture_uses_only_the_visible_guide_area()
