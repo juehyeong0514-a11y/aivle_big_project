@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Play, Save, Send } from 'lucide-react';
+import { Clock, Moon, Play, Save, Send, Sun } from 'lucide-react';
 
 const resultTabs = [
   { id: 'run', label: '실행 결과' },
@@ -73,6 +73,7 @@ function runJavaScript(source) {
 export function CodingExamWorkspace({ answers, exam, questions, remainingTime, runResults, saveProgress, saveStatus, submissionError, updateAnswers, updateRunResults }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeResultTab, setActiveResultTab] = useState('run');
+  const [theme, setTheme] = useState(() => localStorage.getItem('codingExamTheme') || 'dark');
   const [panelSizes, setPanelSizes] = useState({ navigation: 18, statement: 27, editor: 66 });
   const workspaceRef = useRef(null);
   const editorPaneRef = useRef(null);
@@ -90,6 +91,10 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   useEffect(() => {
     if (submissionError) setActiveResultTab('submission');
   }, [submissionError]);
+
+  useEffect(() => {
+    localStorage.setItem('codingExamTheme', theme);
+  }, [theme]);
 
   const updateAnswer = (nextAnswer) => {
     updateAnswers({
@@ -157,13 +162,23 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   };
 
   return (
-    <main className="coding-session-shell">
+    <main className="coding-session-shell" data-theme={theme}>
       <div className="coding-session-form">
         <header className="coding-session-header">
           <div className="coding-session-brand">
             <strong>{exam.title}</strong>
             <span>코딩 테스트</span>
           </div>
+          <button
+            aria-label={theme === 'dark' ? '화이트 모드로 전환' : '다크 모드로 전환'}
+            aria-pressed={theme === 'light'}
+            className="coding-theme-toggle"
+            type="button"
+            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            {theme === 'dark' ? '화이트 모드' : '다크 모드'}
+          </button>
         </header>
 
         <div
@@ -225,12 +240,21 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
               <div className="coding-editor-toolbar">
                 <strong>{isCodingQuestion ? sourceFileName(language) : '객관식 답안'}</strong>
                 {isCodingQuestion && (
-                  <label>
-                    <span className="sr-only">프로그래밍 언어</span>
-                    <select value={language} onChange={(event) => updateAnswer({ language: event.target.value })}>
-                      {languages.map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </label>
+                  <div className="coding-editor-actions">
+                    <button className="coding-run-button" disabled={runResult.type === 'running'} type="button" onClick={runCode}><Play size={15} /> 실행</button>
+                    <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 코드 저장</button>
+                    <label>
+                      <span className="sr-only">프로그래밍 언어</span>
+                      <select value={language} onChange={(event) => updateAnswer({ language: event.target.value })}>
+                        {languages.map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                )}
+                {!isCodingQuestion && (
+                  <div className="coding-editor-actions">
+                    <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 답안 저장</button>
+                  </div>
                 )}
               </div>
               {isCodingQuestion ? (
@@ -293,8 +317,6 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
               </div>
               <footer className="coding-result-controls">
                 <div>
-                  <button className="coding-run-button" disabled={runResult.type === 'running'} type="button" onClick={runCode}><Play size={15} /> 실행</button>
-                  <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 코드 저장</button>
                   <button className="coding-submit-button" type="submit"><Send size={15} /> 코드 저장하고 제출</button>
                   {saveStatus && <span className="coding-save-status" role="status">{saveStatus}</span>}
                 </div>
@@ -302,7 +324,6 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
             </section>}
             {!isCodingQuestion && (
               <footer className="coding-objective-controls">
-                <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 답안 저장</button>
                 <button className="coding-submit-button" type="submit"><Send size={15} /> 답안 저장하고 제출</button>
                 {saveStatus && <span className="coding-save-status" role="status">{saveStatus}</span>}
               </footer>
