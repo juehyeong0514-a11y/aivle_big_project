@@ -68,7 +68,7 @@ Vite가 표시하는 주소로 접속합니다. 기본 주소는 `http://localho
 | `ID_CARD_OCR_URL` | 신분증 이미지(`{ "image": "data:image/..." }`)를 받는 학습 모델 API 주소 |
 | `ID_CARD_OCR_API_KEY` | 모델 API에 Bearer 인증이 필요한 경우의 키(선택) |
 
-YOLO 기반 신분증 OCR 서비스는 [id-ocr-service/README.md](id-ocr-service/README.md)를 따라 별도 Render Web Service로 배포합니다. `best.pt`는 `id-ocr-service/models/best.pt`에 포함되어 있으며, 기존 백엔드에는 OCR 서비스의 기본 주소를 `ID_CARD_OCR_URL`로 등록합니다. 예: `https://aivle-id-ocr.onrender.com`
+YOLO 기반 신분증 OCR 서비스는 [id-ocr-service/README.md](id-ocr-service/README.md)를 따라 별도 Render Web Service로 배포합니다. 학습 원본 `best.pt`와 배포용 `best.onnx`는 `id-ocr-service/models`에 포함되어 있으며, 기존 백엔드에는 OCR 서비스의 기본 주소를 `ID_CARD_OCR_URL`로 등록합니다. 예: `https://aivle-id-ocr.onrender.com`
 
 모델 응답은 `residentNumberFront` 또는 `birthDate`에 주민번호 앞 6자리(`YYMMDD`)를 반환해야 합니다. 예: `{ "residentNumberFront": "000101" }`.
 서버는 이 값으로 등록된 생년월일과 비교한 뒤 결과만 저장하며, 주민번호 앞 6자리는 저장하지 않습니다.

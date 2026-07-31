@@ -10,11 +10,14 @@ from dataclasses import dataclass
 from threading import Lock, Thread
 from typing import Final
 
+import cv2
+import numpy as np
 from fastapi import FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 MAX_IMAGE_BYTES: Final[int] = 3_500_000
 MIN_YOLO_CONFIDENCE: Final[float] = 0.75
+YOLO_INPUT_SIZE: Final[int] = 640
 DATE_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?<!\d)(\d{2})[.\-/\s]?(\d{2})[.\-/\s]?(\d{2})(?!\d)")
 
 
@@ -53,9 +56,6 @@ class RecognizedIdentity:
 
 
 def decode_data_url(value: str) -> np.ndarray:
-    import cv2
-    import numpy as np
-
     prefix, separator, encoded = value.partition(",")
     if not separator or not prefix.startswith("data:image/") or ";base64" not in prefix:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 데이터 형식이 올바르지 않습니다.")
@@ -85,27 +85,49 @@ def normalize_name(value: str) -> str:
 class IdentityOCRService:
     def __init__(self) -> None:
         from paddleocr import PaddleOCR
-        from ultralytics import YOLO
 
-        model_path = os.environ.get("ID_CARD_YOLO_MODEL_PATH", "models/best.pt")
+        configured_model_path = os.environ.get("ID_CARD_YOLO_MODEL_PATH", "models/best.onnx")
+        model_path = (
+            f"{configured_model_path[:-3]}.onnx"
+            if configured_model_path.lower().endswith(".pt")
+            else configured_model_path
+        )
         if not os.path.isfile(model_path):
             raise RuntimeError(f"YOLO 모델 파일을 찾을 수 없습니다: {model_path}")
-        self._detector = YOLO(model_path)
+        self._detector = cv2.dnn.readNetFromONNX(model_path)
         self._ocr = PaddleOCR(
             text_detection_model_name="PP-OCRv5_mobile_det",
             text_recognition_model_name="korean_PP-OCRv5_mobile_rec",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
+            device="cpu",
+            enable_mkldnn=False,
+            cpu_threads=1,
         )
 
     def detect_card(self, image: np.ndarray) -> DetectedCard:
-        prediction = self._detector(image, conf=MIN_YOLO_CONFIDENCE, verbose=False)[0]
-        if prediction.boxes is None or len(prediction.boxes) == 0:
+        blob = cv2.dnn.blobFromImage(image, scalefactor=1 / 255, size=(YOLO_INPUT_SIZE, YOLO_INPUT_SIZE), swapRB=True, crop=False)
+        self._detector.setInput(blob)
+        prediction = np.squeeze(self._detector.forward())
+        if prediction.ndim != 2:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="신분증 인식 결과를 해석하지 못했습니다. 다시 촬영해주세요.")
+        candidates = prediction.T if prediction.shape[0] < prediction.shape[1] else prediction
+        class_scores = candidates[:, 4:]
+        if class_scores.shape[1] == 0:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="신분증 인식 결과를 해석하지 못했습니다. 다시 촬영해주세요.")
+        confidences = class_scores.max(axis=1)
+        index = int(np.argmax(confidences))
+        if float(confidences[index]) < MIN_YOLO_CONFIDENCE:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="신분증을 찾지 못했습니다. 신분증 전체가 화면에 보이도록 다시 촬영해주세요.")
-        index = int(prediction.boxes.conf.argmax().item())
-        x1, y1, x2, y2 = (int(value) for value in prediction.boxes.xyxy[index].tolist())
         height, width = image.shape[:2]
+        center_x, center_y, box_width, box_height = candidates[index, :4]
+        scale_x = width / YOLO_INPUT_SIZE
+        scale_y = height / YOLO_INPUT_SIZE
+        x1 = int((center_x - box_width / 2) * scale_x)
+        y1 = int((center_y - box_height / 2) * scale_y)
+        x2 = int((center_x + box_width / 2) * scale_x)
+        y2 = int((center_y + box_height / 2) * scale_y)
         crop = image[max(y1, 0):min(y2, height), max(x1, 0):min(x2, width)]
         if crop.size == 0:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="신분증 영역을 자르지 못했습니다. 다시 촬영해주세요.")

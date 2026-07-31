@@ -70,6 +70,20 @@ def test_ocr_models_start_warming_after_application_startup() -> None:
     )
 
 
+def test_runtime_uses_onnx_detector_without_ultralytics() -> None:
+    service_root = Path(__file__).parents[1]
+    source = (service_root / "main.py").read_text(encoding="utf-8")
+    requirements = (service_root / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "from ultralytics import YOLO" not in source
+    assert "readNetFromONNX" in source
+    assert "ultralytics" not in requirements
+    assert 'enable_mkldnn=False' in source
+    assert 'cpu_threads=1' in source
+    assert (service_root / "models" / "best.onnx").is_file()
+
+
 if __name__ == "__main__":
     test_ocr_models_are_not_initialized_during_module_import()
     test_ocr_models_start_warming_after_application_startup()
+    test_runtime_uses_onnx_detector_without_ultralytics()

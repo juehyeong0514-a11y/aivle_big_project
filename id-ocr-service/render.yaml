@@ -8,6 +8,6 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.11
       - key: ID_CARD_YOLO_MODEL_PATH
-        value: models/best.pt
+        value: models/best.onnx
       - key: ID_CARD_SERVICE_TOKEN
         generateValue: true
