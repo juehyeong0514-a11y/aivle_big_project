@@ -327,7 +327,7 @@ main {
 }
 
 .header-nav-group:hover .header-nav-dropdown,
-.header-nav-group:focus-within .header-nav-dropdown {
+.header-nav-group:has(:focus-visible) .header-nav-dropdown {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);

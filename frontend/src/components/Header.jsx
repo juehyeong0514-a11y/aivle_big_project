@@ -68,7 +68,15 @@ function NavGroup({ group, currentTab, onSelect }) {
 
   return (
     <div className="header-nav-group" style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
-      <button type="button" className={`header-tab-btn ${isGroupActive ? 'active' : ''}`} aria-label={group.label} title={group.label}>
+      <button
+        type="button"
+        className={`header-tab-btn ${isGroupActive ? 'active' : ''}`}
+        aria-label={group.label}
+        title={group.label}
+        onClick={(event) => {
+          if (event.detail > 0) event.currentTarget.blur();
+        }}
+      >
         <GroupIcon size={16} className="header-tab-icon" />
         <span className="header-tab-label">{group.label}</span>
         <ChevronDown size={14} className="header-tab-chevron" />

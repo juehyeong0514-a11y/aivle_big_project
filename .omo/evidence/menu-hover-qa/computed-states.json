@@ -1,0 +1,13 @@
+{
+  "mouseClick": {
+    "activeElement": null,
+    "opacity": "0",
+    "visibility": "hidden"
+  },
+  "keyboardFocusVisible": {
+    "activeElement": "조직 운영",
+    "focusVisible": true,
+    "opacity": "1",
+    "visibility": "visible"
+  }
+}
