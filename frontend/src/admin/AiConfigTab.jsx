@@ -95,7 +95,7 @@ export default function AiConfigTab() {
     <div className="workspace-heading"><div><span className="workspace-eyebrow">AI 운영 설정</span><h1>중앙 AI 채점 설정</h1><p>조직의 채점 요청을 관리자가 수락하면 중앙 API 키로 채점하고 결과를 조직에 전달합니다.</p></div><div className="workspace-role-mark admin"><Cpu size={16} /> 전체 운영 설정</div></div>
     {message && <div className="workspace-alert">{message}</div>}
 
-    <div className="data-panel form-panel" style={{ maxWidth: 900 }}>
+    <div className="data-panel form-panel" style={{ maxWidth: 1000 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><KeyRound size={18} /><h2 style={{ margin: 0, fontSize: '1.05rem' }}>API 설정</h2></div>
       <div className="form-grid"><label>AI 제공자<select value={settings.provider} onChange={(event) => updateProvider(event.target.value)}>{Object.keys(providerModels).map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select></label><label>모델<select value={settings.model} onChange={(event) => setSettings((current) => ({ ...current, model: event.target.value }))}>{(providerModels[settings.provider] ?? []).map((model) => <option key={model} value={model}>{model}</option>)}</select></label></div>
       <label style={{ display: 'grid', gap: 6, marginTop: 12 }}>API 키<input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setKeyCheck(null); }} placeholder={settings.apiKeyConfigured ? '새 키를 입력하면 기존 키를 교체합니다' : 'API 키를 입력하세요'} autoComplete="new-password" /></label>
@@ -105,12 +105,12 @@ export default function AiConfigTab() {
       <button className="primary-button" type="button" onClick={save} style={{ marginTop: 12 }}><Save size={16} /> 설정 저장</button>
     </div>
 
-    <div className="data-panel form-panel" style={{ maxWidth: 900, marginTop: 20 }}>
+    <div className="data-panel form-panel" style={{ maxWidth: 1000, marginTop: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><ShieldCheck size={18} /><h2 style={{ margin: 0, fontSize: '1.05rem' }}>조직별 이번 달 사용량</h2></div>
       <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>조직</th><th>이번 달 사용량</th></tr></thead><tbody>{settings.organizations.map((organization) => { const ratio = organization.monthlyLimit > 0 ? Math.min((organization.monthlyUsage / organization.monthlyLimit) * 100, 100) : 0; return <tr key={organization.organizationId}><td>{organization.organizationName}</td><td><div className="ai-quota-meter" role="progressbar" aria-label={`${organization.organizationName} 이번 달 AI 채점 사용량`} aria-valuenow={organization.monthlyUsage} aria-valuemin="0" aria-valuemax={organization.monthlyLimit}><div className="ai-quota-meter-track"><span style={{ width: `${ratio}%` }} /></div><div className="ai-quota-meter-label"><strong>{Math.round(ratio)}% 사용</strong><span>{organization.monthlyUsage}건 · {organization.usageMonth}</span></div></div></td></tr>; })}</tbody></table></div>
     </div>
 
-    <div className="data-panel form-panel" style={{ maxWidth: 1100, marginTop: 20 }}>
+    <div className="data-panel form-panel" style={{ maxWidth: 1000, marginTop: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><Cpu size={18} /><h2 style={{ margin: 0, fontSize: '1.05rem' }}>AI 채점 요청 대기열</h2></div>
       <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>요청 일시</th><th>대상 응시자 / 시험</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.length === 0 ? <tr><td colSpan="5">대기 중인 AI 채점 요청이 없습니다.</td></tr> : requests.map((request) => <tr key={request.id}><td>{request.organizationName}</td><td>{formatDate(request.requestedAt)}</td><td><strong>{request.candidateName}</strong><br /><span className="form-hint">{request.examTitle}</span></td><td>{statusLabel[request.status] ?? request.status}{request.status === 'FAILED' && request.errorMessage ? <><br /><span className="form-error">{request.errorMessage}</span></> : null}</td><td>{request.status === 'PENDING' ? <button className="primary-button" type="button" onClick={() => acceptAndRun(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} 채점 수락 및 실행</button> : '-'}</td></tr>)}</tbody></table></div>
     </div>

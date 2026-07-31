@@ -15,6 +15,17 @@ body {
   overflow-x: hidden;
 }
 
+/* 폼 컨트롤이 body 폰트를 상속하지 않는 브라우저 기본 동작 보정 */
+button, input, select, textarea, optgroup {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+/* 제목 요소 볼드체를 브라우저 기본값에 맡기지 않고 명시적으로 통일 */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+}
+
 /* 스크린 리더 전용 클래스 (시각적으로 숨김) */
 .sr-only {
   position: absolute;
@@ -798,8 +809,9 @@ main {
   align-items: center;
   padding: 0.25rem 0.6rem;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   font-weight: bold;
+  white-space: nowrap;
 }
 .badge-available { background-color: #dcfce7; color: #166534; }
 .badge-completed { background-color: #e2e8f0; color: #475569; }
@@ -1273,16 +1285,16 @@ main {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%); /* 정확히 화면 중앙에 위치 */
-  
+
   width: min(85%, 28rem);
   aspect-ratio: 85.6 / 54; /* 세로 높이 대신 비율 사용 */
-  
+
   border: 3px solid #ffffff;
   border-radius: 12px;
   box-shadow:
     0 0 0 9999px rgba(15, 23, 42, 0.35),
     0 0 15px rgba(0, 0, 0, 0.25);
-  
+
   z-index: 10; /* 비디오 태그보다 위에 올라오도록 지정 */
 }
 
@@ -1826,9 +1838,17 @@ main {
 .invite-details dd { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 700; text-align: right; }
 .invite-form { display: flex; flex-direction: column; gap: 12px; }
 .invite-form input { min-height: 46px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 16px; letter-spacing: .06em; }
-.invite-success { padding-top: 20px; color: var(--status-success); text-align: center; }
-.invite-success h2 { color: var(--text-primary); font-size: 20px; }
-.invite-success p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+.invite-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 20px;
+  color: var(--status-success);
+  text-align: center;
+}
+.invite-success h2 { margin: 0; color: var(--text-primary); font-size: 20px; }
+.invite-success p { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
 .floating-action-bar { position: sticky; bottom: 0; z-index: 10; padding: 12px 0; }
 .floating-action-bar-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1200px; margin: 0 auto; padding: 14px 20px; border: 1px solid #93c5fd; border-radius: 12px; background: rgba(255, 255, 255, .8); backdrop-filter: blur(8px); box-shadow: 0 8px 24px rgba(37, 99, 235, .15); }
 .floating-action-bar-content > span { color: var(--accent-primary); font-weight: 700; }
@@ -2199,3 +2219,78 @@ main {
 .community-comment button { border: 0; background: transparent; color: #94a3b8; cursor: pointer; }
 .community-comments form { display: flex; gap: .5rem; margin-top: 1rem; }
 .community-comments form input { flex: 1; }
+
+/* =========================================================
+   10. 미적용 클래스 보완 (CSS 통일)
+   ========================================================= */
+
+/* community-shell / notice-page: 폼 패널과 목록 패널이 같은 shell 안에서
+   바로 이어질 때 간격이 없어 패널이 맞닿아 보이는 문제 보정 */
+.community-shell > .data-panel + .data-panel,
+.notice-page > .data-panel + .data-panel {
+  margin-top: 20px;
+}
+
+/* AdminGovernanceTab: 조직 관리자 목록(.organization-row 안의 <small> 나열)이
+   flex/gap 없이 인라인으로 붙어 나오던 부분 */
+.organization-managers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.organization-managers small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* AiConfigTab: 사용량/요청 테이블에 클래스만 있고 정의가 없던 부분
+   (기존 .status-table 컨벤션 그대로 재사용) */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.data-table th,
+.data-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: top;
+}
+.data-table th {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+/* AiConfigTab: 제공자/모델 선택 2열 그리드 (.form-row와 동일 패턴) */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* HomeTab 히어로 코드 목업: 지금은 className은 있지만 스타일이 전부
+   인라인 style={{...}}로만 중복 적용되고 있음. 아래 두 규칙을 추가하면
+   HomeTab.jsx의 .dot-group, .code-line 관련 inline style을 모두 제거해도
+   동일하게 렌더링됨 (색상은 이미 있는 .text-muted/.text-purple/.text-green 재사용) */
+.dot-group {
+  display: flex;
+  gap: 6px;
+}
+.code-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-line.text-muted,
+.code-line.text-purple,
+.code-line.text-green {
+  padding-left: 1.5rem;
+}
+
+/* ManagerExamDetailPage: floating-action-bar를 sticky 없이 고정 배치로
+   쓰고 싶을 때 붙이는 .static 수정자 클래스가 정의돼 있지 않았음 */
+.floating-action-bar.static {
+  position: static;
+}

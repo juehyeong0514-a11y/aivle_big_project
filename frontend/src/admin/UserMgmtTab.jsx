@@ -28,23 +28,23 @@ export default function UserMgmtTab() {
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
-              <th style={{ padding: '0.75rem' }}>응시자 이름</th>
-              <th style={{ padding: '0.75rem' }}>이메일</th>
-              <th style={{ padding: '0.75rem' }}>조직</th>
-              <th style={{ padding: '0.75rem' }}>응시번호</th>
-              <th style={{ padding: '0.75rem' }}>상태</th>
-              <th style={{ padding: '0.75rem' }}>결과</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>응시자 이름</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>이메일</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>조직</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>응시번호</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>상태</th>
+              <th style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>결과</th>
             </tr>
           </thead>
           <tbody>
             {users.map((user) => (
               <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{user.name}</td>
-                <td style={{ padding: '0.75rem', color: '#64748b' }}>{user.email}</td>
-                <td style={{ padding: '0.75rem', color: '#64748b' }}>{user.organizationName}</td>
-                <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>{user.candidateNumber}</td>
-                <td style={{ padding: '0.75rem' }}><span className="badge-status badge-available">{user.approvalStatus === 'APPROVED' ? '승인 완료' : user.approvalStatus}</span></td>
-                <td style={{ padding: '0.75rem' }}><span className="text-muted">{user.assignments?.length ? user.assignments.map((assignment) => `${assignment.examTitle}: ${assignment.score ?? '미응시'}`).join(', ') : '미배정'}</span></td>
+                <td style={{ padding: '0.7rem', fontWeight: 'bold' }}>{user.name}</td>
+                <td style={{ padding: '0.7rem', color: '#64748b' }}>{user.email}</td>
+                <td style={{ padding: '0.7rem', color: '#64748b', whiteSpace: 'nowrap' }}>{user.organizationName}</td>
+                <td style={{ padding: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{user.candidateNumber}</td>
+                <td style={{ padding: '0.7rem' }}><span className="badge-status badge-available">{user.approvalStatus === 'APPROVED' ? '승인 완료' : user.approvalStatus}</span></td>
+                <td style={{ padding: '0.7rem' }}><span className="text-muted">{user.assignments?.length ? user.assignments.map((assignment) => `${assignment.examTitle}: ${assignment.score ?? '미응시'}`).join(', ') : '미배정'}</span></td>
               </tr>
             ))}
           </tbody>
