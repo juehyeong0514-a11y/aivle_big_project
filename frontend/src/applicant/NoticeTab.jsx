@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, ChevronRight, Megaphone, Pin, Search, X } from 'lucide-react';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 
@@ -17,6 +18,8 @@ const formatDate = (value) => {
 };
 
 export default function NoticeTab() {
+  const [searchParams] = useSearchParams();
+  const invitationToken = searchParams.get('inviteToken');
   const [notices, setNotices] = useState([]);
   const [selectedNotice, setSelectedNotice] = useState(null);
   const [query, setQuery] = useState('');
@@ -31,6 +34,8 @@ export default function NoticeTab() {
       const hasCandidateSession = Boolean(localStorage.getItem('candidateAccessToken'));
       const request = hasCandidateSession
         ? api.get('/applicant/notices', { headers: candidateAuthHeaders() })
+        : invitationToken
+          ? api.get(`/invitations/${encodeURIComponent(invitationToken)}/notices`)
         : api.get('/notices', { params: { q: query.trim() || undefined, category } });
       request
         .then(({ data }) => setNotices(data.filter((notice) =>
@@ -41,7 +46,7 @@ export default function NoticeTab() {
         .finally(() => setLoading(false));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, category]);
+  }, [query, category, invitationToken]);
 
   const pinnedCount = useMemo(() => notices.filter((notice) => notice.pinned).length, [notices]);
 
@@ -50,7 +55,9 @@ export default function NoticeTab() {
       const hasCandidateSession = Boolean(localStorage.getItem('candidateAccessToken'));
       const { data } = hasCandidateSession
         ? await api.get(`/applicant/notices/${notice.id}`, { headers: candidateAuthHeaders() })
-        : await api.get(`/notices/${notice.id}`);
+        : invitationToken
+          ? await api.get(`/invitations/${encodeURIComponent(invitationToken)}/notices/${notice.id}`)
+          : await api.get(`/notices/${notice.id}`);
       setSelectedNotice(data);
       setNotices((current) => current.map((item) => item.id === data.id ? { ...item, viewCount: data.viewCount } : item));
     } catch (error) {

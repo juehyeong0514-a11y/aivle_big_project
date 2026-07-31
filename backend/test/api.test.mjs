@@ -192,6 +192,20 @@ test("scopes manager notices to assigned organizations and exams", async (contex
   const publicNotices = await fetch(`${baseUrl}/api/notices`);
   assert.equal((await publicNotices.json()).some((item) => item.id === notice.id), false);
 
+  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/invitations/send`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ candidateIds: ["candidate-1"] })
+  });
+  assert.equal(invitationResponse.status, 201);
+  const invitation = await invitationResponse.json();
+  const invitationToken = new URL(invitation.mailPreviews[0].entryLink).searchParams.get("token");
+  const invitationNotices = await fetch(`${baseUrl}/api/invitations/${invitationToken}/notices`);
+  assert.equal((await invitationNotices.json()).some((item) => item.id === notice.id), true);
+  const invitationDetail = await fetch(`${baseUrl}/api/invitations/${invitationToken}/notices/${notice.id}`);
+  assert.equal(invitationDetail.status, 200);
+  assert.equal((await invitationDetail.json()).id, notice.id);
+
   const denied = await fetch(`${baseUrl}/api/manager/notices`, {
     method: "POST",
     headers,

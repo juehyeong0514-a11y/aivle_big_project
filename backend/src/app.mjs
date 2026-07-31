@@ -1788,6 +1788,39 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     response.json(store.invitations.filter((invitation) => organizationIds.includes(invitation.organizationId)).map(({ token, ...invitation }) => invitation));
   });
+  app.get("/api/invitations/:token/notices", (request, response) => {
+    const invitation = invitationForToken(store.invitations, request.params.token);
+    if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
+    const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
+    return response.json(store.notices
+      .filter((notice) => {
+        const scope = notice.scope ?? "GLOBAL";
+        return scope === "GLOBAL"
+          || (scope === "ORGANIZATION" && notice.organizationId === invitation.organizationId)
+          || (scope === "EXAM" && notice.examId === exam?.id);
+      })
+      .filter((notice) => isPublishedNotice(notice))
+      .sort(noticeSort)
+      .map(publicNotice));
+  });
+  app.get("/api/invitations/:token/notices/:id", async (request, response, next) => {
+    try {
+      const invitation = invitationForToken(store.invitations, request.params.token);
+      if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
+      const notice = store.notices.find((item) => item.id === request.params.id);
+      const scope = notice?.scope ?? "GLOBAL";
+      const canView = notice && (
+        scope === "GLOBAL"
+        || (scope === "ORGANIZATION" && notice.organizationId === invitation.organizationId)
+        || (scope === "EXAM" && notice.examId === invitation.examId)
+      );
+      if (!canView || !isPublishedNotice(notice)) return response.status(404).json({ message: "공지사항을 찾을 수 없습니다." });
+      const updated = await store.updateNotice(notice.id, { viewCount: (notice.viewCount ?? 0) + 1 });
+      return response.json(publicNotice(updated));
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/invitations/:token", (request, response) => {
     const invitation = invitationForToken(store.invitations, request.params.token);
     if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
