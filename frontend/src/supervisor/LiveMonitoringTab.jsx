@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Building2, Clock3, Monitor, Radio, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
+import { createMonitoringRefreshGate } from './monitoringRefreshGate.mjs';
 
 export default function LiveMonitoringTab() {
   const [organizations, setOrganizations] = useState([]);
@@ -24,6 +25,36 @@ export default function LiveMonitoringTab() {
   const auxiliaryPeerRef = useRef(null);
   const livePollTimerRef = useRef(null);
   const auxiliaryPollTimerRef = useRef(null);
+  const monitoringRefreshGateRef = useRef(createMonitoringRefreshGate());
+
+  const applyMonitoringSnapshot = (snapshot) => {
+    setExaminees(snapshot.examinees);
+    setWarnings(snapshot.warnings);
+    setLastSnapshotAt(snapshot.capturedAt);
+  };
+
+  const deferMonitoringRefresh = () => {
+    monitoringRefreshGateRef.current.suspend();
+  };
+
+  const applyDeferredMonitoringRefresh = () => {
+    const pendingSnapshot = monitoringRefreshGateRef.current.resume();
+    if (pendingSnapshot) applyMonitoringSnapshot(pendingSnapshot);
+  };
+
+  const changeOrganization = (organizationId) => {
+    monitoringRefreshGateRef.current.discard();
+    setOrganizationId(organizationId);
+  };
+
+  const changeExam = (examId) => {
+    monitoringRefreshGateRef.current.discard();
+    setSelectedExamId(examId);
+  };
+
+  const deferMonitoringRefreshOnKey = (event) => {
+    if ([' ', 'ArrowDown', 'Enter'].includes(event.key)) deferMonitoringRefresh();
+  };
 
   useEffect(() => {
     api.get('/manager/organizations', { headers: authHeaders() })
@@ -60,19 +91,29 @@ export default function LiveMonitoringTab() {
       setWarningLogExaminee(null);
       return undefined;
     }
+    let isCurrentSelection = true;
     const loadMonitoringData = () => Promise.all([
       api.get('/supervisor/examinees?examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() }),
       api.get('/supervisor/warnings?organizationId=' + encodeURIComponent(organizationId) + '&examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() })
     ])
       .then(([examineeResponse, warningResponse]) => {
-        setExaminees(examineeResponse.data);
-        setWarnings(warningResponse.data);
-        setLastSnapshotAt(new Date());
+        if (!isCurrentSelection) return;
+        const snapshot = monitoringRefreshGateRef.current.receive({
+          examinees: examineeResponse.data,
+          warnings: warningResponse.data,
+          capturedAt: new Date()
+        });
+        if (snapshot) applyMonitoringSnapshot(snapshot);
       })
-      .catch((error) => setLoadError(apiErrorMessage(error, '선택한 시험의 응시자 데이터를 불러오지 못했습니다.')));
+      .catch((error) => {
+        if (isCurrentSelection) setLoadError(apiErrorMessage(error, '선택한 시험의 응시자 데이터를 불러오지 못했습니다.'));
+      });
     loadMonitoringData();
     const timer = window.setInterval(loadMonitoringData, 10000);
-    return () => window.clearInterval(timer);
+    return () => {
+      isCurrentSelection = false;
+      window.clearInterval(timer);
+    };
   }, [organizationId, selectedExamId]);
 
   const sendWarning = async (examinee) => {
@@ -258,7 +299,7 @@ export default function LiveMonitoringTab() {
       {loadError && <div className="workspace-alert error">{loadError}</div>}
       <div className="data-panel organization-switcher">
         <label><span>관제 조직</span>
-          <select value={organizationId} onChange={(event) => setOrganizationId(event.target.value)}>
+          <select value={organizationId} onFocus={deferMonitoringRefresh} onPointerDown={deferMonitoringRefresh} onKeyDown={deferMonitoringRefreshOnKey} onBlur={applyDeferredMonitoringRefresh} onChange={(event) => changeOrganization(event.target.value)}>
             <option value="">관제할 조직을 선택하세요</option>
             {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
           </select>
@@ -268,7 +309,7 @@ export default function LiveMonitoringTab() {
 
       <div className="data-panel organization-switcher">
         <label><span>관제할 시험</span>
-          <select value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)} disabled={!organizationId}>
+          <select value={selectedExamId} onFocus={deferMonitoringRefresh} onPointerDown={deferMonitoringRefresh} onKeyDown={deferMonitoringRefreshOnKey} onBlur={applyDeferredMonitoringRefresh} onChange={(event) => changeExam(event.target.value)} disabled={!organizationId}>
             <option value="">시험을 선택하세요</option>
             {exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}
           </select>

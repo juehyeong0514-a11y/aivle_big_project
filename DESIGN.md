@@ -109,6 +109,19 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - States: default, hover, active, focus, disabled, loading.
 - Motion: 120ms color/transform feedback; no layout animation.
 
+### Management composer modal
+
+- Structure: an existing backdrop and centred white modal are reused for organization-community posts and organization notices; the form is opened only from the corresponding list-header primary action.
+- States: closed, create, edit, saving, validation error, and submit success.
+- Accessibility: the open action has text plus a Lucide plus icon; the modal has a labelled native close button; backdrop click and close reset only unsaved local form state.
+- Interaction: organization filtering remains in the underlying list header, so managers can narrow the list to one assigned organization before opening the composer.
+
+### Notice schedule control
+
+- Structure: each notice schedule uses a native date field followed by clearly labelled hour and 10-minute select fields, with a text-only quick action for immediate publishing or no end date.
+- States: unscheduled, date selected, time adjusted, immediately published, and no end date.
+- Accessibility: visible labels identify date, hour, and minute; the quick actions are native buttons with clear result text and visible keyboard focus.
+
 ### Candidate coding workspace
 
 - Structure: the global service header is suppressed during an exam; the exam uses its own fixed dark header, a narrow scrollable navigation pane with remaining time and numbered problem titles, a separate scrollable problem statement pane, code editor pane, and execution-result pane with persistent footer controls.
