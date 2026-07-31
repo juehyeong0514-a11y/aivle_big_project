@@ -327,6 +327,9 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const candidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "초대 응시자", email: "invitee@example.com", birthDate: "2000-01-01" }) });
   const candidate = await candidateResponse.json();
   assert.match(candidate.candidateNumber, /^AIVLE-/);
+  const sameEmailInDifferentOrganizationResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "다른 조직 동명이인", email: "applicant1@aivle.com", birthDate: "2001-01-01" }) });
+  assert.equal(sameEmailInDifferentOrganizationResponse.status, 201);
+  const sameEmailInDifferentOrganization = await sameEmailInDifferentOrganizationResponse.json();
   const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: "2026.08.01 10:00" }) });
   assert.equal(examResponse.status, 201);
   const exam = await examResponse.json();
@@ -347,6 +350,10 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(questionResponse.status, 201);
   const assignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
   assert.equal(assignment.status, 201);
+  const sameNameAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [sameEmailInDifferentOrganization.id, sameEmailInDifferentOrganization.id] }) });
+  assert.equal(sameNameAssignment.status, 201);
+  const removeSameNameAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assignments`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: [sameEmailInDifferentOrganization.id] }) });
+  assert.equal(removeSameNameAssignment.status, 200);
   const assignedBeforeEntry = await fetch(`${baseUrl}/api/supervisor/examinees?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
   assert.equal(assignedBeforeEntry.status, 200);
   assert.equal((await assignedBeforeEntry.json()).some((item) => item.candidateId === candidate.id && item.status === "NOT_STARTED"), true);
@@ -366,6 +373,17 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const removeAssignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assignments`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: [removableCandidate.id] }) });
   assert.equal(removeAssignment.status, 200);
   assert.equal((await removeAssignment.json()).removedCount, 1);
+  const deleteCandidate = await fetch(`${baseUrl}/api/manager/candidates/${removableCandidate.id}`, { method: "DELETE", headers: managerHeaders });
+  assert.equal(deleteCandidate.status, 200);
+  const candidatesAfterDelete = await fetch(`${baseUrl}/api/manager/candidates`, { headers: managerHeaders });
+  assert.equal((await candidatesAfterDelete.json()).some((item) => item.id === removableCandidate.id), false);
+  const batchCandidateResponses = await Promise.all(["batch-one@example.com", "batch-two@example.com"].map((email, index) => fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: `일괄 삭제 ${index + 1}`, email, birthDate: "2000-01-01" }) })));
+  const batchCandidates = await Promise.all(batchCandidateResponses.map((response) => response.json()));
+  const batchDelete = await fetch(`${baseUrl}/api/manager/candidates/batch-delete`, { method: "DELETE", headers: managerHeaders, body: JSON.stringify({ candidateIds: batchCandidates.map((item) => item.id) }) });
+  assert.equal(batchDelete.status, 200);
+  assert.equal((await batchDelete.json()).removedCount, 2);
+  const outOfScopeDelete = await fetch(`${baseUrl}/api/manager/candidates/candidate-1`, { method: "DELETE", headers: managerHeaders });
+  assert.equal(outOfScopeDelete.status, 403);
   const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
   const invitation = await invitationResponse.json();
   assert.equal(invitation.count, 1);

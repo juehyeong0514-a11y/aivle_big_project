@@ -1349,6 +1349,30 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  app.delete("/api/manager/candidates/batch-delete", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const candidateIds = Array.isArray(request.body.candidateIds) ? [...new Set(request.body.candidateIds.filter(isNonEmptyText))] : [];
+      if (candidateIds.length === 0) return response.status(400).json({ message: "삭제할 응시자를 선택해주세요." });
+      const candidates = store.candidates.filter((candidate) => candidateIds.includes(candidate.id));
+      if (candidates.length !== candidateIds.length) return response.status(404).json({ message: "삭제할 응시자 정보를 찾을 수 없습니다." });
+      if (candidates.some((candidate) => !scopedOrganization(request, candidate.organizationId))) return response.status(403).json({ message: "배정된 승인 조직의 응시자만 삭제할 수 있습니다." });
+      const removedCandidateIds = await store.removeCandidates(candidateIds);
+      return response.json({ removedCount: removedCandidateIds.size, candidateIds: [...removedCandidateIds] });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/candidates/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const candidate = store.candidates.find((item) => item.id === request.params.id);
+      if (!candidate) return response.status(404).json({ message: "응시자를 찾을 수 없습니다." });
+      if (!scopedOrganization(request, candidate.organizationId)) return response.status(403).json({ message: "배정된 승인 조직의 응시자만 삭제할 수 있습니다." });
+      await store.removeCandidates([candidate.id]);
+      return response.json({ id: candidate.id });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.patch("/api/manager/candidates/:id", authenticate, requireManager, async (request, response, next) => {
     try {
       const candidate = store.candidates.find((item) => item.id === request.params.id);
@@ -1665,10 +1689,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/manager/exams/:id/assign", authenticate, requireManager, async (request, response, next) => {
     try {
       const exam = scopedExam(request, request.params.id);
-      const candidateIds = Array.isArray(request.body.candidateIds) ? request.body.candidateIds : [];
+      const candidateIds = Array.isArray(request.body.candidateIds) ? [...new Set(request.body.candidateIds.filter(isNonEmptyText))] : [];
       if (!exam || candidateIds.length === 0) return response.status(400).json({ message: "시험과 배정할 응시자를 확인해주세요." });
-      const candidates = store.candidates.filter((candidate) => candidateIds.includes(candidate.id) && candidate.organizationId === exam.organizationId);
-      if (candidates.length !== candidateIds.length) return response.status(403).json({ message: "같은 조직의 응시자만 배정할 수 있습니다." });
+      const requestedCandidates = store.candidates.filter((candidate) => candidateIds.includes(candidate.id));
+      if (requestedCandidates.length !== candidateIds.length) return response.status(404).json({ message: "선택한 응시자 중 삭제되었거나 존재하지 않는 정보가 있습니다. 목록을 새로고침한 뒤 다시 선택해주세요." });
+      if (requestedCandidates.some((candidate) => candidate.organizationId !== exam.organizationId)) return response.status(403).json({ message: "현재 시험과 같은 조직에 등록된 응시자만 배정할 수 있습니다." });
+      const candidates = requestedCandidates;
       const created = [];
       for (const candidate of candidates) {
         if (!store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidate.id)) {

@@ -412,6 +412,31 @@ const save = async () => {
       await queuedSave();
       return candidate;
     },
+    removeCandidates: async (candidateIds) => {
+      const candidateIdSet = new Set(candidateIds);
+      const removedCandidateIds = new Set(data.candidates
+        .filter((candidate) => candidateIdSet.has(candidate.id))
+        .map((candidate) => candidate.id));
+      const invitationIds = new Set(data.invitations
+        .filter((invitation) => removedCandidateIds.has(invitation.candidateId))
+        .map((invitation) => invitation.id));
+      const examineeIds = new Set(data.examinees
+        .filter((examinee) => removedCandidateIds.has(examinee.candidateId))
+        .map((examinee) => examinee.id));
+      data.candidates = data.candidates.filter((candidate) => !removedCandidateIds.has(candidate.id));
+      data.assignments = data.assignments.filter((assignment) => !removedCandidateIds.has(assignment.candidateId));
+      data.codingSubmissions = data.codingSubmissions.filter((submission) => !removedCandidateIds.has(submission.candidateId));
+      data.invitations = data.invitations.filter((invitation) => !invitationIds.has(invitation.id));
+      data.invitationAuditLogs = data.invitationAuditLogs.filter((log) => !invitationIds.has(log.invitationId));
+      data.sessions = data.sessions.filter((session) => !invitationIds.has(session.invitationId));
+      data.examinees = data.examinees.filter((examinee) => !examineeIds.has(examinee.id));
+      data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((device) => !removedCandidateIds.has(device.candidateId));
+      data.idCardScans = data.idCardScans.filter((scan) => !removedCandidateIds.has(scan.candidateId));
+      data.aiGradingRequests = data.aiGradingRequests.filter((request) => !removedCandidateIds.has(request.candidateId));
+      await queuedSave();
+      return removedCandidateIds;
+    },
     addExaminee: async (examinee) => {
       data.examinees.push(examinee);
       await queuedSave();

@@ -153,6 +153,11 @@ export default function ManagerExamDetailPage() {
         ),
       ),
     );
+    setSelectedAdminCandidateIds((current) =>
+      current.filter((candidateId) =>
+        candidateResponse.data.some((candidate) => candidate.id === candidateId),
+      ),
+    );
   };
 
   const showMessage = (text, type = "info") => {
@@ -188,10 +193,12 @@ export default function ManagerExamDetailPage() {
   );
   const visibleAdminCandidates = useMemo(
     () =>
-      scopedCandidates.filter((candidate) =>
-        `${candidate.name} ${candidate.email}`.toLowerCase().includes(candidateAdminSearch.trim().toLowerCase()),
-      ),
-    [scopedCandidates, candidateAdminSearch],
+      organizationCandidates
+        .filter((candidate) => candidate.organizationId === exam?.organizationId)
+        .filter((candidate) =>
+          `${candidate.name} ${candidate.email}`.toLowerCase().includes(candidateAdminSearch.trim().toLowerCase()),
+        ),
+    [organizationCandidates, exam, candidateAdminSearch],
   );
   const allAdminCandidatesSelected =
     visibleAdminCandidates.length > 0 &&
@@ -305,7 +312,7 @@ export default function ManagerExamDetailPage() {
     try {
       const normalizedEmail = candidateForm.email.trim().toLowerCase();
       const existingCandidate = organizationCandidates.find(
-        (candidate) => candidate.email === normalizedEmail,
+        (candidate) => candidate.organizationId === exam.organizationId && candidate.email === normalizedEmail,
       );
       if (existingCandidate && candidates.some((candidate) => candidate.id === existingCandidate.id)) {
         showMessage("이 응시자는 현재 시험에 이미 등록되어 있습니다.", "error");
@@ -441,6 +448,8 @@ export default function ManagerExamDetailPage() {
       await api.delete(`/manager/candidates/${candidateId}`, headers);
       showMessage("응시자 정보를 삭제했습니다.");
       setCandidateToDelete(null);
+      setSelectedAdminCandidateIds((current) => current.filter((id) => id !== candidateId));
+      setSelectedCandidateIds((current) => current.filter((id) => id !== candidateId));
       await load();
     } catch (reason) {
       showMessage(apiErrorMessage(reason, "응시자 정보를 삭제하지 못했습니다."), "error");
@@ -451,13 +460,15 @@ export default function ManagerExamDetailPage() {
     if (selectedAdminCandidateIds.length === 0) return;
     if (!window.confirm(`${selectedAdminCandidateIds.length}명의 응시자를 목록에서 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
 
+    const candidateIdsToDelete = [...selectedAdminCandidateIds];
     try {
       await api.delete("/manager/candidates/batch-delete", {
         ...headers,
-        data: { candidateIds: selectedAdminCandidateIds },
+        data: { candidateIds: candidateIdsToDelete },
       });
-      showMessage(`${selectedAdminCandidateIds.length}명의 응시자 정보를 삭제했습니다.`);
+      showMessage(`${candidateIdsToDelete.length}명의 응시자 정보를 삭제했습니다.`);
       setSelectedAdminCandidateIds([]);
+      setSelectedCandidateIds((current) => current.filter((id) => !candidateIdsToDelete.includes(id)));
       await load();
     } catch (reason) {
       showMessage(apiErrorMessage(reason, "응시자 정보를 삭제하지 못했습니다."), "error");
@@ -1157,8 +1168,8 @@ export default function ManagerExamDetailPage() {
               <div className="workspace-alert error">
                 <strong>{candidateToDelete.name}</strong> 응시자를 목록에서 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
                 <div className="candidate-row-actions" style={{ justifyContent: "flex-end" }}>
-                  <button className="secondary-button compact-button" onClick={() => setCandidateToDelete(null)}>취소</button>
-                  <button className="danger-button compact-button" onClick={() => deleteCandidate(candidateToDelete.id)}>삭제 확인</button>
+                  <button className="secondary-button compact-button" type="button" onClick={() => setCandidateToDelete(null)}>취소</button>
+                  <button className="danger-button compact-button" type="button" onClick={() => deleteCandidate(candidateToDelete.id)}>삭제 확인</button>
                 </div>
               </div>
             )}
