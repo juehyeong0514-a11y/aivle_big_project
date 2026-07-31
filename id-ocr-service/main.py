@@ -3,10 +3,11 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
-from threading import Lock
+from threading import Lock, Thread
 from typing import Final
 
 from fastapi import FastAPI, Header, HTTPException, status
@@ -127,17 +128,49 @@ class IdentityOCRService:
 
 
 service: IdentityOCRService | None = None
+service_error: str | None = None
+service_warming = False
 service_lock = Lock()
 app = FastAPI(title="Aivle ID OCR", version="0.1.0")
+logger = logging.getLogger("aivle-id-ocr")
+
+
+def warm_ocr_service() -> None:
+    global service, service_error, service_warming
+    try:
+        initialized_service = IdentityOCRService()
+    except (ImportError, OSError, RuntimeError, ValueError) as error:
+        logger.exception("신분증 OCR 모델 준비에 실패했습니다.")
+        with service_lock:
+            service_error = str(error)
+            service_warming = False
+        return
+    with service_lock:
+        service = initialized_service
+        service_error = None
+        service_warming = False
+    logger.info("신분증 OCR 모델 준비가 완료되었습니다.")
+
+
+def start_ocr_service_warmup() -> None:
+    global service_warming
+    with service_lock:
+        if service is not None or service_warming:
+            return
+        service_warming = True
+    Thread(target=warm_ocr_service, name="id-card-ocr-warmup", daemon=True).start()
 
 
 def get_service() -> IdentityOCRService:
-    global service
-    if service is None:
-        with service_lock:
-            if service is None:
-                service = IdentityOCRService()
-    return service
+    with service_lock:
+        initialized_service = service
+        initialization_error = service_error
+    if initialized_service is not None:
+        return initialized_service
+    if initialization_error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신분증 OCR 모델 준비에 실패했습니다. OCR 서비스 로그를 확인한 뒤 다시 배포해주세요.")
+    start_ocr_service_warmup()
+    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="신분증 OCR 모델을 준비하고 있습니다. 1~2분 후 다시 촬영해주세요.")
 
 
 def require_service_token(authorization: str | None) -> None:
@@ -148,7 +181,19 @@ def require_service_token(authorization: str | None) -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    with service_lock:
+        initialized_service = service
+        initialization_error = service_error
+    if initialized_service is not None:
+        return {"status": "ready"}
+    if initialization_error:
+        return {"status": "error"}
+    return {"status": "warming"}
+
+
+@app.on_event("startup")
+def warm_ocr_models() -> None:
+    start_ocr_service_warmup()
 
 
 @app.post("/ocr/id-card/detect", response_model=CardDetectionResponse)
