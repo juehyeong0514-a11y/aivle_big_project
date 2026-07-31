@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Building2, FileText, Save, TerminalSquare, UserRound } from 'lucide-react';
+import { AlertTriangle, BarChart3, Building2, Cpu, FileText, LoaderCircle, Save, TerminalSquare, UserRound, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 const reviewStatusLabels = { NOT_REVIEWED: '미검토', NORMAL: '정상', REVIEW_REQUIRED: '재검토 필요', SUSPICIOUS: '부정행위 의심' };
+const aiStatusLabels = { PENDING: '승인 대기', PROCESSING: '분석 중', COMPLETED: '분석 완료', FAILED: '분석 실패' };
 
 export default function ReportsTab() {
   const [organizations, setOrganizations] = useState([]);
@@ -10,11 +11,14 @@ export default function ReportsTab() {
   const [exams, setExams] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState('');
   const [results, setResults] = useState([]);
+  const [examinees, setExaminees] = useState([]);
+  const [aiRequests, setAiRequests] = useState([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState('');
   const [detail, setDetail] = useState(null);
   const [activeQuestionId, setActiveQuestionId] = useState('');
   const [review, setReview] = useState({ reviewStatus: 'NOT_REVIEWED', reviewNote: '' });
   const [savingReview, setSavingReview] = useState(false);
+  const [requestingCandidateId, setRequestingCandidateId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -47,10 +51,20 @@ export default function ReportsTab() {
     setDetail(null);
     if (!selectedExamId || !organizationId) {
       setResults([]);
+      setExaminees([]);
+      setAiRequests([]);
       return;
     }
-    api.get(`/manager/results?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() })
-      .then(({ data }) => setResults(data))
+    Promise.all([
+      api.get(`/manager/results?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
+      api.get(`/supervisor/examinees?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
+      api.get(`/manager/ai-grading-requests?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
+    ])
+      .then(([resultResponse, examineeResponse, aiRequestResponse]) => {
+        setResults(resultResponse.data);
+        setExaminees(examineeResponse.data);
+        setAiRequests(aiRequestResponse.data);
+      })
       .catch((reason) => setError(apiErrorMessage(reason, '결과를 불러오지 못했습니다.')));
   }, [organizationId, selectedExamId]);
 
@@ -66,13 +80,56 @@ export default function ReportsTab() {
       .catch((reason) => setError(apiErrorMessage(reason, '응시자 상세 결과를 불러오지 못했습니다.')));
   }, [selectedExamId, selectedCandidateId]);
 
+  useEffect(() => {
+    if (!organizationId || !selectedExamId || !aiRequests.some((item) => ['PENDING', 'PROCESSING'].includes(item.status))) return undefined;
+    const refreshRequests = () => api.get(`/manager/ai-grading-requests?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() })
+      .then(({ data }) => setAiRequests(data))
+      .catch(() => {});
+    const timer = window.setInterval(refreshRequests, 5000);
+    return () => window.clearInterval(timer);
+  }, [organizationId, selectedExamId, aiRequests]);
+
+  useEffect(() => {
+    if (!detail) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setSelectedCandidateId('');
+        setDetail(null);
+      }
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [detail]);
+
   const changeOrganization = (nextOrganizationId) => {
     setError('');
     setMessage('');
     setExams([]);
     setSelectedExamId('');
     setResults([]);
+    setExaminees([]);
+    setAiRequests([]);
     setOrganizationId(nextOrganizationId);
+  };
+
+  const requestAiAnalysis = async (candidateId) => {
+    setRequestingCandidateId(candidateId);
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.post('/manager/ai-grading-requests', { examId: selectedExamId, candidateId }, { headers: authHeaders() });
+      setAiRequests((current) => [...current.filter((item) => !(item.examId === data.examId && item.candidateId === data.candidateId)), data]);
+      setMessage('AI 결과 분석을 요청했습니다. 중앙 관리자의 승인 후 분석이 진행됩니다.');
+    } catch (reason) {
+      setError(apiErrorMessage(reason, 'AI 결과 분석을 요청하지 못했습니다.'));
+    } finally {
+      setRequestingCandidateId('');
+    }
   };
 
   const saveReview = async () => {
@@ -90,16 +147,22 @@ export default function ReportsTab() {
     }
   };
 
+  const closeDetail = () => {
+    setSelectedCandidateId('');
+    setDetail(null);
+  };
+
   const selectedOrganization = organizations.find((organization) => organization.id === organizationId);
   const activeQuestion = detail?.questions.find((question) => question.id === activeQuestionId);
   const codeAnswer = activeQuestion && detail?.codingSubmission?.answers?.[activeQuestion.id];
   const runResult = activeQuestion && detail?.codingSubmission?.runResults?.[activeQuestion.id];
+  const selectedAiRequest = aiRequests.filter((item) => item.candidateId === selectedCandidateId).at(-1);
 
   return (
     <section className="workspace-shell">
       <div className="workspace-heading">
-        <div><span className="workspace-eyebrow">RESULT MANAGEMENT</span><h1>응시자 결과 관리</h1><p>응시자 이름을 선택하면 제출 코드, 실행 결과, 감독 경고와 검토 메모를 확인할 수 있습니다.</p></div>
-        <div className="workspace-role-mark manager"><BarChart3 size={20} /> 조직별 결과</div>
+        <div><span className="workspace-eyebrow">EXAMINEE MANAGEMENT</span><h1>응시 현황 및 결과 관리</h1><p>접속 현황부터 제출 결과, 감독 기록과 AI 분석 요청까지 한곳에서 관리합니다.</p></div>
+        <div className="workspace-role-mark manager"><BarChart3 size={20} /> 통합 응시자 관리</div>
       </div>
       {error && <div className="workspace-alert error">{error}</div>}
       {message && <div className="workspace-alert">{message}</div>}
@@ -112,21 +175,29 @@ export default function ReportsTab() {
         <span>{selectedExamId ? `${results.length}명 결과` : '조직과 시험을 선택하세요.'}</span>
       </div>
       <div className="data-panel" style={{ overflowX: 'auto' }}>
-        <div className="panel-heading"><div><h2>결과 목록</h2><p>응시자 이름을 누르면 상세 결과를 열 수 있습니다.</p></div><FileText size={20} /></div>
-        <table className="status-table"><thead><tr><th>응시자</th><th>이메일</th><th>제출 상태</th><th>점수</th><th>제출 시간</th></tr></thead><tbody>
-          {results.map((result) => <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td></tr>)}
+        <div className="panel-heading"><div><h2>응시자 통합 목록</h2><p>응시자 이름을 누르면 코드, 실행 결과, 경고 및 AI 분석 결과를 확인할 수 있습니다.</p></div><FileText size={20} /></div>
+        <table className="status-table examinee-result-table"><thead><tr><th>응시자</th><th>이메일</th><th>접속 상태</th><th>현재 문제</th><th>시험</th><th>제출 상태</th><th>점수</th><th>제출 시간</th><th>AI 결과 분석</th></tr></thead><tbody>
+          {results.map((result) => {
+            const examinee = examinees.find((item) => item.candidateId === result.candidateId);
+            const aiRequest = aiRequests.filter((item) => item.candidateId === result.candidateId).at(-1);
+            const isSubmitted = Boolean(result.submittedAt) || result.status === 'SUBMITTED';
+            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}</td></tr>;
+          })}
         </tbody></table>
         {!organizationId && <p className="empty-state">결과를 조회할 조직을 선택해주세요.</p>}
         {organizationId && !selectedExamId && <p className="empty-state">결과를 조회할 시험을 선택해주세요.</p>}
         {selectedExamId && !results.length && <p className="empty-state">선택한 시험의 결과가 없습니다.</p>}
       </div>
-      {detail && <section className="data-panel result-detail-panel">
-        <div className="panel-heading"><div><h2><UserRound size={19} /> {detail.candidate.name} 응시자 상세 결과</h2><p>{detail.candidate.candidateNumber} · {detail.candidate.email}</p></div><span className="status-badge approved">{reviewStatusLabels[detail.result.reviewStatus]}</span></div>
+      {detail && <div className="result-detail-modal" role="dialog" aria-modal="true" aria-labelledby="result-detail-title">
+        <button className="result-detail-backdrop" type="button" aria-label="상세 결과 닫기" onClick={closeDetail} />
+        <section className="data-panel result-detail-panel">
+        <div className="panel-heading"><div><h2 id="result-detail-title"><UserRound size={19} /> {detail.candidate.name} 응시자 상세 결과</h2><p>{detail.candidate.candidateNumber} · {detail.candidate.email}</p></div><div className="result-detail-heading-actions"><span className="status-badge approved">{reviewStatusLabels[detail.result.reviewStatus]}</span><button className="icon-action result-detail-close" type="button" aria-label="상세 결과 닫기" onClick={closeDetail}><X size={19} /></button></div></div>
         <div className="result-summary-grid">
           <ResultMetric label="제출 상태" value={detail.result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : detail.result.status} />
           <ResultMetric label="점수" value={detail.result.score ?? '채점 대기'} />
           <ResultMetric label="제출 시간" value={detail.result.submittedAt ? new Date(detail.result.submittedAt).toLocaleString('ko-KR') : '미제출'} />
           <ResultMetric label="감독 경고" value={`${detail.warnings.length}건`} />
+          <ResultMetric label="AI 결과 분석" value={selectedAiRequest ? (aiStatusLabels[selectedAiRequest.status] ?? selectedAiRequest.status) : '요청 전'} />
         </div>
         <div className="result-detail-grid">
           <section className="result-code-section">
@@ -141,10 +212,13 @@ export default function ReportsTab() {
           <aside className="result-review-section">
             <div className="section-title-row"><div><h3>AI·감독 경고</h3><p>실시간 관제에서 기록된 경고입니다.</p></div><AlertTriangle size={19} /></div>
             <div className="result-warning-list">{detail.warnings.length ? detail.warnings.map((warning, index) => <article key={`${warning.createdAt}-${index}`}><strong>{warning.message}</strong><span>{new Date(warning.createdAt).toLocaleString('ko-KR')}</span></article>) : <p className="empty-state">기록된 경고가 없습니다.</p>}</div>
+            {selectedAiRequest?.status === 'COMPLETED' && <div className="ai-analysis-result"><h3>AI 분석 결과</h3><p>{selectedAiRequest.result?.feedback || '분석이 완료되었습니다.'}</p>{selectedAiRequest.result?.score != null && <strong>AI 평가 점수 {selectedAiRequest.result.score}</strong>}<pre>{selectedAiRequest.result?.rubricBreakdown ? JSON.stringify(selectedAiRequest.result.rubricBreakdown, null, 2) : ''}</pre></div>}
+            {selectedAiRequest?.status === 'FAILED' && <div className="workspace-alert error">{selectedAiRequest.errorMessage || 'AI 분석에 실패했습니다.'}</div>}
             <div className="result-review-form"><h3>운영자 검토</h3><label>검토 상태<select value={review.reviewStatus} onChange={(event) => setReview({ ...review, reviewStatus: event.target.value })}>{Object.entries(reviewStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>검토 메모<textarea value={review.reviewNote} onChange={(event) => setReview({ ...review, reviewNote: event.target.value })} placeholder="검토 내용이나 후속 조치 사항을 작성하세요." /></label><button className="primary-button" type="button" disabled={savingReview} onClick={saveReview}><Save size={16} /> {savingReview ? '저장 중...' : '검토 저장'}</button></div>
           </aside>
         </div>
-      </section>}
+        </section>
+      </div>}
     </section>
   );
 }

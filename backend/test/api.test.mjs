@@ -689,6 +689,11 @@ test("uses an organization request and central admin acceptance workflow for AI 
   const pending = await request.json();
   assert.equal(pending.status, "PENDING");
   assert.equal(pending.candidateId, "candidate-1");
+  const managerQueue = await fetch(`${baseUrl}/api/manager/ai-grading-requests?organizationId=org-aivle-cs&examId=exam-2026-second-half`, { headers: managerHeaders });
+  assert.equal(managerQueue.status, 200);
+  assert.equal((await managerQueue.json())[0].id, pending.id);
+  const outOfScopeManagerQueue = await fetch(`${baseUrl}/api/manager/ai-grading-requests?organizationId=org-data-lab`, { headers: managerHeaders });
+  assert.equal(outOfScopeManagerQueue.status, 403);
   assert.equal((await fetch(`${baseUrl}/api/admin/ai-grading-requests`, { headers: { Authorization: `Bearer ${manager.token}` } })).status, 403);
 
   const queue = await fetch(`${baseUrl}/api/admin/ai-grading-requests`, { headers: adminHeaders });

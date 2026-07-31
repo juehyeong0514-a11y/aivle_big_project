@@ -21,7 +21,6 @@ const FaqTab = lazy(() => import('../applicant/FaqTab'));
 // 🌟 매니저 전용 탭 컴포넌트 임포트
 const LiveMonitoringTab = lazy(() => import('../supervisor/LiveMonitoringTab'));
 const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
-const ExamStatusTab = lazy(() => import('../supervisor/ExamStatusTab'));
 const SupervisorReportsTab = lazy(() => import('../supervisor/ReportsTab'));
 const ExamPolicyTab = lazy(() => import('../supervisor/ExamPolicyTab'));
 const SupervisorExamDashboard = lazy(() => import('../supervisor/SupervisorExamDashboard'));
@@ -42,9 +41,10 @@ export default function HomePage() {
   const defaultTab = getDefaultTab();
   const requestedTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
   const protectedGuestTabs = new Set(['EXAM', 'CHECK', 'PRACTICE']);
-  const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(requestedTab)
+  const normalizedTab = requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab;
+  const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(normalizedTab)
     ? defaultTab
-    : requestedTab === 'RESULT' ? defaultTab : requestedTab === 'EXAM_CREATE' ? 'EXAMS' : requestedTab;
+    : normalizedTab === 'RESULT' ? defaultTab : normalizedTab === 'EXAM_CREATE' ? 'EXAMS' : normalizedTab;
   const showHome = activeTab === 'HOME';
 
   const handleProtectedAction = (actionRoute) => {
@@ -86,7 +86,6 @@ export default function HomePage() {
             {activeTab === 'COMMUNITY' && <CommunityTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
-            {activeTab === 'EXAM_STATUS' && <ExamStatusTab />}
             {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
             {activeTab === 'EXAM_POLICY' && <ExamPolicyTab />}
             {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab prohibitions />}

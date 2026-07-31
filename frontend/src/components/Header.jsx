@@ -48,8 +48,7 @@ const SUPERVISOR_GROUPS = [
   {
     label: '응시자 관리', icon: BarChart3,
     items: [
-      { key: 'EXAM_STATUS', label: '응시 현황 ', icon: BarChart3 },
-      { key: 'AI_REPORTS', label: '응시 결과 ', icon: FileText }
+      { key: 'AI_REPORTS', label: '응시 현황 및 결과', icon: BarChart3 }
     ]
   },
   {
@@ -110,7 +109,8 @@ export default function Header() {
   const getDefaultTab = () => 'HOME';
 
   const defaultTab = getDefaultTab();
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
+  const requestedTab = searchParams.get('tab') || defaultTab;
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab);
 
   const handleTabClick = (tabName) => {
     if (isSupervisor && tabName === 'EXAMS') {

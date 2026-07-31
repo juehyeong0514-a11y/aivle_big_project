@@ -1291,6 +1291,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   // Organization managers can only request grading for an assignment in an organization they manage.
+  app.get("/api/manager/ai-grading-requests", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const requestedOrganizationId = typeof request.query.organizationId === "string" ? request.query.organizationId : "";
+    const examId = typeof request.query.examId === "string" ? request.query.examId : "";
+    if (requestedOrganizationId && !organizationIds.includes(requestedOrganizationId)) return response.status(403).json({ message: "배정된 승인 조직의 AI 분석 요청만 조회할 수 있습니다." });
+    const requests = store.aiGradingRequests.filter((item) =>
+      organizationIds.includes(item.organizationId)
+      && (!requestedOrganizationId || item.organizationId === requestedOrganizationId)
+      && (!examId || item.examId === examId)
+    );
+    return response.json(requests.map(publicAiGradingRequest));
+  });
   app.post("/api/manager/ai-grading-requests", authenticate, requireManager, async (request, response, next) => {
     try {
       const examId = typeof request.body.examId === "string" ? request.body.examId : "";

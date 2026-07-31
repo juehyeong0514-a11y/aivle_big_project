@@ -1601,9 +1601,22 @@ main {
 .status-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
 .status-table th, .status-table td { padding: 12px; border-bottom: 1px solid var(--border-default); }
 .status-table th { color: var(--text-muted); font-weight: 700; }
+.examinee-result-table { min-width: 1180px; }
+.examinee-result-table th, .examinee-result-table td { white-space: nowrap; }
+.ai-request-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; background: #eef2ff; color: #4338ca; font-size: 12px; font-weight: 700; }
+.ai-request-status.processing { background: #fff7ed; color: #c2410c; }
+.ai-request-status.completed { background: #ecfdf5; color: #047857; }
+.ai-request-status.failed { background: #fef2f2; color: #dc2626; }
+.ai-analysis-result { display: grid; gap: 10px; margin: 18px 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-soft); }
+.ai-analysis-result h3, .ai-analysis-result p, .ai-analysis-result pre { margin: 0; }
+.ai-analysis-result pre { overflow: auto; color: var(--text-secondary); font-size: 12px; white-space: pre-wrap; }
 .active-result-row { background: var(--surface-soft); }
 .result-candidate-button { border: 0; padding: 0; background: transparent; color: var(--accent-primary); cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
-.result-detail-panel { margin-top: 20px; }
+.result-detail-modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; }
+.result-detail-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(15, 23, 42, .58); cursor: pointer; }
+.result-detail-panel { position: relative; z-index: 1; width: min(1180px, 100%); max-height: calc(100dvh - 48px); margin: 0; overflow-y: auto; box-shadow: 0 24px 70px rgba(15, 23, 42, .3); }
+.result-detail-heading-actions { display: flex; align-items: center; gap: 10px; }
+.result-detail-close { flex: 0 0 auto; }
 .result-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
 .result-metric { min-width: 0; padding: 14px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-soft); }
 .result-metric span, .result-metric strong { display: block; }
@@ -1622,7 +1635,7 @@ main {
 .result-run-viewer { max-height: 180px; background: var(--surface-soft); color: var(--text-primary); white-space: pre-wrap; }
 .result-run-viewer.error { color: var(--danger); }
 .result-run-viewer.success { color: var(--success); }
-.result-warning-list { display: grid; gap: 8px; margin: 14px 0 20px; }
+.result-warning-list { display: grid; gap: 8px; max-height: 280px; margin: 14px 0 20px; padding-right: 6px; overflow-y: auto; overscroll-behavior: contain; }
 .result-warning-list article { padding: 10px; border-left: 3px solid var(--danger); border-radius: 6px; background: var(--surface-soft); }
 .result-warning-list strong, .result-warning-list span { display: block; }
 .result-warning-list span { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
@@ -1631,7 +1644,7 @@ main {
 .result-review-form select, .result-review-form textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 7px; padding: 9px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; }
 .result-review-form textarea { min-height: 110px; resize: vertical; }
 .coding-save-status { display: inline-block; margin-left: 10px; color: var(--text-muted); font-size: 12px; }
-@media (max-width: 900px) { .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .result-detail-modal { padding: 12px; } .result-detail-panel { max-height: calc(100dvh - 24px); } .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
 .form-panel .toggle-row input[type="checkbox"] { width: 16px; min-height: 16px; height: 16px; margin: 0; padding: 0; flex: 0 0 16px; accent-color: var(--accent-primary); }
 .invitation-security-panel { gap: 16px; }
