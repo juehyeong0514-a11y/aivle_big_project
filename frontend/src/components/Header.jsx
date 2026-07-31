@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
-  Users, ShieldAlert, Cpu, Monitor, AlertTriangle, BarChart3, ChevronDown,
+  Users, ShieldAlert, Cpu, Monitor, BarChart3, ChevronDown,
   Building2, Megaphone, MessageSquare, HelpCircle
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
@@ -56,7 +56,6 @@ const SUPERVISOR_GROUPS = [
     label: '실시간 관제 및 검토', icon: Monitor,
     items: [
       { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor },
-      { key: 'CHEAT_LOGS', label: '부정행위 감지 로그', icon: AlertTriangle }
     ]
   }
 ];
@@ -127,7 +126,7 @@ export default function Header() {
     sessionStorage.getItem('candidateInvitationToken'),
     Boolean(localStorage.getItem('candidateAccessToken'))
   );
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab);
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab);
   const isCandidateInvitation = Boolean(invitationToken && candidateName);
 
   useEffect(() => {

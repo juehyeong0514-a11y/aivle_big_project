@@ -174,7 +174,7 @@ export default function ReportsTab() {
         <label><span>조회 시험</span><select value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)} disabled={!organizationId}><option value="">시험을 선택하세요</option>{exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></label>
         <span>{selectedExamId ? `${results.length}명 결과` : '조직과 시험을 선택하세요.'}</span>
       </div>
-      <div className="data-panel" style={{ overflowX: 'auto' }}>
+      <div className="data-panel examinee-result-panel">
         <div className="panel-heading"><div><h2>응시자 통합 목록</h2><p>응시자 이름을 누르면 코드, 실행 결과, 경고 및 AI 분석 결과를 확인할 수 있습니다.</p></div><FileText size={20} /></div>
         <table className="status-table examinee-result-table"><thead><tr><th>응시자</th><th>이메일</th><th>접속 상태</th><th>현재 문제</th><th>시험</th><th>제출 상태</th><th>점수</th><th>제출 시간</th><th>AI 결과 분석</th></tr></thead><tbody>
           {results.map((result) => {

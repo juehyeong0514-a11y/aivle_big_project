@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Clock3, Monitor, Radio, Video, X } from 'lucide-react';
+import { AlertTriangle, Building2, Clock3, Monitor, Radio, Search, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { createMonitoringRefreshGate } from './monitoringRefreshGate.mjs';
 
@@ -10,6 +10,8 @@ export default function LiveMonitoringTab() {
   const [selectedExamId, setSelectedExamId] = useState('');
   const [examinees, setExaminees] = useState([]);
   const [warnings, setWarnings] = useState([]);
+  const [candidateQuery, setCandidateQuery] = useState('');
+  const [selectedExamineeId, setSelectedExamineeId] = useState('');
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [liveExaminee, setLiveExaminee] = useState(null);
   const [warningLogExaminee, setWarningLogExaminee] = useState(null);
@@ -44,11 +46,17 @@ export default function LiveMonitoringTab() {
 
   const changeOrganization = (organizationId) => {
     monitoringRefreshGateRef.current.discard();
+    setCandidateQuery('');
+    setSelectedExamineeId('');
+    setLoadError('');
     setOrganizationId(organizationId);
   };
 
   const changeExam = (examId) => {
     monitoringRefreshGateRef.current.discard();
+    setCandidateQuery('');
+    setSelectedExamineeId('');
+    setLoadError('');
     setSelectedExamId(examId);
   };
 
@@ -61,6 +69,7 @@ export default function LiveMonitoringTab() {
       .then(({ data }) => {
         const managedOrganizations = data.filter((organization) => organization.status === 'APPROVED' && organization.canManage);
         setOrganizations(managedOrganizations);
+        setLoadError('');
         setOrganizationId((current) => managedOrganizations.some((organization) => organization.id === current)
           ? current
           : managedOrganizations[0]?.id || '');
@@ -72,12 +81,17 @@ export default function LiveMonitoringTab() {
     if (!organizationId) {
       setExams([]);
       setSelectedExamId('');
+      setCandidateQuery('');
+      setSelectedExamineeId('');
       return;
     }
     api.get('/supervisor/exams?organizationId=' + encodeURIComponent(organizationId), { headers: authHeaders() })
       .then(({ data }) => {
         setExams(data);
         setSelectedExamId(data[0]?.id || '');
+        setCandidateQuery('');
+        setSelectedExamineeId('');
+        setLoadError('');
       })
       .catch((error) => setLoadError(apiErrorMessage(error, '조직의 시험 목록을 불러오지 못했습니다.')));
   }, [organizationId]);
@@ -93,7 +107,7 @@ export default function LiveMonitoringTab() {
     }
     let isCurrentSelection = true;
     const loadMonitoringData = () => Promise.all([
-      api.get('/supervisor/examinees?examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() }),
+      api.get('/supervisor/examinees?organizationId=' + encodeURIComponent(organizationId) + '&examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() }),
       api.get('/supervisor/warnings?organizationId=' + encodeURIComponent(organizationId) + '&examId=' + encodeURIComponent(selectedExamId), { headers: authHeaders() })
     ])
       .then(([examineeResponse, warningResponse]) => {
@@ -103,7 +117,10 @@ export default function LiveMonitoringTab() {
           warnings: warningResponse.data,
           capturedAt: new Date()
         });
-        if (snapshot) applyMonitoringSnapshot(snapshot);
+        if (snapshot) {
+          setLoadError('');
+          applyMonitoringSnapshot(snapshot);
+        }
       })
       .catch((error) => {
         if (isCurrentSelection) setLoadError(apiErrorMessage(error, '선택한 시험의 응시자 데이터를 불러오지 못했습니다.'));
@@ -140,6 +157,11 @@ export default function LiveMonitoringTab() {
   const warningsFor = (examineeId) => warnings
     .filter((warning) => warning.examineeId === examineeId)
     .sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+  const orderedWarnings = warnings.slice().sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+  const normalizedCandidateQuery = candidateQuery.trim().toLowerCase();
+  const warningExamineeName = (warning) => warning.examineeName || examinees.find((examinee) => examinee.id === warning.examineeId)?.name || '응시자';
+  const visibleWarnings = orderedWarnings.filter((warning) => !normalizedCandidateQuery || warningExamineeName(warning).toLowerCase().includes(normalizedCandidateQuery));
+  const visibleExaminees = examinees.filter((examinee) => !normalizedCandidateQuery || String(examinee.name ?? '').toLowerCase().includes(normalizedCandidateQuery));
 
   const closeWarningLog = () => setWarningLogExaminee(null);
 
@@ -286,7 +308,7 @@ export default function LiveMonitoringTab() {
   };
 
   return (
-    <section className="workspace-shell">
+    <section className="workspace-shell monitoring-page">
       <div className="workspace-heading">
         <div>
           <span className="workspace-eyebrow">화상 모니터링</span>
@@ -316,6 +338,35 @@ export default function LiveMonitoringTab() {
         </label>
         <span>{selectedExam ? `${selectedExam.examineeCount}명 관제 중` : '선택한 조직의 시험을 선택하세요.'}</span>
       </div>
+
+      <div className="monitoring-layout">
+      {selectedExamId && <aside className="data-panel monitoring-alert-feed" aria-labelledby="monitoring-alert-feed-title">
+        <div className="monitoring-alert-feed-heading">
+          <div>
+            <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING FEED</span>
+            <h2 id="monitoring-alert-feed-title">실시간 AI 감시 알림</h2>
+            <p>새로운 알림이 위에 표시되며, 모든 기록은 최신 시간순으로 정렬됩니다.</p>
+          </div>
+          <span className="monitoring-alert-feed-count">{visibleWarnings.length}건</span>
+        </div>
+        <label className="monitoring-alert-search"><Search size={15} /><span className="sr-only">응시자 이름 검색</span><input value={candidateQuery} onChange={(event) => {
+          setCandidateQuery(event.target.value);
+          setSelectedExamineeId('');
+        }} placeholder="응시자 이름 검색" />{candidateQuery && <button type="button" className="monitoring-alert-search-clear" onClick={() => {
+          setCandidateQuery('');
+          setSelectedExamineeId('');
+        }} aria-label="응시자 이름 검색 지우기"><X size={15} /></button>}</label>
+        {visibleWarnings.length ? <ol className="monitoring-alert-feed-list">{visibleWarnings.map((warning) => <li key={warning.id}>
+          <button type="button" onClick={() => {
+            setCandidateQuery(warningExamineeName(warning));
+            setSelectedExamineeId(warning.examineeId);
+          }}>
+            <time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+            <strong>{warningExamineeName(warning)}</strong>
+            <span>{warning.message}</span>
+          </button>
+        </li>)}</ol> : <p className="empty-state monitoring-alert-feed-empty">{candidateQuery ? '검색된 응시자 알림이 없습니다.' : '현재 기록된 AI 감시 알림이 없습니다.'}</p>}
+      </aside>}
 
       {!organizationId && <div className="data-panel empty-state">관제할 조직을 선택해주세요.</div>}
       {organizationId && !exams.length && <div className="data-panel empty-state">선택한 조직에 등록된 시험이 없습니다.</div>}
@@ -371,23 +422,23 @@ export default function LiveMonitoringTab() {
         </section>
       </div>}
       <div className="monitoring-grid">
-        {examinees.map((examinee) => {
+        {visibleExaminees.map((examinee) => {
           const examineeWarnings = warningsFor(examinee.id);
           const latestWarning = examineeWarnings[0];
           const webcamConnected = Boolean(examinee.mediaStatus?.webcam);
           const microphoneConnected = Boolean(examinee.mediaStatus?.microphone);
           const screenConnected = Boolean(examinee.mediaStatus?.screen);
           const auxiliaryConnected = Boolean(examinee.mediaStatus?.auxiliaryCamera);
-          return <article key={examinee.id} className={'monitoring-card ' + (examineeWarnings.length ? 'warning ' : '') + examinee.status.toLowerCase()}>
+          return <article key={examinee.id} className={'monitoring-card ' + (selectedExamineeId === examinee.id ? 'selected ' : '') + examinee.status.toLowerCase()}>
             <div className="monitoring-card-heading">
               <strong>{examinee.name} 응시자</strong>
               <span className={'status-badge ' + (examinee.status === 'NORMAL' ? 'approved' : examinee.status.toLowerCase())}>{examinee.statusText}</span>
             </div>
             <div className="monitoring-media-status">
               <span className={webcamConnected ? 'connected' : ''}>웹캠 {webcamConnected ? '연결' : '대기'}</span>
+              <span className={auxiliaryConnected ? 'connected' : ''}>보조카메라 {auxiliaryConnected ? '연결' : '대기'}</span>
               <span className={microphoneConnected ? 'connected' : ''}>마이크 {microphoneConnected ? '연결' : '대기'}</span>
-              <span className={screenConnected ? 'connected' : ''}>PC 화면 공유 {screenConnected ? '연결' : '대기'}</span>
-              <span className={auxiliaryConnected ? 'connected' : ''}>모바일 보조 카메라 {auxiliaryConnected ? '연결' : '대기'}</span>
+              <span className={screenConnected ? 'connected' : ''}>PC 화면공유 {screenConnected ? '연결' : '대기'}</span>
             </div>
             <div className="monitoring-video-grid">
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 정면 라이브 화면 열기'}>
@@ -405,6 +456,8 @@ export default function LiveMonitoringTab() {
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>
           </article>;
         })}
+      </div>
+      {selectedExamId && candidateQuery && !visibleExaminees.length && <div className="data-panel empty-state monitoring-filter-empty">검색된 응시자가 없습니다.</div>}
       </div>
     </section>
   );

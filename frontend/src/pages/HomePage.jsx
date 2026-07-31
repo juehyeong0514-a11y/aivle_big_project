@@ -20,7 +20,6 @@ const FaqTab = lazy(() => import('../applicant/FaqTab'));
 
 // 🌟 매니저 전용 탭 컴포넌트 임포트
 const LiveMonitoringTab = lazy(() => import('../supervisor/LiveMonitoringTab'));
-const CheatLogsTab = lazy(() => import('../supervisor/CheatLogsTab'));
 const SupervisorReportsTab = lazy(() => import('../supervisor/ReportsTab'));
 const ExamPolicyTab = lazy(() => import('../supervisor/ExamPolicyTab'));
 const SupervisorExamDashboard = lazy(() => import('../supervisor/SupervisorExamDashboard'));
@@ -41,7 +40,7 @@ export default function HomePage() {
   const defaultTab = getDefaultTab();
   const requestedTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
   const protectedGuestTabs = new Set(['EXAM', 'CHECK', 'PRACTICE']);
-  const normalizedTab = requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab;
+  const normalizedTab = requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab;
   const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(normalizedTab)
     ? defaultTab
     : normalizedTab === 'RESULT' ? defaultTab : normalizedTab === 'EXAM_CREATE' ? 'EXAMS' : normalizedTab;
@@ -58,7 +57,7 @@ export default function HomePage() {
 
   return (
     <div style={{ backgroundColor: '#f8fafc', minHeight: 'calc(100vh - 64px)', padding: '2.5rem 0' }}>
-      <main className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem' }}>
+      <main className={`container ${activeTab === 'LIVE_MONITORING' ? 'container-monitoring' : ''}`} style={{ maxWidth: activeTab === 'LIVE_MONITORING' ? '1800px' : '1200px', margin: '0 auto', padding: '0 2rem' }}>
         <Suspense fallback={<div className="workspace-loading">화면을 불러오는 중입니다...</div>}>
 
         {/* =========================================================================
@@ -85,7 +84,6 @@ export default function HomePage() {
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'COMMUNITY' && <CommunityTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
-            {activeTab === 'CHEAT_LOGS' && <CheatLogsTab />}
             {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
             {activeTab === 'EXAM_POLICY' && <ExamPolicyTab />}
             {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab prohibitions />}
