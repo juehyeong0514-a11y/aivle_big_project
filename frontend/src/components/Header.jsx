@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ShieldCheck, LogOut, LogIn, User, FileText, ClipboardList,
@@ -6,7 +6,7 @@ import {
   Building2, Megaphone, MessageSquare, HelpCircle
 } from 'lucide-react';
 import { api, authHeaders } from '../api/client';
-import { getInvitationAwarePublicRoute } from './invitationNavigation.mjs';
+import { getInvitationAwarePublicRoute, getInvitationContextToken } from './invitationNavigation.mjs';
 
 // 1. 관리자 전용 카테고리 그룹 정의
 const ADMIN_GROUPS = [
@@ -98,6 +98,7 @@ export default function Header() {
   const navRightRef = useRef(null);
   const expandedWidthRef = useRef(0);
   const [isCompact, setIsCompact] = useState(false);
+  const [candidateName, setCandidateName] = useState(() => sessionStorage.getItem('candidateInvitationName') || '');
 
   const userRole = localStorage.getItem('userRole') || 'GUEST';
   const userEmail = localStorage.getItem('userEmail') || '비회원(게스트)';
@@ -111,10 +112,21 @@ export default function Header() {
 
   const defaultTab = getDefaultTab();
   const requestedTab = searchParams.get('tab') || defaultTab;
-  const invitationToken = location.pathname === '/exam/enter'
-    ? searchParams.get('token')
-    : searchParams.get('inviteToken');
+  const invitationToken = getInvitationContextToken(
+    location.pathname,
+    searchParams.get('token'),
+    searchParams.get('inviteToken'),
+    sessionStorage.getItem('candidateInvitationToken'),
+    Boolean(localStorage.getItem('candidateAccessToken'))
+  );
   const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab);
+  const isCandidateInvitation = Boolean(invitationToken && candidateName);
+
+  useEffect(() => {
+    const syncCandidateName = () => setCandidateName(sessionStorage.getItem('candidateInvitationName') || '');
+    window.addEventListener('candidate-invitation-updated', syncCandidateName);
+    return () => window.removeEventListener('candidate-invitation-updated', syncCandidateName);
+  }, []);
 
   const handleTabClick = (tabName) => {
     if (isSupervisor && tabName === 'EXAMS') {
@@ -142,6 +154,8 @@ export default function Header() {
     localStorage.removeItem('userName');
     localStorage.removeItem('candidateAccessToken');
     localStorage.removeItem('candidateNumber');
+    sessionStorage.removeItem('candidateInvitationToken');
+    sessionStorage.removeItem('candidateInvitationName');
     alert('로그아웃되었습니다.');
     navigate('/login');
   };
@@ -185,7 +199,7 @@ export default function Header() {
     observer.observe(header);
     observer.observe(navRight);
     return () => observer.disconnect();
-  }, [isCompact, userName, userRole]);
+  }, [candidateName, isCompact, userName, userRole]);
 
   return (
     <header ref={headerRef} className={`header ${isCompact ? 'header--compact' : ''}`}>
@@ -231,7 +245,9 @@ export default function Header() {
       </div>
 
       <div ref={navRightRef} className="nav-right">
-        {userRole && userRole !== 'GUEST' ? (
+        {isCandidateInvitation ? (
+          <div className="header-user-badge"><User size={14} color="#2563EB" /><span>{candidateName}님</span></div>
+        ) : userRole && userRole !== 'GUEST' ? (
           <div className="header-account-actions">
             <div className="header-user-badge">
               <User size={14} color={isAdmin ? '#7c3aed' : isSupervisor ? '#16a34a' : '#2563EB'} />

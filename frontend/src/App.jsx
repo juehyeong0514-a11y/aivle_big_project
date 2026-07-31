@@ -42,7 +42,7 @@ function Layout({ children }) {
     <div className="app-wrapper">
       {!isMobilePage && !isInvitePage && !isExamSessionPage && <Header />}
       {children}
-      <Footer />
+      {!isExamSessionPage && <Footer />}
     </div>
   );
 }

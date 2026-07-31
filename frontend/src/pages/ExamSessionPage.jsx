@@ -121,6 +121,8 @@ export default function ExamSessionPage() {
       stopLiveMonitoring();
       setSubmitted(data);
       localStorage.removeItem('candidateAccessToken');
+      sessionStorage.removeItem('candidateInvitationToken');
+      sessionStorage.removeItem('candidateInvitationName');
     } catch (reason) {
       setSubmissionError(apiErrorMessage(reason, '답안을 제출하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
     }

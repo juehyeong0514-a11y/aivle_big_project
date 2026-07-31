@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, Hash, ShieldCheck } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, apiErrorMessage } from '../api/client';
+import { isInvitationSessionVerified } from '../components/invitationNavigation.mjs';
 
 export default function InvitePage() {
   const { token: pathToken } = useParams();
@@ -16,15 +17,30 @@ export default function InvitePage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    localStorage.removeItem('candidateAccessToken');
-    localStorage.removeItem('candidateNumber');
+    const isVerifiedSession = isInvitationSessionVerified(
+      token,
+      sessionStorage.getItem('candidateInvitationToken'),
+      localStorage.getItem('candidateAccessToken')
+    );
+    setVerified(isVerifiedSession);
+    if (!isVerifiedSession) {
+      localStorage.removeItem('candidateAccessToken');
+      localStorage.removeItem('candidateNumber');
+      sessionStorage.removeItem('candidateInvitationToken');
+      sessionStorage.removeItem('candidateInvitationName');
+      window.dispatchEvent(new Event('candidate-invitation-updated'));
+    }
     if (!token) {
       setError('초대 링크가 올바르지 않습니다. 이메일의 링크를 다시 확인해주세요.');
       setLoading(false);
       return;
     }
     api.get(`/invitations/${token}`)
-      .then(({ data }) => setInvite(data))
+      .then(({ data }) => {
+        setInvite(data);
+        sessionStorage.setItem('candidateInvitationName', data.candidateName || '응시자');
+        window.dispatchEvent(new Event('candidate-invitation-updated'));
+      })
       .catch((reason) => setError(apiErrorMessage(reason, '초대 링크를 확인하지 못했습니다.')))
       .finally(() => setLoading(false));
   }, [token]);
@@ -37,6 +53,9 @@ export default function InvitePage() {
       const { data } = await api.post(`/invitations/${token}/verify`, { candidateNumber: candidateNumber.trim() });
       localStorage.setItem('candidateAccessToken', data.accessToken);
       localStorage.setItem('candidateNumber', data.candidateNumber);
+      sessionStorage.setItem('candidateInvitationToken', token);
+      sessionStorage.setItem('candidateInvitationName', invite?.candidateName || '응시자');
+      window.dispatchEvent(new Event('candidate-invitation-updated'));
       setVerified(true);
     } catch (reason) {
       setError(apiErrorMessage(reason, '응시번호를 확인하지 못했습니다.'));

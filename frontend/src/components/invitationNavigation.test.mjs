@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getInvitationAwarePublicRoute } from './invitationNavigation.mjs';
+import {
+  getInvitationAwarePublicRoute,
+  getInvitationContextToken,
+  isInvitationSessionVerified,
+} from './invitationNavigation.mjs';
 
 test('keeps an invitation token while moving to a public information tab', () => {
   assert.equal(
@@ -21,4 +25,16 @@ test('encodes invitation tokens before placing them in a URL', () => {
     getInvitationAwarePublicRoute('FAQ', 'a/b?c'),
     '/home?tab=FAQ&inviteToken=a%2Fb%3Fc'
   );
+});
+
+test('keeps the invitation context while a verified candidate is on environment check', () => {
+  assert.equal(
+    getInvitationContextToken('/exam/check', '', '', 'invite-qa', true),
+    'invite-qa'
+  );
+});
+
+test('restores the verified entry view only for the same invitation session', () => {
+  assert.equal(isInvitationSessionVerified('invite-qa', 'invite-qa', 'candidate-token'), true);
+  assert.equal(isInvitationSessionVerified('different-invite', 'invite-qa', 'candidate-token'), false);
 });

@@ -1794,7 +1794,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
-    return response.json({ organizationName: organization?.name ?? "조직", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: exam?.questions ?? "문항 수 미정", expiresAt: invitation.expiresAt });
+    const candidate = store.candidates.find((candidate) => candidate.id === invitation.candidateId);
+    return response.json({ organizationName: organization?.name ?? "조직", candidateName: candidate?.name ?? "응시자", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: exam?.questions ?? "문항 수 미정", expiresAt: invitation.expiresAt });
   });
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
