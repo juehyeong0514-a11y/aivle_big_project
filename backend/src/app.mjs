@@ -92,7 +92,8 @@ const nameMatchedFromOcr = (payload, expectedName) => {
   return normalizeIdentityName(recognizedName) === expected || normalizeIdentityName(recognizedText).includes(expected);
 };
 const requestIdCardOcr = async (path, payload) => {
-  const baseEndpoint = process.env.ID_CARD_OCR_URL?.trim().replace(/\/$/, "");
+  const configuredEndpoint = process.env.ID_CARD_OCR_URL?.trim().replace(/\/$/, "");
+  const baseEndpoint = configuredEndpoint?.replace(/\/ocr\/id-card(?:\/detect)?$/, "");
   if (!baseEndpoint) {
     const error = new Error("신분증 OCR 모델이 아직 설정되지 않았습니다. 서버 환경변수 ID_CARD_OCR_URL을 등록해주세요.");
     error.status = 503;

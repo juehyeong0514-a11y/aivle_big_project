@@ -15,11 +15,13 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 OCR 서비스를 Render에 별도 Web Service로 배포한 뒤 기존 `aivle_backend` 환경 변수에 아래 값을 등록합니다.
 
 ```text
-ID_CARD_OCR_URL=https://새-ocr-서비스.onrender.com/ocr/id-card
+ID_CARD_OCR_URL=https://새-ocr-서비스.onrender.com
 ID_CARD_OCR_API_KEY=OCR-서비스의-ID_CARD_SERVICE_TOKEN과-같은-값
 ```
 
 OCR 서비스의 `ID_CARD_SERVICE_TOKEN`도 반드시 등록합니다. 이 값이 비어 있으면 외부 인증 없이 OCR API가 열립니다.
+
+배포 직후에는 OCR 모델을 백그라운드에서 준비합니다. `https://새-ocr-서비스.onrender.com/health`가 `{ "status": "ready" }`를 반환한 뒤 신분증 촬영을 테스트하세요. 준비 중에는 `{ "status": "warming" }`가 반환됩니다.
 
 ## 인증 기준
 
