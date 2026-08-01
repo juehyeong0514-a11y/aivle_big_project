@@ -137,7 +137,13 @@ const verifyIdCardWithOcr = async (image, expectedName) => {
 };
 const detectIdCardWithOcr = async (image) => requestIdCardOcr("/ocr/id-card/detect", { image });
 const invitationForToken = (invitations, token) => invitations.find((invitation) => invitation.tokenHash === hashToken(token));
-const codingLanguages = new Set(["Python", "Java", "JavaScript"]);
+const codingLanguages = new Set(["Python", "Java", "C", "JavaScript"]);
+const executionLanguageIds = { Python: 71, Java: 62, C: 50 };
+const executionOutputLimit = 20_000;
+const executionResponseLimit = 1_000_000;
+const executionWindowMs = 60_000;
+const executionRequestLimit = 20;
+const executionConcurrentLimit = 2;
 const judgeModes = new Set(["EXACT", "IGNORE_WHITESPACE", "NUMERIC_TOLERANCE", "CUSTOM"]);
 const normalizeTestCases = (testCases, requireAtLeastOne = false) => {
   if (!Array.isArray(testCases)) return undefined;
@@ -153,7 +159,7 @@ const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJud
 const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questions.map((question) => {
   if (question.type !== "CODING") return [question.id, typeof answers[question.id] === "string" ? answers[question.id].slice(0, 10000) : ""];
   const answer = answers[question.id] && typeof answers[question.id] === "object" ? answers[question.id] : {};
-  const languages = question.languages?.length ? question.languages : ["Python"];
+  const languages = question.languages?.length ? question.languages : ["Python", "JavaScript"];
   return [question.id, {
     language: languages.includes(answer.language) ? answer.language : languages[0],
     source: typeof answer.source === "string" ? answer.source.slice(0, 100000) : ""
@@ -164,6 +170,103 @@ const normalizeRunResults = (runResults, questions) => Object.fromEntries(questi
   if (!result || typeof result !== "object" || typeof result.output !== "string") return [];
   return [[question.id, { type: ["success", "error", "notice"].includes(result.type) ? result.type : "notice", output: result.output.slice(0, 20000), executedAt: typeof result.executedAt === "string" ? result.executedAt : new Date().toISOString() }]];
 }));
+
+const normalizeExecutionUrl = (value, { production = false, allowedHosts = [] } = {}) => {
+  if (!value) return "";
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("코드 실행 서버 주소가 올바르지 않습니다.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("코드 실행 서버 주소는 인증정보·쿼리·프래그먼트가 없는 HTTP(S) 주소여야 합니다.");
+  }
+  if (production && parsed.protocol !== "https:") throw new Error("운영 환경의 코드 실행 서버는 HTTPS 주소여야 합니다.");
+  if (production && (!allowedHosts.length || !allowedHosts.includes(parsed.hostname))) throw new Error("운영 환경의 코드 실행 서버 호스트가 허용목록에 없습니다.");
+  return parsed.toString().replace(/\/$/, "");
+};
+
+const parseExecutionResponse = async (response) => {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("코드 실행 서버 응답을 읽을 수 없습니다.");
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > executionResponseLimit) {
+      await reader.cancel();
+      throw new Error("코드 실행 서버 응답이 너무 큽니다.");
+    }
+    chunks.push(value);
+  }
+  const payload = Buffer.concat(chunks).toString("utf8");
+  try {
+    return JSON.parse(payload);
+  } catch {
+    throw new Error("코드 실행 서버 응답 형식이 올바르지 않습니다.");
+  }
+};
+const executionStatusId = (result) => Number(result?.status_id ?? result?.status?.id);
+
+const executeCode = async ({ baseUrl, language, source, stdin }) => {
+  const languageId = executionLanguageIds[language];
+  const deadline = Date.now() + 15_000;
+  const headers = { "Content-Type": "application/json" };
+  const apiKey = process.env.CODE_EXECUTION_API_KEY?.trim();
+  if (apiKey) headers["X-Auth-Token"] = apiKey;
+  const fetchWithinDeadline = async (url, options = {}) => {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new Error("코드 실행 시간이 초과되었습니다.");
+    return fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(Math.min(remainingMs, options.timeout ?? remainingMs)) });
+  };
+  try {
+    let executionResponse = await fetchWithinDeadline(`${baseUrl}/submissions?base64_encoded=false&wait=false`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ language_id: languageId, source_code: source, stdin, cpu_time_limit: 3, wall_time_limit: 5, memory_limit: 256000 }),
+    });
+    if (!executionResponse.ok) {
+      const error = new Error("코드 실행 서버가 요청을 처리하지 못했습니다.");
+      error.status = 502;
+      throw error;
+    }
+    let result = await parseExecutionResponse(executionResponse);
+    for (let attempt = 0; result.token && (Number.isNaN(executionStatusId(result)) || [1, 2].includes(executionStatusId(result))) && attempt < 20; attempt += 1) {
+      await new Promise((resolveReady) => setTimeout(resolveReady, 250));
+      const statusResponse = await fetchWithinDeadline(`${baseUrl}/submissions/${encodeURIComponent(result.token)}?base64_encoded=false`, { headers, timeout: 3_000 });
+      if (!statusResponse.ok) break;
+      result = await parseExecutionResponse(statusResponse);
+    }
+    const statusId = executionStatusId(result);
+    if ([1, 2].includes(statusId)) {
+      const error = new Error("코드 실행 서버가 제한 시간 안에 결과를 반환하지 않았습니다.");
+      error.status = 504;
+      throw error;
+    }
+    if (Number.isNaN(statusId)) {
+      const error = new Error("코드 실행 서버 응답에 실행 상태가 없습니다.");
+      error.status = 502;
+      throw error;
+    }
+    const rawOutput = [result.stdout, result.stderr, result.compile_output, result.message, result.status?.description]
+      .find((value) => typeof value === "string" && value.trim())?.trimEnd() ?? "출력이 없습니다.";
+    const truncationNotice = "\n[출력이 길어 일부 생략되었습니다.]";
+    const output = rawOutput.length > executionOutputLimit ? `${rawOutput.slice(0, executionOutputLimit - truncationNotice.length)}${truncationNotice}` : rawOutput;
+    return { type: statusId === 3 ? "success" : "error", output, status: result.status?.description ?? "실행 완료" };
+  } catch (reason) {
+    if (reason.status) throw reason;
+    const error = new Error(reason?.name === "TimeoutError" || reason?.message === "코드 실행 시간이 초과되었습니다."
+      ? "코드 실행 시간이 초과되었습니다."
+      : reason?.message === "코드 실행 서버 응답이 너무 큽니다." || reason?.message === "코드 실행 서버 응답 형식이 올바르지 않습니다."
+        ? reason.message
+        : "코드 실행 서버에 연결하지 못했습니다.");
+    error.status = 503;
+    throw error;
+  }
+};
 
 const requestUser = (sessions, users, removeSession) => (request, response, next) => {
   const token = request.header("authorization")?.replace("Bearer ", "");
@@ -196,7 +299,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = process.env.CODE_EXECUTION_API_URL?.trim() || (process.env.NODE_ENV === "production" ? "" : "https://ce.judge0.com") } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -206,6 +309,32 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
+  const executionAllowedHosts = (process.env.CODE_EXECUTION_API_ALLOWED_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  let normalizedCodeExecutionUrl = "";
+  let codeExecutionConfigError = "";
+  try {
+    normalizedCodeExecutionUrl = normalizeExecutionUrl(codeExecutionUrl, { production: process.env.NODE_ENV === "production", allowedHosts: executionAllowedHosts });
+  } catch (error) {
+    codeExecutionConfigError = error.message;
+  }
+  const executionUsage = new Map();
+  const acquireExecutionSlot = (key) => {
+    const now = Date.now();
+    const usage = executionUsage.get(key);
+    const current = usage && now - usage.windowStarted < executionWindowMs ? usage : { windowStarted: now, requestCount: 0, inFlight: 0 };
+    if (current.requestCount >= executionRequestLimit || current.inFlight >= executionConcurrentLimit) {
+      const error = new Error("코드 실행 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
+      error.status = 429;
+      throw error;
+    }
+    current.requestCount += 1;
+    current.inFlight += 1;
+    executionUsage.set(key, current);
+    return () => {
+      current.inFlight = Math.max(0, current.inFlight - 1);
+      if (current.inFlight === 0 && Date.now() - current.windowStarted >= executionWindowMs) executionUsage.delete(key);
+    };
+  };
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || (process.env.RENDER === "true" ? "https://aivle-frontend-gakg.onrender.com" : "http://localhost:5173");
   const invitationStatus = (invitation, now = new Date()) => {
     if (invitation.submittedAt) return "SUBMITTED";
@@ -560,7 +689,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     };
     for (const [key, message] of Object.entries(labels)) {
       if (previousMediaStatus[key] && !nextMediaStatus[key]) {
-        await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, createdAt: new Date().toISOString() });
+        await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, source: "SYSTEM", createdAt: new Date().toISOString() });
       }
     }
   };
@@ -625,6 +754,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       .filter((notice) => isPublishedNotice(notice))
       .sort(noticeSort)
       .map(publicNotice));
+  });
+  app.get("/api/applicant/warnings", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    if (!examinee) return response.json([]);
+    return response.json(store.warnings
+      .filter((warning) => warning.examId === exam.id && warning.examineeId === examinee.id)
+      .sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt))
+      .map(({ id, message, createdAt }) => ({ id, message, createdAt })));
   });
   app.get("/api/applicant/notices/:id", authenticateApplicant, async (request, response, next) => {
     try {
@@ -887,6 +1025,32 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const { exam } = request.applicantSession;
     const questions = store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, questions });
+  });
+  app.post("/api/applicant/exam/run", authenticateApplicant, async (request, response, next) => {
+    let releaseExecutionSlot;
+    try {
+      const { exam, invitation } = request.applicantSession;
+      const questionId = typeof request.body.questionId === "string" ? request.body.questionId : "";
+      const language = typeof request.body.language === "string" ? request.body.language : "";
+      const source = typeof request.body.source === "string" ? request.body.source.trim() : "";
+      const stdin = typeof request.body.stdin === "string" ? request.body.stdin.slice(0, 20_000) : "";
+      const question = store.questions.find((item) => item.id === questionId && item.examId === exam.id && item.type === "CODING");
+      const allowedLanguages = new Set(question?.languages?.length ? question.languages : ["Python", "JavaScript"]);
+      if (invitation.submittedAt) return response.status(409).json({ message: "이미 제출한 시험에서는 코드를 실행할 수 없습니다." });
+      if (!question) return response.status(404).json({ message: "실행할 코딩 문제를 찾을 수 없습니다." });
+      if (!allowedLanguages.has(language) || !executionLanguageIds[language]) return response.status(400).json({ message: "이 문제에서 지원하지 않는 실행 언어입니다." });
+      if (!source) return response.status(400).json({ message: "실행할 코드를 입력해 주세요." });
+      if (source.length > 100_000) return response.status(413).json({ message: "코드가 너무 깁니다. 100,000자 이하로 입력해 주세요." });
+      if (codeExecutionConfigError) return response.status(503).json({ message: codeExecutionConfigError });
+      if (!normalizedCodeExecutionUrl) return response.status(503).json({ message: "코드 실행 서버가 설정되지 않았습니다. CODE_EXECUTION_API_URL을 등록해 주세요." });
+      releaseExecutionSlot = acquireExecutionSlot(`${invitation.id}:${request.ip}`);
+      const result = await executeCode({ baseUrl: normalizedCodeExecutionUrl, language, source, stdin });
+      return response.json({ ...result, language, executedAt: new Date().toISOString() });
+    } catch (error) {
+      return next(error);
+    } finally {
+      releaseExecutionSlot?.();
+    }
   });
   app.get("/api/applicant/exam/progress", authenticateApplicant, (request, response) => {
     const { candidate, exam } = request.applicantSession;
@@ -1918,7 +2082,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const examId = typeof request.body.examId === "string" ? request.body.examId : "";
       const examinee = store.examinees.find((candidate) => candidate.id === request.params.id && candidate.organizationId && organizationIds.includes(candidate.organizationId) && (!examId || candidate.examId === examId));
       if (!examinee || !isNonEmptyText(request.body.message)) return response.status(400).json({ message: "경고 대상을 확인해주세요." });
-      await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message: request.body.message.trim(), createdAt: new Date().toISOString() });
+      await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message: request.body.message.trim(), source: "SUPERVISOR", createdAt: new Date().toISOString() });
       return response.status(201).json({ message: "경고를 전송했습니다." });
     } catch (error) {
       return next(error);

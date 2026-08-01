@@ -22,7 +22,7 @@ import { api, apiErrorMessage, authHeaders } from "../api/client";
 
 const initialCodingProblem = () => ({
   title: "",
-  languages: ["Python"],
+  languages: ["Python", "Java", "C", "JavaScript"],
   description: "",
   inputFormat: "",
   outputFormat: "",
@@ -32,7 +32,7 @@ const initialCodingProblem = () => ({
   judgeMode: "EXACT",
   numericTolerance: 0,
   customJudgeCode: "",
-  referenceSolutions: { Python: "", Java: "", JavaScript: "" },
+  referenceSolutions: { Python: "", Java: "", C: "", JavaScript: "" },
 });
 const initialMultipleChoiceQuestion = () => ({ prompt: "", options: ["", ""], answer: "" });
 const questionToForm = (question) => ({
@@ -47,6 +47,7 @@ const questionToForm = (question) => ({
   referenceSolutions: {
     Python: "",
     Java: "",
+    C: "",
     JavaScript: "",
     ...(question.referenceSolutions ?? {}),
   },
@@ -705,7 +706,7 @@ export default function ManagerExamDetailPage() {
                 />
               </label>
               <div className="language-options">
-                {["Python", "Java", "JavaScript"].map((language) => (
+                {["Python", "Java", "C", "JavaScript"].map((language) => (
                   <label key={language}>
                     <input
                       type="checkbox"
@@ -979,7 +980,7 @@ export default function ManagerExamDetailPage() {
                 문제 검증과 테스트 데이터 생성용입니다. 응시자 코드와 직접
                 비교하지 않습니다.
               </p>
-              {["Python", "Java", "JavaScript"].map((language) => (
+              {["Python", "Java", "C", "JavaScript"].map((language) => (
                 <label key={language}>
                   {language}
                   <textarea
@@ -1397,11 +1398,11 @@ function QuestionManagement({ questionType, setQuestionType, questionForm, setQu
       {isCoding ? <>
         <div className="coding-step-tabs" role="tablist" aria-label="코딩 문제 작성 단계">{steps.map((step, index) => <button key={step} id={`coding-step-${index}`} role="tab" type="button" aria-selected={activeQuestionStep === index} className={activeQuestionStep === index ? "active" : ""} onClick={() => setActiveQuestionStep(index)}><span>{index + 1}</span>{step}</button>)}</div>
         <div className="coding-step-panel" role="tabpanel" aria-labelledby={`coding-step-${activeQuestionStep}`}>
-          {activeQuestionStep === 0 && <><label>문제 제목<input value={questionForm.title} onChange={(event) => updateForm("title", event.target.value)} required /></label><div className="language-options">{["Python", "Java", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div></>}
+          {activeQuestionStep === 0 && <><label>문제 제목<input value={questionForm.title} onChange={(event) => updateForm("title", event.target.value)} required /></label><div className="language-options">{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div></>}
           {activeQuestionStep === 1 && <><label>문제 설명<textarea value={questionForm.description} onChange={(event) => updateForm("description", event.target.value)} required /></label><label>입력 형식<textarea value={questionForm.inputFormat} onChange={(event) => updateForm("inputFormat", event.target.value)} required /></label><label>출력 형식<textarea value={questionForm.outputFormat} onChange={(event) => updateForm("outputFormat", event.target.value)} required /></label><label>제한<textarea value={questionForm.constraints} onChange={(event) => updateForm("constraints", event.target.value)} required /></label></>}
           {[2, 3].includes(activeQuestionStep) && <TestCaseEditor collection={activeQuestionStep === 2 ? "publicExamples" : "hiddenTestCases"} cases={activeQuestionStep === 2 ? questionForm.publicExamples : questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} />}
           {activeQuestionStep === 4 && <><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} required /></label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} required /></label>}</>}
-          {activeQuestionStep === 5 && <><p className="form-hint">모범 답안은 문제 검증용이며 응시자에게 노출되지 않습니다.</p>{["Python", "Java", "JavaScript"].map((language) => <label key={language}>{language}<textarea className="code-editor" value={questionForm.referenceSolutions[language]} onChange={(event) => setQuestionForm((current) => ({ ...current, referenceSolutions: { ...current.referenceSolutions, [language]: event.target.value } }))} /></label>)}</>}
+          {activeQuestionStep === 5 && <><p className="form-hint">모범 답안은 문제 검증용이며 응시자에게 노출되지 않습니다.</p>{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}>{language}<textarea className="code-editor" value={questionForm.referenceSolutions[language]} onChange={(event) => setQuestionForm((current) => ({ ...current, referenceSolutions: { ...current.referenceSolutions, [language]: event.target.value } }))} /></label>)}</>}
         </div>
         <div className="coding-step-actions"><button className="secondary-button" type="button" disabled={activeQuestionStep === 0} onClick={() => setActiveQuestionStep((step) => step - 1)}>이전</button>{activeQuestionStep < steps.length - 1 && <button className="secondary-button" type="button" onClick={() => setActiveQuestionStep((step) => step + 1)}>다음</button>}</div>
       </> : <div className="multiple-choice-editor"><label>문제 문구<textarea value={multipleChoiceForm.prompt} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, prompt: event.target.value }))} required /></label><div className="section-title-row"><h3>선택지</h3><button className="secondary-button compact-button" type="button" onClick={addOption}>선택지 추가</button></div>{multipleChoiceForm.options.map((option, index) => <div className="multiple-choice-option" key={index}><label>선택지 {index + 1}<input value={option} onChange={(event) => updateOption(index, event.target.value)} required /></label>{multipleChoiceForm.options.length > 2 && <button className="text-button" type="button" onClick={() => removeOption(index)}>삭제</button>}</div>)}<label>정답<select value={multipleChoiceForm.answer} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, answer: event.target.value }))} required><option value="">정답 선택</option>{multipleChoiceForm.options.filter(Boolean).map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>}

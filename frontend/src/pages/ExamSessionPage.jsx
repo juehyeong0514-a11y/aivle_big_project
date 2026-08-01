@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock, Send } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Clock, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
@@ -31,6 +31,9 @@ export default function ExamSessionPage() {
   const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [activeWarning, setActiveWarning] = useState(null);
+  const warningIdsRef = useRef(new Set());
+  const warningsInitializedRef = useRef(false);
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
 
   useEffect(() => {
@@ -53,6 +56,33 @@ export default function ExamSessionPage() {
     };
     window.addEventListener('pagehide', disconnectMonitoring);
     return () => window.removeEventListener('pagehide', disconnectMonitoring);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadWarnings = async () => {
+      try {
+        const { data } = await api.get('/applicant/warnings', { headers: candidateAuthHeaders() });
+        if (!isMounted || !Array.isArray(data)) return;
+        const warningIds = new Set(data.map((warning) => warning.id));
+        if (!warningsInitializedRef.current) {
+          warningIdsRef.current = warningIds;
+          warningsInitializedRef.current = true;
+          return;
+        }
+        const newWarning = data.find((warning) => !warningIdsRef.current.has(warning.id));
+        warningIdsRef.current = warningIds;
+        if (newWarning) setActiveWarning(newWarning);
+      } catch {
+        // Warning delivery is best-effort and should not interrupt the exam session.
+      }
+    };
+    loadWarnings();
+    const timer = window.setInterval(loadWarnings, 3000);
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -101,7 +131,7 @@ export default function ExamSessionPage() {
           if (!savedAnswer || !savedAnswer.source?.trim()) {
             initializedAnswers[question.id] = {
               ...savedAnswer,
-              language: savedAnswer?.language ?? 'JavaScript',
+              language: savedAnswer?.language ?? question.languages?.[0] ?? 'JavaScript',
               source: question.starterCode,
             };
           }
@@ -142,7 +172,7 @@ export default function ExamSessionPage() {
   if (error) return <ErrorPage error={error} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
   const remainingTime = formatRemainingTime(remainingSeconds);
-  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={questions} remainingTime={remainingTime} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} /></form>;
+  if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={questions} remainingTime={remainingTime} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} />{activeWarning && <ExamWarningModal warning={activeWarning} dismiss={() => setActiveWarning(null)} />}</form>;
 
   return (
     <main className="container exam-session-page">
@@ -155,8 +185,20 @@ export default function ExamSessionPage() {
         </div>
         <button className="btn-primary" disabled={!questions.length} type="submit"><Send size={17} /> 시험 제출</button>
       </form>
+      {activeWarning && <ExamWarningModal warning={activeWarning} dismiss={() => setActiveWarning(null)} />}
     </main>
   );
+}
+
+function ExamWarningModal({ warning, dismiss }) {
+  return <div className="exam-warning-modal" role="dialog" aria-modal="true" aria-labelledby="exam-warning-title">
+    <button className="exam-warning-backdrop" type="button" aria-label="경고 메시지 닫기" onClick={dismiss} />
+    <section className="exam-warning-panel">
+      <div className="exam-warning-heading"><AlertTriangle size={22} aria-hidden="true" /><span>감독자 메시지</span></div>
+      <p>{warning.message}</p>
+      <button className="btn-primary" type="button" onClick={dismiss}>확인</button>
+    </section>
+  </div>;
 }
 
 function ResultPage({ submitted, navigate }) {

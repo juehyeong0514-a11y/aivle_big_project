@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Moon, Play, Save, Send, Sun } from 'lucide-react';
+import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 
 const resultTabs = [
   { id: 'run', label: '실행 결과' },
@@ -13,9 +14,17 @@ console.log(message);
 const numbers = [1, 2, 3, 4, 5];
 const total = numbers.reduce((sum, number) => sum + number, 0);
 console.log('합계:', total);`;
+const initialSources = {
+  Python: 'print("Hello, Python!")',
+  Java: 'class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello, Java!");\n  }\n}',
+  C: '#include <stdio.h>\n\nint main(void) {\n  puts("Hello, C!");\n  return 0;\n}',
+  JavaScript: initialJavaScriptSource,
+};
+const codingLanguages = ['Python', 'Java', 'C', 'JavaScript'];
 
 function sourceFileName(language) {
   if (language === 'Java') return 'Main.java';
+  if (language === 'C') return 'solution.c';
   if (language === 'JavaScript') return 'solution.js';
   return 'solution.py';
 }
@@ -80,11 +89,12 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   const lineNumberRef = useRef(null);
   const question = questions[activeIndex] ?? questions[0];
   const isCodingQuestion = question.type === 'CODING';
-  const configuredLanguages = question.languages?.length ? question.languages : ['Python'];
-  const languages = [...new Set([...configuredLanguages, 'JavaScript'])];
+  const languages = codingLanguages;
   const answer = answers[question.id] ?? {};
-  const language = answer.language ?? 'JavaScript';
-  const source = answer.source ?? question.starterCode ?? initialJavaScriptSource;
+  const answerLanguageIsAllowed = languages.includes(answer.language);
+  const language = answerLanguageIsAllowed ? answer.language : languages[0];
+  const source = answerLanguageIsAllowed && typeof answer.source === 'string' ? answer.source : question.starterCode ?? initialSources[language] ?? initialJavaScriptSource;
+  const runInput = question.publicExamples?.[0]?.input ?? '';
   const sourceLines = Math.max(source.split('\n').length, 16);
   const runResult = runResults[question.id] ?? { type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' };
 
@@ -105,17 +115,22 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
 
   const runCode = async () => {
     setActiveResultTab('run');
-    if (language.toLowerCase() !== 'javascript') {
-      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: `${language} 실행은 채점 서버 연결 후 제공됩니다. 현재는 JavaScript만 브라우저에서 실행할 수 있습니다.`, executedAt: new Date().toISOString() } });
-      return;
-    }
     if (!source.trim()) {
-      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: '실행할 JavaScript 코드를 입력해 주세요.', executedAt: new Date().toISOString() } });
+      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: '실행할 코드를 입력해 주세요.', executedAt: new Date().toISOString() } });
       return;
     }
     updateRunResults({ ...runResults, [question.id]: { type: 'running', output: '실행 중...', executedAt: new Date().toISOString() } });
-    const result = await runJavaScript(source);
-    updateRunResults({ ...runResults, [question.id]: { ...result, executedAt: new Date().toISOString() } });
+    if (language.toLowerCase() === 'javascript') {
+      const result = await runJavaScript(source);
+      updateRunResults({ ...runResults, [question.id]: { ...result, executedAt: new Date().toISOString() } });
+      return;
+    }
+    try {
+      const { data } = await api.post('/applicant/exam/run', { questionId: question.id, language, source, stdin: runInput }, { headers: candidateAuthHeaders() });
+      updateRunResults({ ...runResults, [question.id]: data });
+    } catch (error) {
+      updateRunResults({ ...runResults, [question.id]: { type: 'error', output: apiErrorMessage(error, '코드 실행 서버에 연결하지 못했습니다.'), executedAt: new Date().toISOString() } });
+    }
   };
 
   const resizePanel = (panel, startEvent) => {
@@ -245,7 +260,7 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
                     <button className="coding-run-button" type="button" onClick={saveProgress}><Save size={15} /> 코드 저장</button>
                     <label>
                       <span className="sr-only">프로그래밍 언어</span>
-                      <select value={language} onChange={(event) => updateAnswer({ language: event.target.value })}>
+                      <select value={language} onChange={(event) => updateAnswer({ language: event.target.value, source: initialSources[event.target.value] ?? initialJavaScriptSource })}>
                         {languages.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
@@ -311,7 +326,12 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
                 ))}
               </div>
               <div className="coding-result-content" role="tabpanel" aria-labelledby={`result-tab-${activeResultTab}`}>
-                {activeResultTab === 'run' && <pre className={`coding-run-output ${runResult.type}`}>{runResult.output}</pre>}
+                {activeResultTab === 'run' && <>
+                  <div className="coding-run-output-box">
+                    <span className="coding-run-output-label">실행 결과</span>
+                    <pre className={`coding-run-output ${runResult.type}`}>{runResult.output}</pre>
+                  </div>
+                </>}
                 {activeResultTab === 'tests' && <PublicTestCases examples={question.publicExamples} />}
                 {activeResultTab === 'submission' && <p>{submissionError || '제출 전입니다. 제출하면 채점 상태가 이곳에 표시됩니다.'}</p>}
               </div>

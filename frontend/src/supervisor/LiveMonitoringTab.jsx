@@ -143,6 +143,7 @@ export default function LiveMonitoringTab() {
         examineeId: examinee.id,
         examineeName: examinee.name,
         message: message.trim(),
+        source: 'SUPERVISOR',
         createdAt: new Date().toISOString()
       }, ...current]);
       window.alert('[전송 완료] ' + examinee.name + '님에게 ' + data.message);
@@ -344,7 +345,7 @@ export default function LiveMonitoringTab() {
         <div className="monitoring-alert-feed-heading">
           <div>
             <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING FEED</span>
-            <h2 id="monitoring-alert-feed-title">실시간 AI 감시 알림</h2>
+            <h2 id="monitoring-alert-feed-title">실시간 감시 로그</h2>
             <p>새로운 알림이 위에 표시되며, 모든 기록은 최신 시간순으로 정렬됩니다.</p>
           </div>
           <span className="monitoring-alert-feed-count">{visibleWarnings.length}건</span>
@@ -365,7 +366,7 @@ export default function LiveMonitoringTab() {
             <strong>{warningExamineeName(warning)}</strong>
             <span>{warning.message}</span>
           </button>
-        </li>)}</ol> : <p className="empty-state monitoring-alert-feed-empty">{candidateQuery ? '검색된 응시자 알림이 없습니다.' : '현재 기록된 AI 감시 알림이 없습니다.'}</p>}
+        </li>)}</ol> : <p className="empty-state monitoring-alert-feed-empty">{candidateQuery ? '검색된 응시자 알림이 없습니다.' : '현재 기록된 감시 로그가 없습니다.'}</p>}
       </aside>}
 
       {!organizationId && <div className="data-panel empty-state">관제할 조직을 선택해주세요.</div>}
@@ -412,13 +413,13 @@ export default function LiveMonitoringTab() {
         <section className="monitoring-warning-log-panel">
           <div className="monitoring-live-heading">
             <div>
-              <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING LOG</span>
+              <span className="workspace-eyebrow"><AlertTriangle size={14} /> MONITORING LOG</span>
               <h2 id="monitoring-warning-log-title">{warningLogExaminee.name} 응시자 전체 감시 로그</h2>
               <p>최신 기록부터 표시됩니다.</p>
             </div>
             <button className="icon-button" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기"><X size={18} /></button>
           </div>
-          {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><strong>{warning.message}</strong><span>AI 감시 알림</span></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 AI 감시 알림이 없습니다.</p>}
+          {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><strong>{warning.source === 'SUPERVISOR' ? `발송메시지 - ${warning.message}` : warning.message}</strong></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 감시 로그가 없습니다.</p>}
         </section>
       </div>}
       <div className="monitoring-grid">
@@ -449,8 +450,8 @@ export default function LiveMonitoringTab() {
               </button>
             </div>
             <div className="monitoring-status-row"><span>진행 현황</span><strong>{examinee.currentProb}</strong><small><Clock3 size={13} /> 10초마다 갱신</small></div>
-            <button className="monitoring-alert-log" type="button" onClick={() => setWarningLogExaminee(examinee)} aria-label={examinee.name + ' 응시자의 전체 AI 감시 로그 보기'}>
-              <div><strong><AlertTriangle size={15} /> AI 감시 알림</strong><span>{examineeWarnings.length ? `${examineeWarnings.length}건` : '없음'}</span></div>
+            <button className="monitoring-alert-log" type="button" onClick={() => setWarningLogExaminee(examinee)} aria-label={examinee.name + ' 응시자의 전체 감시 로그 보기'}>
+              <div><strong><AlertTriangle size={15} /> 감시 로그</strong><span>{examineeWarnings.length ? `${examineeWarnings.length}건` : '없음'}</span></div>
               {latestWarning ? <div className="monitoring-alert-caption"><span className="monitoring-alert-ticker">{latestWarning.message}</span><time dateTime={latestWarning.createdAt}>{new Date(latestWarning.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</time></div> : <p>현재 기록된 부정행위 의심 알림이 없습니다.</p>}
             </button>
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>

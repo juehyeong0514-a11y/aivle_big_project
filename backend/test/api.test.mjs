@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -344,7 +345,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const sameEmailInDifferentOrganizationResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "다른 조직 동명이인", email: "applicant1@aivle.com", birthDate: "2001-01-01" }) });
   assert.equal(sameEmailInDifferentOrganizationResponse.status, 201);
   const sameEmailInDifferentOrganization = await sameEmailInDifferentOrganizationResponse.json();
-  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: "2026.08.01 10:00" }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: "2099.08.01 10:00" }) });
   assert.equal(examResponse.status, 201);
   const exam = await examResponse.json();
   const supervisor = await login("supervisor@aivle.com", "MANAGER");
@@ -403,7 +404,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(invitation.count, 1);
   assert.equal(invitation.deliveryStatus, "PREVIEW");
   assert.equal(invitation.mailPreviews[0].oneTimeToken, undefined);
-  assert.equal(Date.parse(invitation.mailPreviews[0].expiresAt), new Date(2026, 7, 1, 11, 0).getTime());
+  assert.equal(Date.parse(invitation.mailPreviews[0].expiresAt), new Date(2099, 7, 1, 11, 0).getTime());
   const entryUrl = new URL(invitation.mailPreviews[0].entryLink);
   assert.equal(entryUrl.origin, "http://localhost:5173");
   assert.equal(entryUrl.pathname, "/exam/enter");
@@ -438,6 +439,13 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(reverified.status, 200);
   const applicantSession = await fetch(`${baseUrl}/api/applicant/session`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   assert.equal(applicantSession.status, 200);
+  const examineesBeforeWarning = await fetch(`${baseUrl}/api/supervisor/examinees?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  const examinee = (await examineesBeforeWarning.json()).find((item) => item.candidateId === candidate.id);
+  const warning = await fetch(`${baseUrl}/api/supervisor/examinees/${examinee.id}/warnings`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ examId: exam.id, message: "부정행위 여부를 확인해주세요." }) });
+  assert.equal(warning.status, 201);
+  const applicantWarnings = await fetch(`${baseUrl}/api/applicant/warnings`, { headers: { Authorization: `Bearer ${applicantToken}` } });
+  assert.equal(applicantWarnings.status, 200);
+  assert.deepEqual((await applicantWarnings.json()).map((item) => item.message), ["부정행위 여부를 확인해주세요."]);
   const applicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   const applicantExamPayload = await applicantExam.json();
   assert.equal(applicantExam.status, 200);
@@ -481,6 +489,67 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(codingApplicantQuestion.hiddenTestCases, undefined);
   assert.equal(codingApplicantQuestion.referenceSolutions, undefined);
   assert.equal(codingApplicantQuestion.publicExamples[0].expectedOutput, "8");
+});
+
+test("runs Python, Java, and C through the configured code execution server", async (context) => {
+  const receivedLanguageIds = [];
+  const executionSubmissions = new Map();
+  const executionServer = createServer(async (request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.method === "POST") {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      receivedLanguageIds.push(payload.language_id);
+      const token = `submission-${receivedLanguageIds.length}`;
+      executionSubmissions.set(token, payload);
+      response.end(JSON.stringify({ token }));
+      return;
+    }
+    const token = decodeURIComponent(request.url.split("/")[2].split("?")[0]);
+    const payload = executionSubmissions.get(token);
+    response.end(JSON.stringify({ status: { id: 3, description: "Accepted" }, stdout: `echo:${payload.stdin}` }));
+  });
+  await new Promise((resolveReady) => executionServer.listen(0, "127.0.0.1", resolveReady));
+  const executionAddress = executionServer.address();
+  const { baseUrl, server } = await startServer({ codeExecutionUrl: `http://127.0.0.1:${executionAddress.port}` });
+  context.after(() => {
+    executionServer.close();
+    server.close();
+  });
+
+  const managerLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" }) });
+  const manager = await managerLogin.json();
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+  const organizations = await fetch(`${baseUrl}/api/manager/organizations`, { headers: managerHeaders });
+  const organization = (await organizations.json()).find((item) => item.status === "APPROVED" && item.canManage);
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "다국어 실행 시험", duration: "30분", questions: "1문제" }) });
+  const exam = await examResponse.json();
+  const questionResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ type: "CODING", title: "합계", languages: ["Python", "Java", "C"], description: "두 수의 합을 출력하세요.", inputFormat: "A B", outputFormat: "합계", constraints: "정수", publicExamples: [{ input: "2 3", expectedOutput: "5" }], hiddenTestCases: [{ input: "1 2", expectedOutput: "3" }], judgeMode: "EXACT" }) });
+  assert.equal(questionResponse.status, 201);
+  const question = await questionResponse.json();
+  assert.deepEqual(question.languages, ["Python", "Java", "C"]);
+  const candidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "실행 테스트 응시자", email: "code-runner@example.com", birthDate: "2000-01-01" }) });
+  const candidate = await candidateResponse.json();
+  await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitation = await invitationResponse.json();
+  const token = new URL(invitation.mailPreviews[0].entryLink).searchParams.get("token");
+  const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
+  const applicantToken = (await verified.json()).accessToken;
+
+  for (const [language, source] of [["Python", "print(input())"], ["Java", "class Main { public static void main(String[] args) { System.out.println(1); } }"], ["C", "#include <stdio.h>\nint main(void) { puts(\"1\"); }"]]) {
+    const run = await fetch(`${baseUrl}/api/applicant/exam/run`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ questionId: question.id, language, source, stdin: "2 3" }) });
+    assert.equal(run.status, 200);
+    const result = await run.json();
+    assert.equal(result.type, "success");
+    assert.equal(result.output, "echo:2 3");
+  }
+  const submitted = await fetch(`${baseUrl}/api/applicant/exam/submit`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ answers: { [question.id]: { language: "C", source: "int main(void) { return 0; }" } } }) });
+  assert.equal(submitted.status, 200);
+  const rerunAfterSubmit = await fetch(`${baseUrl}/api/applicant/exam/run`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ questionId: question.id, language: "C", source: "int main(void) { return 0; }", stdin: "" }) });
+  assert.equal(rerunAfterSubmit.status, 409);
+  assert.deepEqual(receivedLanguageIds, [71, 62, 50]);
 });
 
 test("allows ADMIN to view the full exam directory without exam creation access", async (context) => {
