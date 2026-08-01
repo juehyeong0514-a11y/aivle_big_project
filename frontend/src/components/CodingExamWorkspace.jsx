@@ -89,7 +89,8 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   const lineNumberRef = useRef(null);
   const question = questions[activeIndex] ?? questions[0];
   const isCodingQuestion = question.type === 'CODING';
-  const languages = codingLanguages;
+  const configuredLanguages = question.languages?.filter((item) => codingLanguages.includes(item)) ?? [];
+  const languages = configuredLanguages.length ? configuredLanguages : ['Python', 'JavaScript'];
   const answer = answers[question.id] ?? {};
   const answerLanguageIsAllowed = languages.includes(answer.language);
   const language = answerLanguageIsAllowed ? answer.language : languages[0];
