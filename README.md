@@ -56,11 +56,11 @@ Vite가 표시하는 주소로 접속합니다. 기본 주소는 `http://localho
 | `SENDGRID_API_KEY` | SendGrid API 키. 설정하면 관리자 가입 인증 메일과 시험 초대 메일을 실제 발송합니다. |
 | `SENDGRID_FROM_EMAIL` | SendGrid에서 Single Sender 인증을 마친 발신 이메일 주소 |
 | `SENDGRID_FROM_NAME` | 메일에 표시할 발신자 이름. 예: `Aivle 시험 플랫폼` |
-| `CODE_EXECUTION_API_URL` | Judge0 호환 코드 실행 서버 주소. 개발 환경은 공개 Judge0 CE를 기본 사용하며, 운영 환경에서는 직접 설정 필요 |
+| `CODE_EXECUTION_API_URL` | Judge0 호환 코드 실행 서버 주소. 비워두면 시연용 공개 Judge0 CE를 기본 사용 |
 | `CODE_EXECUTION_API_KEY` | 실행 서버가 인증을 요구할 때 사용하는 `X-Auth-Token`(선택) |
-| `CODE_EXECUTION_API_ALLOWED_HOSTS` | 운영 환경에서 허용할 실행 서버 호스트 목록(쉼표 구분). 운영 환경에서는 필수 |
+| `CODE_EXECUTION_API_ALLOWED_HOSTS` | 별도 실행 서버를 사용할 때 허용할 호스트 목록(쉼표 구분). 기본 공개 Judge0 사용 시 생략 가능 |
 
-코딩 시험은 JavaScript를 브라우저에서 실행하고, Python·Java·C는 백엔드가 Judge0 호환 실행 서버에 요청해 결과를 반환합니다. 개발 환경에서는 공개 Judge0 CE를 기본 사용하므로 별도 발급 없이 시연할 수 있습니다. 운영 환경에서는 `CODE_EXECUTION_API_URL`에 신뢰할 수 있는 HTTPS 실행 서버를 직접 설정하고 `CODE_EXECUTION_API_ALLOWED_HOSTS`를 함께 설정하세요. 실행 요청에는 3초 CPU, 5초 벽시계, 256MB 메모리 제한, 응시자별 요청·동시 실행 제한이 적용됩니다.
+코딩 시험은 JavaScript를 브라우저에서 실행하고, Python·Java·C는 백엔드가 Judge0 호환 실행 서버에 요청해 결과를 반환합니다. `CODE_EXECUTION_API_URL`을 비워두면 시연용으로 공개 Judge0 CE를 사용하므로 별도 발급 없이 실행할 수 있습니다. 별도 실행 서버를 연결할 때만 `CODE_EXECUTION_API_URL`과 해당 호스트의 `CODE_EXECUTION_API_ALLOWED_HOSTS`를 설정하세요. 실행 요청에는 3초 CPU, 5초 벽시계, 256MB 메모리 제한, 응시자별 요청·동시 실행 제한이 적용됩니다.
 
 ## 개발 계정
 

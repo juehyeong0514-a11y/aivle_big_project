@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createApp } from "../src/app.mjs";
+import { createApp, resolveCodeExecutionAllowedHosts, resolveCodeExecutionUrl } from "../src/app.mjs";
 import { createStore } from "../src/store.mjs";
 
 const startServer = async (options = {}) => {
@@ -23,6 +23,11 @@ const signupManager = async (baseUrl, email, name = "신규 조직 관리자") =
   const confirmPayload = await confirm.json();
   return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password", verificationToken: confirmPayload.verificationToken }) });
 };
+
+test("uses the public Judge0 demo endpoint when production execution env is absent", () => {
+  assert.equal(resolveCodeExecutionUrl("", true), "https://ce.judge0.com");
+  assert.deepEqual(resolveCodeExecutionAllowedHosts("", true), ["ce.judge0.com"]);
+});
 
 test("allows browser preflight for applicant media status PUT requests", async (context) => {
   const { baseUrl, server } = await startServer();
@@ -445,6 +450,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(warning.status, 201);
   const applicantWarnings = await fetch(`${baseUrl}/api/applicant/warnings`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   assert.equal(applicantWarnings.status, 200);
+  assert.equal(applicantWarnings.headers.get("cache-control"), "no-store");
   assert.deepEqual((await applicantWarnings.json()).map((item) => item.message), ["부정행위 여부를 확인해주세요."]);
   const applicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   const applicantExamPayload = await applicantExam.json();

@@ -171,6 +171,13 @@ const normalizeRunResults = (runResults, questions) => Object.fromEntries(questi
   return [[question.id, { type: ["success", "error", "notice"].includes(result.type) ? result.type : "notice", output: result.output.slice(0, 20000), executedAt: typeof result.executedAt === "string" ? result.executedAt : new Date().toISOString() }]];
 }));
 
+const defaultCodeExecutionUrl = "https://ce.judge0.com";
+export const resolveCodeExecutionUrl = (value = process.env.CODE_EXECUTION_API_URL) => value?.trim() || defaultCodeExecutionUrl;
+export const resolveCodeExecutionAllowedHosts = (value = process.env.CODE_EXECUTION_API_ALLOWED_HOSTS, production = process.env.NODE_ENV === "production") => {
+  const configuredHosts = value?.split(",").map((host) => host.trim().toLowerCase()).filter(Boolean) ?? [];
+  return configuredHosts.length > 0 ? configuredHosts : (production ? ["ce.judge0.com"] : []);
+};
+
 const normalizeExecutionUrl = (value, { production = false, allowedHosts = [] } = {}) => {
   if (!value) return "";
   let parsed;
@@ -299,7 +306,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = process.env.CODE_EXECUTION_API_URL?.trim() || (process.env.NODE_ENV === "production" ? "" : "https://ce.judge0.com") } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl() } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -309,7 +316,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
   const app = express();
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
-  const executionAllowedHosts = (process.env.CODE_EXECUTION_API_ALLOWED_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  const executionAllowedHosts = resolveCodeExecutionAllowedHosts();
   let normalizedCodeExecutionUrl = "";
   let codeExecutionConfigError = "";
   try {
@@ -756,6 +763,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       .map(publicNotice));
   });
   app.get("/api/applicant/warnings", authenticateApplicant, (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     const { candidate, exam } = request.applicantSession;
     const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     if (!examinee) return response.json([]);
@@ -2089,6 +2097,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/supervisor/warnings", authenticate, requireManager, (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     const examId = typeof request.query.examId === "string" ? request.query.examId : "";
     const requestedOrganizationId = typeof request.query.organizationId === "string" ? request.query.organizationId : "";

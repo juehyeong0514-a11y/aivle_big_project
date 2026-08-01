@@ -62,7 +62,7 @@ export default function ExamSessionPage() {
     let isMounted = true;
     const loadWarnings = async () => {
       try {
-        const { data } = await api.get('/applicant/warnings', { headers: candidateAuthHeaders() });
+        const { data } = await api.get('/applicant/warnings', { headers: candidateAuthHeaders(), params: { poll: Date.now() } });
         if (!isMounted || !Array.isArray(data)) return;
         const warningIds = new Set(data.map((warning) => warning.id));
         if (!warningsInitializedRef.current) {
