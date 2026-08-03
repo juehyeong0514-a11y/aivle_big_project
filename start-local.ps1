@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+chcp 65001 > $null
 $projectRoot = $PSScriptRoot
 $aiService = Join-Path $projectRoot "ai-proctor-service"
 $backend = Join-Path $projectRoot "backend"
@@ -6,13 +9,13 @@ $frontend = Join-Path $projectRoot "frontend"
 $venvPython = Join-Path $aiService ".venv\Scripts\python.exe"
 
 if (-not (Test-Path -LiteralPath $venvPython)) {
-  throw "Python 가상환경이 없습니다. 먼저 프로젝트 루트에서 .\setup-local.ps1을 실행하세요."
+  throw "Python virtual environment is missing. Run .\setup-local.ps1 first."
 }
 if (-not (Test-Path -LiteralPath (Join-Path $backend "node_modules"))) {
-  throw "백엔드 패키지가 없습니다. 먼저 프로젝트 루트에서 .\setup-local.ps1을 실행하세요."
+  throw "Backend packages are missing. Run .\setup-local.ps1 first."
 }
 if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules"))) {
-  throw "프런트엔드 패키지가 없습니다. 먼저 프로젝트 루트에서 .\setup-local.ps1을 실행하세요."
+  throw "Frontend packages are missing. Run .\setup-local.ps1 first."
 }
 
 $aiCommand = @"
@@ -48,8 +51,7 @@ Start-Sleep -Seconds 2
 Start-Process powershell.exe -ArgumentList @('-NoExit', '-Command', $backendCommand)
 Start-Process powershell.exe -ArgumentList @('-NoExit', '-Command', $frontendCommand)
 
-Write-Host "AI 감독, 백엔드, 프런트엔드 터미널을 실행했습니다." -ForegroundColor Green
-Write-Host "프런트엔드: http://localhost:5173"
-Write-Host "백엔드:     http://localhost:3000/api/health"
-Write-Host "AI 감독:    http://127.0.0.1:8001/health"
-
+Write-Host "AI proctor, backend, and frontend terminals were started." -ForegroundColor Green
+Write-Host "Frontend:   http://localhost:5173"
+Write-Host "Backend:    http://localhost:3000/api/health"
+Write-Host "AI proctor: http://127.0.0.1:8001/health"
