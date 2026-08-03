@@ -91,7 +91,15 @@ class YoloDetector:
         self.model = YOLO(model_path)
 
     def predict(self, image: Image.Image, confidence: float) -> list[dict]:
-        result = self.model.predict(source=image, conf=confidence, verbose=False)[0]
+        result = self.model.predict(
+            source=image,
+            conf=confidence,
+            imgsz=320,
+            classes=[0, 67, 73],  # COCO: person, cell phone, book
+            max_det=20,
+            device="cpu",
+            verbose=False,
+        )[0]
         names = result.names
         width, height = image.size
         detections = []
