@@ -38,34 +38,61 @@ const ADMIN_GROUPS = [
 // 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
-    label: '공지사항', icon: Megaphone,
-    items: [
-      { key: 'NOTICE', label: '공지사항', icon: Megaphone },
-      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone }
-    ]
-  },
-  {
-    label: '조직 운영',
+    label: '조직·소통',
     icon: Building2,
     items: [
-      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users },
-      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
+      {
+        key: 'MANAGER_WORKSPACE',
+        label: '조직 관리',
+        icon: Users
+      },
+      {
+        key: 'NOTICE',
+        label: '공지사항',
+        icon: Megaphone
+      },
+      {
+        key: 'NOTICE_MANAGEMENT',
+        label: '공지사항 관리',
+        icon: Megaphone
+      },
+      {
+        key: 'COMMUNITY',
+        label: '커뮤니티 관리',
+        icon: MessageSquare
+      }
     ]
   },
   {
     label: '시험 운영',
-    icon: Users,
+    icon: ClipboardList,
     items: [
-      { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
-      { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
+      {
+        key: 'EXAMS',
+        label: '시험 총괄 대시보드',
+        icon: ClipboardList
+      },
+      {
+        key: 'EXAM_PROHIBITIONS',
+        label: '시험 금지사항 관리',
+        icon: ShieldAlert
+      }
     ]
   },
   {
-    label: '실시간 관제 및 검토',
+    label: '감독·결과',
     icon: Monitor,
     items: [
-      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor },
-      { key: 'AI_REPORTS', label: '응시자 관리', icon: BarChart3 }
+      {
+        key: 'LIVE_MONITORING',
+        label: '화상 모니터링',
+        icon: Monitor
+      },
+      {
+        key: 'AI_REPORTS',
+        label: '응시자 관리',
+        icon: BarChart3
+      }
     ]
   }
 ];
@@ -230,93 +257,88 @@ export default function Header() {
         </div>
 
         {/* 로그인/회원가입 페이지에서도 네비게이션이 보이도록 제어 조건(!isAuthPage) 제거 */}
-        <nav ref={navRef} className="header-nav" aria-label="주요 메뉴">
-          {isAdmin ? (
-            /* ================= 1. 관리자 전용 (그룹 드롭다운) ================= */
-            <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}>
-                <Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span>
-              </button>
-              {ADMIN_GROUPS.map((group) => (
-                <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
-              ))}
-              <button
-  type="button"
-  className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
-  style={{ display: 'none' }}
-  aria-label="공지사항 관리"
-  title="공지사항 관리"
-  onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
->
-  <Megaphone size={16} className="header-tab-icon" />
-  <span className="header-tab-label">공지사항 관리</span>
-</button>
+       <nav ref={navRef} className="header-nav" aria-label="주요 메뉴">
+  {isAdmin ? (
+    <>
+      <button
+        type="button"
+        className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`}
+        aria-label="홈"
+        title="홈"
+        onClick={() => handleTabClick('HOME')}
+      >
+        <Monitor size={16} className="header-tab-icon" />
+        <span className="header-tab-label">홈</span>
+      </button>
 
-<button
-  type="button"
-  className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
-  style={{ display: 'none' }}
-  aria-label="커뮤니티 관리"
-  title="커뮤니티 관리"
-  onClick={() => handleTabClick('COMMUNITY')}
->
-  <MessageSquare size={16} className="header-tab-icon" />
-  <span className="header-tab-label">커뮤니티 관리</span>
-</button>
-            </>
-          ) : isSupervisor ? (
-            /* ================= 2. 매니저 전용 (그룹 드롭다운) ================= */
-            <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}>
-                <Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span>
-              </button>
-              {SUPERVISOR_GROUPS.map((group) => (
-                <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
-              ))}
-              <button
-  type="button"
-  className={`header-tab-btn ${currentTab === 'AI_REPORTS' ? 'active' : ''}`}
-  style={{ display: 'none' }}
-  aria-label="응시자 관리"
-  title="응시자 관리"
-  onClick={() => handleTabClick('AI_REPORTS')}
->
-  <BarChart3 size={16} className="header-tab-icon" />
-  <span className="header-tab-label">응시자 관리</span>
-</button>
-              <button
-  type="button"
-  className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
-  style={{ display: 'none' }}
-  aria-label="공지사항 관리"
-  title="공지사항 관리"
-  onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
->
-  <Megaphone size={16} className="header-tab-icon" />
-  <span className="header-tab-label">공지사항 관리</span>
-</button>
+      {ADMIN_GROUPS.map((group) => (
+        <NavGroup
+          key={group.label}
+          group={group}
+          currentTab={currentTab}
+          onSelect={handleTabClick}
+        />
+      ))}
+    </>
+  ) : isSupervisor ? (
+    <>
+      <button
+        type="button"
+        className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`}
+        aria-label="홈"
+        title="홈"
+        onClick={() => handleTabClick('HOME')}
+      >
+        <Monitor size={16} className="header-tab-icon" />
+        <span className="header-tab-label">홈</span>
+      </button>
 
-<button
-  type="button"
-  className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
-  style={{ display: 'none' }}
-  aria-label="커뮤니티 관리"
-  title="커뮤니티 관리"
-  onClick={() => handleTabClick('COMMUNITY')}
->
-  <MessageSquare size={16} className="header-tab-icon" />
-  <span className="header-tab-label">커뮤니티 관리</span>
-</button>
-            </>
-          ) : (
-            /* ================= 3. 일반 사용자/게스트 전용 ================= */
-            <>
-              <button type="button" className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`} aria-label="홈" title="홈" onClick={() => handleTabClick('HOME')}><Monitor size={16} className="header-tab-icon" /><span className="header-tab-label">홈</span></button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`} aria-label="공지사항" title="공지사항" onClick={() => handleTabClick('NOTICE')}><Megaphone size={16} className="header-tab-icon" /><span className="header-tab-label">공지사항</span></button>
-              <button type="button" className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`} aria-label="FAQ" title="FAQ" onClick={() => handleTabClick('FAQ')}><HelpCircle size={16} className="header-tab-icon" /><span className="header-tab-label">FAQ</span></button>
-            </>
-          )}
-        </nav>
+      {SUPERVISOR_GROUPS.map((group) => (
+        <NavGroup
+          key={group.label}
+          group={group}
+          currentTab={currentTab}
+          onSelect={handleTabClick}
+        />
+      ))}
+    </>
+  ) : (
+    <>
+      <button
+        type="button"
+        className={`header-tab-btn ${currentTab === 'HOME' ? 'active' : ''}`}
+        aria-label="홈"
+        title="홈"
+        onClick={() => handleTabClick('HOME')}
+      >
+        <Monitor size={16} className="header-tab-icon" />
+        <span className="header-tab-label">홈</span>
+      </button>
+
+      <button
+        type="button"
+        className={`header-tab-btn ${currentTab === 'NOTICE' ? 'active' : ''}`}
+        aria-label="공지사항"
+        title="공지사항"
+        onClick={() => handleTabClick('NOTICE')}
+      >
+        <Megaphone size={16} className="header-tab-icon" />
+        <span className="header-tab-label">공지사항</span>
+      </button>
+
+      <button
+        type="button"
+        className={`header-tab-btn ${currentTab === 'FAQ' ? 'active' : ''}`}
+        aria-label="FAQ"
+        title="FAQ"
+        onClick={() => handleTabClick('FAQ')}
+      >
+        <HelpCircle size={16} className="header-tab-icon" />
+        <span className="header-tab-label">FAQ</span>
+      </button>
+    </>
+  )}
+</nav>
       </div>
 
       <div ref={navRightRef} className="nav-right">
