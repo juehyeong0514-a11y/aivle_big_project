@@ -291,6 +291,31 @@ const save = async () => {
       await queuedSave();
       return exam;
     },
+    removeExam: async (id) => {
+      const exam = data.exams.find((candidate) => candidate.id === id);
+      if (!exam) return undefined;
+      const invitationIds = new Set(data.invitations
+        .filter((invitation) => invitation.examId === id)
+        .map((invitation) => invitation.id));
+      const examineeIds = new Set(data.examinees
+        .filter((examinee) => examinee.examId === id)
+        .map((examinee) => examinee.id));
+      data.exams = data.exams.filter((candidate) => candidate.id !== id);
+      data.questions = data.questions.filter((question) => question.examId !== id);
+      data.assignments = data.assignments.filter((assignment) => assignment.examId !== id);
+      data.invitations = data.invitations.filter((invitation) => invitation.examId !== id);
+      data.sessions = data.sessions.filter((session) => !invitationIds.has(session.invitationId));
+      data.codingSubmissions = data.codingSubmissions.filter((submission) => submission.examId !== id);
+      data.examinees = data.examinees.filter((examinee) => examinee.examId !== id);
+      data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((device) => device.examId !== id);
+      data.idCardScans = data.idCardScans.filter((scan) => scan.examId !== id);
+      data.aiGradingRequests = data.aiGradingRequests.filter((request) => request.examId !== id);
+      data.notices = data.notices.map((notice) => notice.examId === id ? { ...notice, examId: null } : notice);
+      data.communityPosts = data.communityPosts.map((post) => post.examId === id ? { ...post, examId: null } : post);
+      await queuedSave();
+      return exam;
+    },
     addWarning: async (warning) => {
       data.warnings.push(warning);
       await queuedSave();

@@ -1,1 +1,0 @@
-import{n as e,t}from"./jsx-runtime-n5LQ9ujS.js";import{h as n}from"./index-BBJ0unNp.js";e();var r=t();function i({children:e}){return localStorage.getItem(`userRole`)===`ADMIN`?e:(alert(`🚨 접근 권한이 없습니다! 응시자는 관리자 페이지에 접근할 수 없습니다.`),(0,r.jsx)(n,{to:`/home`,replace:!0}))}export{i as default};

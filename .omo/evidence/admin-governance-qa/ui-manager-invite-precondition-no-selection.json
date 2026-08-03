@@ -1,9 +1,0 @@
-{
-  "qaExamTitle": "QA 초대 평가 81916",
-  "qaCandidateEmail": "invitee-81916@example.com",
-  "expected": "invite button disabled until candidate selected",
-  "observed": {
-    "buttonCount": 1,
-    "enabled": false
-  }
-}

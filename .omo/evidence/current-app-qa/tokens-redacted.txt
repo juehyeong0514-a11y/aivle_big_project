@@ -1,2 +1,0 @@
-﻿adminTokenLength=36
-managerTokenLength=36

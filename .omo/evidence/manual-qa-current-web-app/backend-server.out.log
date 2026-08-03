@@ -1,5 +1,0 @@
-
-> aivle-backend@1.0.0 start
-> node src/server.mjs
-
-API server listening at http://localhost:3000

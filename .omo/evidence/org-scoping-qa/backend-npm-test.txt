@@ -1,3 +1,0 @@
-﻿surface: backend tests
-exact invocation: cd backend; npm test
-exitCode: 0

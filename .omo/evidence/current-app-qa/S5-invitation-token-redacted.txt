@@ -1,2 +1,0 @@
-﻿tokenLength=36
-entryLink=http://localhost:5173/invite/46d89251-6fed-454e-8b8b-6654e8bc483a

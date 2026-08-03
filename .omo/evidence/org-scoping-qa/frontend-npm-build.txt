@@ -1,3 +1,0 @@
-﻿surface: frontend build
-exact invocation: cd frontend; npm run build
-exitCode: 0

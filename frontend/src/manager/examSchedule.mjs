@@ -30,6 +30,33 @@ export const formatScheduleForApi = (schedule) => {
   return `${year}.${month}.${day} ${hour}:${minute}`;
 };
 
+export const parseScheduleForForm = (schedule) => {
+  const match = String(schedule).match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  if (!match) return { date: '', hour: '10', minute: '00' };
+  const [, year, month, day, hour, minute] = match;
+  return {
+    date: `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`,
+    hour: hour.padStart(2, '0'),
+    minute
+  };
+};
+
+export const parseScheduleTimestamp = (schedule) => {
+  const match = String(schedule).match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute] = match;
+  const startsAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  if (
+    Number.isNaN(startsAt.getTime())
+    || startsAt.getFullYear() !== Number(year)
+    || startsAt.getMonth() !== Number(month) - 1
+    || startsAt.getDate() !== Number(day)
+    || startsAt.getHours() !== Number(hour)
+    || startsAt.getMinutes() !== Number(minute)
+  ) return undefined;
+  return startsAt.getTime();
+};
+
 export const formatExamEndsAt = (endsAt) => endsAt
   ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(endsAt)
   : '';

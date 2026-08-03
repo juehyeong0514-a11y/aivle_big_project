@@ -1,4 +1,0 @@
-﻿Read-only QA pass started.
-Workspace: C:\Users\User\Desktop\aivle_big_project
-Date: 2026-07-24 Asia/Seoul
-Note: Evidence files created under .omo/evidence/qa-readonly only; no source edits intended.

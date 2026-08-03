@@ -17,7 +17,15 @@ const scheduledExamEndsAt = (exam) => {
   if (!schedule || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
   const [, year, month, day, hour, minute] = schedule;
   const startsAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
-  return Number.isNaN(startsAt.getTime()) ? undefined : new Date(startsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
+  if (
+    Number.isNaN(startsAt.getTime())
+    || startsAt.getFullYear() !== Number(year)
+    || startsAt.getMonth() !== Number(month) - 1
+    || startsAt.getDate() !== Number(day)
+    || startsAt.getHours() !== Number(hour)
+    || startsAt.getMinutes() !== Number(minute)
+  ) return undefined;
+  return new Date(startsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
 };
 const managerOrganizationIds = (user, organizations) => organizations
   .filter((organization) => user.approvalStatus === "APPROVED" && organization.status === "APPROVED" && (organization.managerIds?.includes(user.id) || user.organizationIds?.includes(organization.id)))
@@ -1892,6 +1900,47 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((candidate) => candidate.id === examId);
     return exam && scopedOrganization(request, exam.organizationId) ? exam : undefined;
   };
+  app.patch("/api/manager/exams/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const exam = scopedExam(request, request.params.id);
+      const date = typeof request.body.date === "string" ? request.body.date.trim() : "";
+      if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!isNonEmptyText(date)) return response.status(400).json({ message: "시험 시작 일시를 입력해주세요." });
+      const nextExam = { ...exam, date };
+      const expiresAt = scheduledExamEndsAt(nextExam);
+      if (!expiresAt) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
+      const updated = await store.updateExam(exam.id, { date, updatedAt: new Date().toISOString() });
+      await Promise.all(store.invitations
+        .filter((invitation) => invitation.examId === exam.id && !invitation.revokedAt)
+        .map((invitation) => store.updateInvitation(invitation.id, { expiresAt })));
+      return response.json({ ...updated, invitationExpiresAt: expiresAt });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/manager/exams/:id", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const exam = scopedExam(request, request.params.id);
+      if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      const invitationIds = new Set(store.invitations.filter((invitation) => invitation.examId === exam.id).map((invitation) => invitation.id));
+      for (const [tokenHash, session] of sessions) {
+        if (invitationIds.has(session.invitationId)) sessions.delete(tokenHash);
+      }
+      for (const [id, liveSession] of liveSessions) {
+        if (liveSession.examId === exam.id) liveSessions.delete(id);
+      }
+      for (const [token, device] of auxiliaryDevices) {
+        if (device.examId === exam.id) auxiliaryDevices.delete(token);
+      }
+      for (const [token, scan] of idCardScans) {
+        if (scan.examId === exam.id) idCardScans.delete(token);
+      }
+      await store.removeExam(exam.id);
+      return response.status(204).end();
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.post("/api/manager/exams/:id/assign", authenticate, requireManager, async (request, response, next) => {
     try {
       const exam = scopedExam(request, request.params.id);

@@ -24,6 +24,62 @@ const signupManager = async (baseUrl, email, name = "신규 조직 관리자") =
   return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password", verificationToken: confirmPayload.verificationToken }) });
 };
 
+test("updates an exam schedule across invitations and removes the exam graph", async (context) => {
+  const { baseUrl, server } = await startServer();
+  context.after(() => server.close());
+  const login = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" }) });
+  const manager = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+  const created = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers, body: JSON.stringify({ organizationId: "org-aivle-cs", title: "Schedule update test", duration: "60분", questions: "총 1문제", date: "2099.10.10 10:00" }) });
+  assert.equal(created.status, 201);
+  const exam = await created.json();
+  const assignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(assignment.status, 201);
+  const sent = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(sent.status, 201);
+  const invitation = await sent.json();
+  const token = new URL(invitation.mailPreviews[0].entryLink).searchParams.get("token");
+
+  const invalidDate = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ date: "2099.99.99 99:99" }) });
+  assert.equal(invalidDate.status, 400);
+  const updated = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ date: "2099.10.11 12:00" }) });
+  assert.equal(updated.status, 200);
+  assert.equal((await updated.json()).date, "2099.10.11 12:00");
+  const invitationPreviewInfo = await fetch(`${baseUrl}/api/invitations/${token}`);
+  assert.equal(invitationPreviewInfo.status, 200);
+  assert.equal((await invitationPreviewInfo.json()).schedule, "2099.10.11 12:00");
+  const managerInvitations = await fetch(`${baseUrl}/api/manager/invitations`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  const refreshedInvitation = (await managerInvitations.json()).find((item) => item.examId === exam.id);
+  assert.equal(Date.parse(refreshedInvitation.expiresAt), new Date(2099, 9, 11, 13, 0).getTime());
+
+  const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: "AIVLE-1001" }) });
+  assert.equal(verified.status, 200);
+  const applicant = await verified.json();
+  const applicantHeaders = { Authorization: `Bearer ${applicant.accessToken}` };
+  const deviceResponse = await fetch(`${baseUrl}/api/applicant/auxiliary-devices`, { method: "POST", headers: applicantHeaders });
+  assert.equal(deviceResponse.status, 201);
+  const device = await deviceResponse.json();
+  const paired = await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: device.token }) });
+  assert.equal(paired.status, 200);
+  const deviceToken = (await paired.json()).deviceToken;
+
+  const adminLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123", role: "ADMIN" }) });
+  const admin = await adminLogin.json();
+  const adminHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const revoked = await fetch(`${baseUrl}/api/admin/invitations/${refreshedInvitation.id}/revoke`, { method: "POST", headers: adminHeaders, body: JSON.stringify({ reason: "삭제 연동 테스트" }) });
+  assert.equal(revoked.status, 200);
+
+  const removed = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "DELETE", headers });
+  assert.equal(removed.status, 204);
+  const examsAfterDelete = await fetch(`${baseUrl}/api/manager/exams`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal((await examsAfterDelete.json()).some((item) => item.id === exam.id), false);
+  assert.equal((await fetch(`${baseUrl}/api/invitations/${token}`)).status, 410);
+  assert.equal((await fetch(`${baseUrl}/api/applicant/session`, { headers: applicantHeaders })).status, 401);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/mobile-devices/${deviceToken}/status`)).json(), { ended: true });
+  const auditLogs = await fetch(`${baseUrl}/api/admin/invitation-audit-logs`, { headers: { Authorization: `Bearer ${admin.token}` } });
+  assert.equal((await auditLogs.json()).some((log) => log.invitationId === refreshedInvitation.id), true);
+});
+
 test("uses the public Judge0 demo endpoint when production execution env is absent", () => {
   assert.equal(resolveCodeExecutionUrl("", true), "https://ce.judge0.com");
   assert.deepEqual(resolveCodeExecutionAllowedHosts("", true), ["ce.judge0.com"]);
