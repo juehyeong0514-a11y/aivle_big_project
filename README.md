@@ -78,6 +78,25 @@ YOLO 기반 신분증 OCR 서비스는 [id-ocr-service/README.md](id-ocr-service
 모델 응답은 `residentNumberFront` 또는 `birthDate`에 주민번호 앞 6자리(`YYMMDD`)를 반환해야 합니다. 예: `{ "residentNumberFront": "000101" }`.
 서버는 이 값으로 등록된 생년월일과 비교한 뒤 결과만 저장하며, 주민번호 앞 6자리는 저장하지 않습니다.
 
+## 시험용 AI 감독 MVP
+
+응시자의 2초 주기 웹캠 정지 화면을 별도 FastAPI 서비스에서 범용 YOLO 모델로 분석할 수 있습니다. 감독 화면도 2초마다 최신 분석 결과를 갱신합니다. 사람 미감지, 여러 사람, 휴대전화와 선택적인 책 감지를 지원하며, 연속 감지와 경고 쿨다운은 Node 백엔드가 관리합니다. AI가 만든 경고는 감독 화면과 기존 응시자 경고 모달에 표시되지만 자동 제출·종료·실격에는 사용되지 않습니다.
+
+백엔드에 다음 환경변수를 설정합니다. `AI_PROCTOR_URL`이 비어 있거나 서비스가 중단되면 AI 분석만 건너뛰고 시험·스냅샷·WebRTC 기능은 계속 동작합니다.
+
+| 변수 | 기본값 | 용도 |
+| --- | --- | --- |
+| `AI_PROCTOR_URL` | 없음 | AI 감독 서비스 기본 주소 |
+| `AI_PROCTOR_API_KEY` | 없음 | 서비스 간 Bearer 인증 키 |
+| `AI_PROCTOR_CONFIDENCE` | `0.55` | 이벤트 확정 최소 신뢰도 |
+| `AI_PROCTOR_CONSECUTIVE_HITS` | `2` | 경고 전 연속 감지 횟수 |
+| `AI_PROCTOR_WARNING_COOLDOWN_SECONDS` | `60` | 동일 유형 경고 쿨다운 |
+| `AI_PROCTOR_BOOK_DETECTION_ENABLED` | `false` | 책 이벤트 활성화 여부 |
+
+모델 서비스는 [ai-proctor-service/README.md](ai-proctor-service/README.md)를 참고해 별도 프로세스 또는 Web Service로 배포합니다. `.pt`/`.onnx` 가중치는 Git에 커밋하지 않고 비밀 파일이나 영구 볼륨으로 공급합니다. Python 서비스는 입력 이미지와 base64를 저장하거나 로그에 출력하지 않습니다.
+
+MVP의 감지 카운터, 쿨다운, in-flight 상태는 Express 프로세스 메모리에 있으므로 재시작 시 초기화되고 다중 인스턴스 간 공유되지 않습니다. 운영 확장 시 Redis 기반 분산 lock과 idempotency 저장소로 이전해야 합니다.
+
 기본 비밀번호는 모두 `123`입니다.
 
 | 계정 | 이메일 | 용도 |

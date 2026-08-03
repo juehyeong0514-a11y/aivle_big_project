@@ -318,7 +318,10 @@ test("requires email verification before manager signup and rate-limits invalid 
 });
 
 test("governs organization approval, manager scope, and invitations reusable before submission", async (context) => {
-  const { baseUrl, directory, server } = await startServer();
+  const { baseUrl, directory, server } = await startServer({ aiProctorOptions: {
+    endpoint: "http://ai-proctor.test",
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ model: "fake-yolo", latencyMs: 5, personCount: 1, detections: [{ label: "cell phone", confidence: .9, bbox: [.1, .1, .3, .4] }], events: [{ type: "CELL_PHONE_DETECTED", confidence: .9, message: "감지" }] }) })
+  } });
   context.after(() => server.close());
   const login = async (email, role, password = "123") => {
     const response = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, role }) });
@@ -452,6 +455,21 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(applicantWarnings.status, 200);
   assert.equal(applicantWarnings.headers.get("cache-control"), "no-store");
   assert.deepEqual((await applicantWarnings.json()).map((item) => item.message), ["부정행위 여부를 확인해주세요."]);
+  const snapshotHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` };
+  const uploadSnapshot = () => fetch(`${baseUrl}/api/applicant/monitoring-snapshot`, { method: "PUT", headers: snapshotHeaders, body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==" }) });
+  assert.equal((await uploadSnapshot()).status, 204);
+  assert.equal((await uploadSnapshot()).status, 204);
+  let aiWarnings = [];
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await fetch(`${baseUrl}/api/applicant/warnings`, { headers: { Authorization: `Bearer ${applicantToken}` } });
+    aiWarnings = (await response.json()).filter((item) => item.source === "AI");
+    if (aiWarnings.length) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(aiWarnings.length, 1);
+  assert.equal(aiWarnings[0].type, "CELL_PHONE_DETECTED");
+  const supervisorWarnings = await fetch(`${baseUrl}/api/supervisor/warnings?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
+  assert.equal((await supervisorWarnings.json()).some((item) => item.source === "AI" && item.confidence === .9), true);
   const applicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   const applicantExamPayload = await applicantExam.json();
   assert.equal(applicantExam.status, 200);

@@ -2,6 +2,7 @@ import express from "express";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createStore, verifyPassword } from "./store.mjs";
+import { createAiProctor } from "./aiProctor.mjs";
 
 const roles = new Set(["APPLICANT", "MANAGER", "SUPERVISOR", "ADMIN"]);
 const isNonEmptyText = (value) => typeof value === "string" && value.trim().length > 0;
@@ -306,7 +307,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl() } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {} } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -315,6 +316,22 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const auxiliaryDevices = new Map(store.auxiliaryDevices.map((device) => [device.token, device]));
   const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
   const app = express();
+  const aiProctor = createAiProctor({
+    ...aiProctorOptions,
+    onResult: async (job, result) => {
+      const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
+      if (!examinee?.monitoringSnapshot || examinee.monitoringSnapshot.updatedAt !== job.snapshotUpdatedAt) return;
+      await store.updateExaminee(examinee.id, { monitoringSnapshot: { ...examinee.monitoringSnapshot, ai: result } });
+      await aiProctorOptions.onResult?.(job, result);
+    },
+    onWarning: async (job, event) => {
+      const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
+      if (!examinee) return;
+      await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, type: event.type, confidence: event.confidence, message: event.message, source: "AI", createdAt: new Date().toISOString() });
+      await aiProctorOptions.onWarning?.(job, event);
+    }
+  });
+  app.locals.aiProctor = aiProctor;
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const executionAllowedHosts = resolveCodeExecutionAllowedHosts();
   let normalizedCodeExecutionUrl = "";
@@ -688,16 +705,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   };
   const recordMediaDisconnectWarnings = async (examinee, nextMediaStatus) => {
     const previousMediaStatus = examinee.mediaStatus ?? {};
-    const labels = {
-      webcam: "웹캠 연결이 끊겼습니다.",
-      microphone: "마이크 연결이 끊겼습니다.",
-      screen: "PC 화면 공유가 중단되었습니다.",
-      auxiliaryCamera: "모바일 보조 카메라 연결이 끊겼습니다."
+    const disconnectedLabels = {
+      webcam: "웹캠 연결이 끊겼습니다.", microphone: "마이크 연결이 끊겼습니다.", screen: "PC 화면 공유가 중단되었습니다.", auxiliaryCamera: "모바일 보조 카메라 연결이 끊겼습니다."
     };
-    for (const [key, message] of Object.entries(labels)) {
-      if (previousMediaStatus[key] && !nextMediaStatus[key]) {
-        await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, source: "SYSTEM", createdAt: new Date().toISOString() });
-      }
+    const firstStatusReport = !previousMediaStatus.updatedAt;
+    for (const [key, disconnectedMessage] of Object.entries(disconnectedLabels)) {
+      const initiallyMissingAuxiliary = firstStatusReport && key === "auxiliaryCamera" && !nextMediaStatus[key];
+      const disconnected = previousMediaStatus[key] && !nextMediaStatus[key];
+      if (!initiallyMissingAuxiliary && !disconnected) continue;
+      const message = initiallyMissingAuxiliary ? "모바일 보조 카메라가 연결되지 않았습니다." : disconnectedMessage;
+      const duplicateCutoff = Date.now() - 60_000;
+      const recentlyRecorded = store.warnings.some((warning) => warning.examineeId === examinee.id && warning.source === "SYSTEM" && warning.message === message && Date.parse(warning.createdAt) >= duplicateCutoff);
+      if (!recentlyRecorded) await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, source: "SYSTEM", createdAt: new Date().toISOString() });
     }
   };
   const disconnectApplicantMedia = async ({ candidate, exam, recordWarnings = true }) => {
@@ -770,7 +789,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     return response.json(store.warnings
       .filter((warning) => warning.examId === exam.id && warning.examineeId === examinee.id)
       .sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt))
-      .map(({ id, message, createdAt }) => ({ id, message, createdAt })));
+      .map(({ id, message, createdAt, source, type }) => ({ id, message, createdAt, source, type })));
   });
   app.get("/api/applicant/notices/:id", authenticateApplicant, async (request, response, next) => {
     try {
@@ -1011,7 +1030,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         examinee = { id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" };
         await store.addExaminee(examinee);
       }
-      await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: new Date().toISOString() } });
+      const snapshotUpdatedAt = new Date().toISOString();
+      const previousAi = examinee.monitoringSnapshot?.ai;
+      await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: snapshotUpdatedAt, ...(previousAi ? { ai: previousAi } : {}) } });
+      aiProctor.schedule({ image, examineeId: examinee.id, examId: exam.id, candidateId: candidate.id, snapshotUpdatedAt });
       return response.sendStatus(204);
     } catch (error) {
       return next(error);

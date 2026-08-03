@@ -191,11 +191,13 @@ export default function ExamSessionPage() {
 }
 
 function ExamWarningModal({ warning, dismiss }) {
+  const isAiWarning = warning.source === 'AI';
   return <div className="exam-warning-modal" role="dialog" aria-modal="true" aria-labelledby="exam-warning-title">
     <button className="exam-warning-backdrop" type="button" aria-label="경고 메시지 닫기" onClick={dismiss} />
     <section className="exam-warning-panel">
-      <div className="exam-warning-heading"><AlertTriangle size={22} aria-hidden="true" /><span>감독자 메시지</span></div>
+      <div className="exam-warning-heading"><AlertTriangle size={22} aria-hidden="true" /><span id="exam-warning-title">{isAiWarning ? 'AI 모니터링 알림' : '감독자 메시지'}</span></div>
       <p>{warning.message}</p>
+      {isAiWarning && <p className="exam-warning-guidance">주변 환경을 정리하고 시험 화면을 계속 진행해 주세요. 최종 판단은 감독자가 검토합니다.</p>}
       <button className="btn-primary" type="button" onClick={dismiss}>확인</button>
     </section>
   </div>;

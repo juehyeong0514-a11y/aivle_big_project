@@ -7,6 +7,7 @@ let polling = false;
 let snapshotTimer = null;
 let offerPollTimer = null;
 let offerPollInFlight = false;
+const snapshotIntervalMs = 2000;
 
 const waitForIceComplete = (peer) => new Promise((resolve) => {
   if (peer.iceGatheringState === 'complete') return resolve();
@@ -29,7 +30,7 @@ export const registerLiveStream = (kind, stream) => {
   startOfferPolling();
   if (kind === 'webcam') {
     if (snapshotTimer) window.clearInterval(snapshotTimer);
-    snapshotTimer = window.setInterval(() => uploadSnapshot(stream), 10000);
+    snapshotTimer = window.setInterval(() => uploadSnapshot(stream), snapshotIntervalMs);
     uploadSnapshot(stream);
   }
 };
