@@ -724,11 +724,11 @@ test("scopes exam policies to the supervising manager's organization", async (co
   assert.equal(initial.status, 200);
   const policies = await initial.json();
   assert.equal(policies.invitationExpiryHours, undefined);
-  const update = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { method: "PATCH", headers, body: JSON.stringify({ ...policies, cheatDetection: { ...policies.cheatDetection, tabSwitchSubmitEnabled: false } }) });
+  const update = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { method: "PATCH", headers, body: JSON.stringify({ ...policies, cheatDetection: { ...policies.cheatDetection, cellPhoneWarningEnabled: false } }) });
   assert.equal(update.status, 200);
   assert.equal((await update.json()).invitationExpiryHours, undefined);
   const persisted = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { headers });
-  assert.equal((await persisted.json()).cheatDetection.tabSwitchSubmitEnabled, false);
+  assert.equal((await persisted.json()).cheatDetection.cellPhoneWarningEnabled, false);
   const outOfScope = await fetch(`${baseUrl}/api/supervisor/exams/not-managed/policies`, { headers });
   assert.equal(outOfScope.status, 403);
   const adminPolicies = await fetch(`${baseUrl}/api/admin/policies`, { headers });

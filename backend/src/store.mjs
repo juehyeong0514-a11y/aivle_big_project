@@ -37,14 +37,21 @@ const collectionDefaults = {
     aiProvider: "OpenAI",
     aiModel: "gpt-4o-mini",
     cheatDetection: {
-      gazeWarningEnabled: true,
-      audioDetectionEnabled: true,
-      tabSwitchSubmitEnabled: true
+      noPersonWarningEnabled: true,
+      multiplePeopleWarningEnabled: true,
+      cellPhoneWarningEnabled: true,
+      bookWarningEnabled: false
     }
   }
 };
 
 const withoutInvitationExpiry = (policies) => Object.fromEntries(Object.entries(policies ?? {}).filter(([key]) => key !== "invitationExpiryHours"));
+const normalizeCheatDetection = (value = {}) => ({
+  noPersonWarningEnabled: value.noPersonWarningEnabled ?? true,
+  multiplePeopleWarningEnabled: value.multiplePeopleWarningEnabled ?? true,
+  cellPhoneWarningEnabled: value.cellPhoneWarningEnabled ?? true,
+  bookWarningEnabled: value.bookWarningEnabled ?? false
+});
 const defaultExamPolicies = (systemPolicies) => clone({ aiAnalysisEnabled: systemPolicies.aiAnalysisEnabled, cheatDetection: systemPolicies.cheatDetection });
 
 const withDefaults = (value) => ({
@@ -123,12 +130,12 @@ export const createStore = async (filePath) => {
         ? databaseData
         : JSON.parse(await readFile(filePath, "utf8"))
     );
-    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...withoutInvitationExpiry(data.systemPolicies), cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) }, invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
+    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...withoutInvitationExpiry(data.systemPolicies), cheatDetection: normalizeCheatDetection(data.systemPolicies.cheatDetection), invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
     if (JSON.stringify(normalizedPolicies) !== JSON.stringify(data.systemPolicies)) {
       data = { ...data, systemPolicies: normalizedPolicies };
       shouldSave = true;
     }
-    const examsWithPolicies = data.exams.map((exam) => ({ ...exam, examPolicies: { ...defaultExamPolicies(data.systemPolicies), ...withoutInvitationExpiry(exam.examPolicies), cheatDetection: { ...data.systemPolicies.cheatDetection, ...(exam.examPolicies?.cheatDetection ?? {}) } } }));
+    const examsWithPolicies = data.exams.map((exam) => ({ ...exam, examPolicies: { ...defaultExamPolicies(data.systemPolicies), ...withoutInvitationExpiry(exam.examPolicies), cheatDetection: normalizeCheatDetection(exam.examPolicies?.cheatDetection ?? data.systemPolicies.cheatDetection) } }));
     if (examsWithPolicies.some((exam, index) => JSON.stringify(exam.examPolicies) !== JSON.stringify(data.exams[index].examPolicies))) { data = { ...data, exams: examsWithPolicies }; shouldSave = true; }
     const validSessions = data.sessions.filter((session) => new Date(session.expiresAt) > new Date());
     if (validSessions.length !== data.sessions.length) {

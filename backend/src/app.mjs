@@ -335,6 +335,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     onWarning: async (job, event) => {
       const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
       if (!examinee) return;
+      const exam = store.exams.find((item) => item.id === job.examId);
+      const policies = exam?.examPolicies;
+      const policyKeyByEvent = {
+        NO_PERSON: "noPersonWarningEnabled",
+        MULTIPLE_PEOPLE: "multiplePeopleWarningEnabled",
+        CELL_PHONE_DETECTED: "cellPhoneWarningEnabled",
+        BOOK_DETECTED: "bookWarningEnabled"
+      };
+      const policyKey = policyKeyByEvent[event.type];
+      if (!policies?.aiAnalysisEnabled || (policyKey && !policies.cheatDetection?.[policyKey])) return;
       await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, type: event.type, confidence: event.confidence, message: event.message, source: "AI", createdAt: new Date().toISOString() });
       await aiProctorOptions.onWarning?.(job, event);
     }
@@ -1041,7 +1051,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const snapshotUpdatedAt = new Date().toISOString();
       const previousAi = examinee.monitoringSnapshot?.ai;
       await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: snapshotUpdatedAt, ...(previousAi ? { ai: previousAi } : {}) } });
-      aiProctor.schedule({ image, examineeId: examinee.id, examId: exam.id, candidateId: candidate.id, snapshotUpdatedAt });
+      if (exam.examPolicies?.aiAnalysisEnabled) aiProctor.schedule({ image, examineeId: examinee.id, examId: exam.id, candidateId: candidate.id, snapshotUpdatedAt });
       return response.sendStatus(204);
     } catch (error) {
       return next(error);
@@ -1250,7 +1260,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const aiAnalysisEnabled = request.body.aiAnalysisEnabled;
       const cheatDetection = request.body.cheatDetection;
       const invitationSecurity = request.body.invitationSecurity;
-      const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean");
+      const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.noPersonWarningEnabled === "boolean" && typeof cheatDetection.multiplePeopleWarningEnabled === "boolean" && typeof cheatDetection.cellPhoneWarningEnabled === "boolean" && typeof cheatDetection.bookWarningEnabled === "boolean");
       const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440 && Number.isInteger(invitationSecurity.applicantSessionMinutes) && invitationSecurity.applicantSessionMinutes >= 30 && invitationSecurity.applicantSessionMinutes <= 480 && Number.isInteger(invitationSecurity.reverificationCooldownMinutes) && invitationSecurity.reverificationCooldownMinutes >= 0 && invitationSecurity.reverificationCooldownMinutes <= 1440);
       if (typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection || !validInvitationSecurity) return response.status(400).json({ message: "정책 값을 확인해주세요." });
       const previous = { invitationSecurity: store.systemPolicies.invitationSecurity };
@@ -1802,7 +1812,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험 정책만 수정할 수 있습니다." });
       const aiAnalysisEnabled = request.body.aiAnalysisEnabled;
       const cheatDetection = request.body.cheatDetection;
-      const validCheatDetection = cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean";
+      const validCheatDetection = cheatDetection && typeof cheatDetection.noPersonWarningEnabled === "boolean" && typeof cheatDetection.multiplePeopleWarningEnabled === "boolean" && typeof cheatDetection.cellPhoneWarningEnabled === "boolean" && typeof cheatDetection.bookWarningEnabled === "boolean";
       if (typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection) return response.status(400).json({ message: "정책 값을 확인해주세요." });
       const updated = await store.updateExam(exam.id, { examPolicies: { aiAnalysisEnabled, cheatDetection } });
       return response.json(updated.examPolicies);

@@ -68,7 +68,7 @@ export const seedData = {
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",
     aiModel: "gpt-4o-mini",
-    cheatDetection: { gazeWarningEnabled: true, audioDetectionEnabled: true, tabSwitchSubmitEnabled: true }
+    cheatDetection: { noPersonWarningEnabled: true, multiplePeopleWarningEnabled: true, cellPhoneWarningEnabled: true, bookWarningEnabled: false }
   },
   emailVerifications: []
 };
