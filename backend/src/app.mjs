@@ -320,8 +320,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     ...aiProctorOptions,
     onResult: async (job, result) => {
       const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
-      if (!examinee?.monitoringSnapshot || examinee.monitoringSnapshot.updatedAt !== job.snapshotUpdatedAt) return;
-      await store.updateExaminee(examinee.id, { monitoringSnapshot: { ...examinee.monitoringSnapshot, ai: result } });
+      if (!examinee?.monitoringSnapshot) return;
+      await store.updateExaminee(examinee.id, { monitoringSnapshot: { ...examinee.monitoringSnapshot, ai: { ...result, sourceSnapshotAt: job.snapshotUpdatedAt } } });
       await aiProctorOptions.onResult?.(job, result);
     },
     onWarning: async (job, event) => {
