@@ -48,6 +48,20 @@ Vite가 표시하는 주소로 접속합니다. 기본 주소는 `http://localho
 
 프런트엔드는 `/api` 요청을 백엔드로 프록시합니다. 별도 배포 환경에서는 다음 환경 변수를 설정하세요.
 
+### Windows 로컬 일괄 실행
+
+최초 한 번 또는 의존성이 변경됐을 때 프로젝트 루트에서 다음을 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-local.ps1
+```
+
+그다음부터는 새 터미널에서 아래 명령 하나로 AI 감독 서비스, 백엔드, 프런트엔드를 동일한 로컬 환경변수로 각각 실행할 수 있습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-local.ps1
+```
+
 | 변수 | 용도 |
 | --- | --- |
 | `VITE_API_BASE_URL` | 프런트엔드 API 기본 주소 |
