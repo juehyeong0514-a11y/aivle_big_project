@@ -14,7 +14,7 @@ const ADMIN_GROUPS = [
     label: '조직·관리자', icon: Building2,
     items: [
       { key: 'GOVERNANCE', label: '조직 승인 및 관리자 관리', icon: ShieldCheck },
-      { key: 'USER_MGMT', label: '응시자 관리', icon: Users }
+      { key: 'USER_MGMT', label: '응시자·결과 조회', icon: Users }
     ]
   },
   {
@@ -22,8 +22,7 @@ const ADMIN_GROUPS = [
     items: [
       { key: 'AI_CONFIG', label: '중앙 AI 채점 설정', icon: Cpu },
       { key: 'INVITATION_SETTINGS', label: '초대 링크 설정', icon: FileText },
-      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
-      { key: 'COMMUNITY', label: '커뮤니티 관리', icon: MessageSquare }
+
     ]
   }
 ];
@@ -31,31 +30,26 @@ const ADMIN_GROUPS = [
 // 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
   {
-    label: '조직 운영', icon: Building2,
+    label: '조직 운영',
+    icon: Building2,
     items: [
-      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users },
-      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
+      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users }
     ]
   },
   {
-    label: '시험 운영', icon: Users,
+    label: '시험 운영',
+    icon: Users,
     items: [
       { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
-      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
       { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]
   },
   {
-    label: '응시자 관리', icon: BarChart3,
+    label: '실시간 관제 및 검토',
+    icon: Monitor,
     items: [
-      { key: 'AI_REPORTS', label: '응시 현황 및 결과', icon: BarChart3 }
-    ]
-  },
-  {
-    label: '실시간 관제 및 검토', icon: Monitor,
-    items: [
-      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor },
+      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor }
     ]
   }
 ];
@@ -229,6 +223,27 @@ export default function Header() {
               {ADMIN_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
               ))}
+              <button
+  type="button"
+  className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
+  aria-label="공지사항 관리"
+  title="공지사항 관리"
+  onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
+>
+  <Megaphone size={16} className="header-tab-icon" />
+  <span className="header-tab-label">공지사항 관리</span>
+</button>
+
+<button
+  type="button"
+  className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
+  aria-label="커뮤니티 관리"
+  title="커뮤니티 관리"
+  onClick={() => handleTabClick('COMMUNITY')}
+>
+  <MessageSquare size={16} className="header-tab-icon" />
+  <span className="header-tab-label">커뮤니티 관리</span>
+</button>
             </>
           ) : isSupervisor ? (
             /* ================= 2. 매니저 전용 (그룹 드롭다운) ================= */
@@ -239,6 +254,37 @@ export default function Header() {
               {SUPERVISOR_GROUPS.map((group) => (
                 <NavGroup key={group.label} group={group} currentTab={currentTab} onSelect={handleTabClick} />
               ))}
+              <button
+  type="button"
+  className={`header-tab-btn ${currentTab === 'AI_REPORTS' ? 'active' : ''}`}
+  aria-label="응시자 관리"
+  title="응시자 관리"
+  onClick={() => handleTabClick('AI_REPORTS')}
+>
+  <BarChart3 size={16} className="header-tab-icon" />
+  <span className="header-tab-label">응시자 관리</span>
+</button>
+              <button
+  type="button"
+  className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
+  aria-label="공지사항 관리"
+  title="공지사항 관리"
+  onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
+>
+  <Megaphone size={16} className="header-tab-icon" />
+  <span className="header-tab-label">공지사항 관리</span>
+</button>
+
+<button
+  type="button"
+  className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
+  aria-label="커뮤니티 관리"
+  title="커뮤니티 관리"
+  onClick={() => handleTabClick('COMMUNITY')}
+>
+  <MessageSquare size={16} className="header-tab-icon" />
+  <span className="header-tab-label">커뮤니티 관리</span>
+</button>
             </>
           ) : (
             /* ================= 3. 일반 사용자/게스트 전용 ================= */
