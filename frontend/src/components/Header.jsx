@@ -55,7 +55,6 @@ const SUPERVISOR_GROUPS = [
     icon: Users,
     items: [
       { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
-      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]
   },
