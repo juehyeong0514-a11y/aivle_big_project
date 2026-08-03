@@ -21,7 +21,8 @@ const ADMIN_GROUPS = [
     label: '조직·관리자', icon: Building2,
     items: [
       { key: 'GOVERNANCE', label: '조직 승인 및 관리자 관리', icon: ShieldCheck },
-      { key: 'USER_MGMT', label: '응시자·결과 조회', icon: Users }
+      { key: 'USER_MGMT', label: '응시자·결과 조회', icon: Users },
+      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
     ]
   },
   {
@@ -47,7 +48,8 @@ const SUPERVISOR_GROUPS = [
     label: '조직 운영',
     icon: Building2,
     items: [
-      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users }
+      { key: 'MANAGER_WORKSPACE', label: '조직 관리', icon: Users },
+      { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
     ]
   },
   {
@@ -62,7 +64,8 @@ const SUPERVISOR_GROUPS = [
     label: '실시간 관제 및 검토',
     icon: Monitor,
     items: [
-      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor }
+      { key: 'LIVE_MONITORING', label: '화상 모니터링', icon: Monitor },
+      { key: 'AI_REPORTS', label: '응시자 관리', icon: BarChart3 }
     ]
   }
 ];
@@ -252,6 +255,7 @@ export default function Header() {
 <button
   type="button"
   className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
+  style={{ display: 'none' }}
   aria-label="커뮤니티 관리"
   title="커뮤니티 관리"
   onClick={() => handleTabClick('COMMUNITY')}
@@ -272,6 +276,7 @@ export default function Header() {
               <button
   type="button"
   className={`header-tab-btn ${currentTab === 'AI_REPORTS' ? 'active' : ''}`}
+  style={{ display: 'none' }}
   aria-label="응시자 관리"
   title="응시자 관리"
   onClick={() => handleTabClick('AI_REPORTS')}
@@ -294,6 +299,7 @@ export default function Header() {
 <button
   type="button"
   className={`header-tab-btn ${currentTab === 'COMMUNITY' ? 'active' : ''}`}
+  style={{ display: 'none' }}
   aria-label="커뮤니티 관리"
   title="커뮤니티 관리"
   onClick={() => handleTabClick('COMMUNITY')}
