@@ -69,6 +69,7 @@ export default function HomePage() {
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
             {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
+            {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'COMMUNITY' && <CommunityTab />}
           </div>
@@ -81,6 +82,7 @@ export default function HomePage() {
           <div>
             {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
             {activeTab === 'EXAMS' && <SupervisorExamDashboard />}
+            {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'COMMUNITY' && <CommunityTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}

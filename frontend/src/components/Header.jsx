@@ -11,6 +11,13 @@ import { getInvitationAwarePublicRoute, getInvitationContextToken } from './invi
 // 1. 관리자 전용 카테고리 그룹 정의
 const ADMIN_GROUPS = [
   {
+    label: '공지사항', icon: Megaphone,
+    items: [
+      { key: 'NOTICE', label: '공지사항', icon: Megaphone },
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone }
+    ]
+  },
+  {
     label: '조직·관리자', icon: Building2,
     items: [
       { key: 'GOVERNANCE', label: '조직 승인 및 관리자 관리', icon: ShieldCheck },
@@ -29,6 +36,13 @@ const ADMIN_GROUPS = [
 
 // 2. 매니저 전용 카테고리 그룹 정의
 const SUPERVISOR_GROUPS = [
+  {
+    label: '공지사항', icon: Megaphone,
+    items: [
+      { key: 'NOTICE', label: '공지사항', icon: Megaphone },
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone }
+    ]
+  },
   {
     label: '조직 운영',
     icon: Building2,
@@ -226,6 +240,7 @@ export default function Header() {
               <button
   type="button"
   className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
+  style={{ display: 'none' }}
   aria-label="공지사항 관리"
   title="공지사항 관리"
   onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
@@ -267,6 +282,7 @@ export default function Header() {
               <button
   type="button"
   className={`header-tab-btn ${currentTab === 'NOTICE_MANAGEMENT' ? 'active' : ''}`}
+  style={{ display: 'none' }}
   aria-label="공지사항 관리"
   title="공지사항 관리"
   onClick={() => handleTabClick('NOTICE_MANAGEMENT')}
