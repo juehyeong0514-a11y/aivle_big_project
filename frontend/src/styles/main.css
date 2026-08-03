@@ -1474,6 +1474,15 @@ main {
 .monitoring-live-backdrop { position: absolute; inset: 0; border: 0; background: rgba(15, 23, 42, .52); cursor: default; }
 .monitoring-live-panel { position: relative; z-index: 1; width: min(100%, 1080px); max-height: calc(100vh - 48px); overflow-y: auto; padding: 20px; border: 1px solid var(--border-input); border-radius: 12px; background: var(--surface-secondary); box-shadow: 0 20px 48px rgba(15, 23, 42, .22); }
 .monitoring-live-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.monitoring-live-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.monitoring-live-audio-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 8px; color: var(--text-secondary); background: var(--surface-secondary); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.monitoring-live-audio-toggle small { color: var(--text-muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.monitoring-live-audio-wave { display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 22px; height: 18px; color: var(--text-muted); }
+.monitoring-live-audio-wave span { width: 3px; height: 14px; border-radius: 999px; background: currentColor; transform-origin: center; transition: transform 100ms linear, color 120ms ease-out; }
+.monitoring-live-audio-wave.speaking { color: var(--accent-primary); }
+.monitoring-live-audio-toggle:hover, .monitoring-live-audio-toggle:focus-visible, .monitoring-live-audio-toggle.active { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--surface-accent-soft); outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.monitoring-live-audio-toggle:disabled { opacity: .55; cursor: not-allowed; }
+.monitoring-live-audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .monitoring-live-heading .workspace-eyebrow { display: inline-flex; align-items: center; gap: 5px; }
 .monitoring-live-heading h2 { margin: 5px 0 4px; color: var(--text-primary); font-size: 20px; }
 .monitoring-live-heading p { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }

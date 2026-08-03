@@ -22,10 +22,19 @@ export default function LiveMonitoringTab() {
   const [frontLiveReady, setFrontLiveReady] = useState(false);
   const [auxiliaryLiveReady, setAuxiliaryLiveReady] = useState(false);
   const [screenLiveReady, setScreenLiveReady] = useState(false);
+  const [microphoneLiveReady, setMicrophoneLiveReady] = useState(false);
+  const [microphoneLiveEnabled, setMicrophoneLiveEnabled] = useState(false);
+  const [microphoneLiveLevel, setMicrophoneLiveLevel] = useState(0);
+  const [microphoneLiveSpeaking, setMicrophoneLiveSpeaking] = useState(false);
   const [loadError, setLoadError] = useState('');
   const frontLiveRef = useRef(null);
   const auxiliaryLiveRef = useRef(null);
   const screenLiveRef = useRef(null);
+  const microphoneLiveRef = useRef(null);
+  const microphoneStreamRef = useRef(null);
+  const microphoneAudioContextRef = useRef(null);
+  const microphoneAnalyserRef = useRef(null);
+  const microphoneMeterTimerRef = useRef(null);
   const livePeerRef = useRef(null);
   const auxiliaryPeerRef = useRef(null);
   const livePollTimerRef = useRef(null);
@@ -170,6 +179,53 @@ export default function LiveMonitoringTab() {
   const currentLiveAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.monitoringSnapshot);
   const currentLiveWarnings = currentLiveExaminee ? warningsFor(currentLiveExaminee.id) : [];
 
+  useEffect(() => {
+    const audio = microphoneLiveRef.current;
+    if (!audio || !microphoneStreamRef.current) return;
+    audio.srcObject = microphoneStreamRef.current;
+    audio.muted = !microphoneLiveEnabled;
+    void audio.play().catch(() => {});
+  }, [liveExaminee, microphoneLiveReady, microphoneLiveEnabled]);
+
+  const stopMicrophoneMeter = () => {
+    if (microphoneMeterTimerRef.current) window.clearInterval(microphoneMeterTimerRef.current);
+    microphoneMeterTimerRef.current = null;
+    microphoneAnalyserRef.current?.disconnect();
+    microphoneAudioContextRef.current?.close().catch(() => {});
+    microphoneAnalyserRef.current = null;
+    microphoneAudioContextRef.current = null;
+    setMicrophoneLiveLevel(0);
+    setMicrophoneLiveSpeaking(false);
+  };
+
+  const startMicrophoneMeter = (stream) => {
+    stopMicrophoneMeter();
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext || !stream) return;
+    try {
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.75;
+      audioContext.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.fftSize);
+      microphoneAudioContextRef.current = audioContext;
+      microphoneAnalyserRef.current = analyser;
+      microphoneMeterTimerRef.current = window.setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+        const rms = Math.sqrt(samples.reduce((sum, sample) => {
+          const normalized = (sample - 128) / 128;
+          return sum + normalized * normalized;
+        }, 0) / samples.length);
+        const level = Math.min(1, rms * 5);
+        setMicrophoneLiveLevel(level);
+        setMicrophoneLiveSpeaking(level >= 0.08);
+      }, 100);
+    } catch {
+      stopMicrophoneMeter();
+    }
+  };
+
   const closeWarningLog = () => setWarningLogExaminee(null);
 
   const closeLive = () => {
@@ -184,11 +240,40 @@ export default function LiveMonitoringTab() {
     if (frontLiveRef.current) frontLiveRef.current.srcObject = null;
     if (auxiliaryLiveRef.current) auxiliaryLiveRef.current.srcObject = null;
     if (screenLiveRef.current) screenLiveRef.current.srcObject = null;
+    if (microphoneLiveRef.current) {
+      microphoneLiveRef.current.srcObject = null;
+      microphoneLiveRef.current.muted = true;
+    }
+    microphoneStreamRef.current = null;
+    stopMicrophoneMeter();
     setLiveExaminee(null);
     setLiveError('');
     setFrontLiveReady(false);
     setAuxiliaryLiveReady(false);
     setScreenLiveReady(false);
+    setMicrophoneLiveReady(false);
+    setMicrophoneLiveEnabled(false);
+  };
+
+  const toggleMicrophoneLive = async () => {
+    const audio = microphoneLiveRef.current;
+    if (!audio || !microphoneLiveReady) return;
+    if (microphoneLiveEnabled) {
+      audio.muted = true;
+      stopMicrophoneMeter();
+      setMicrophoneLiveEnabled(false);
+      return;
+    }
+    try {
+      if (!microphoneMeterTimerRef.current && microphoneStreamRef.current) startMicrophoneMeter(microphoneStreamRef.current);
+      await microphoneAudioContextRef.current?.resume();
+      audio.muted = false;
+      await audio.play();
+      setMicrophoneLiveEnabled(true);
+    } catch {
+      audio.muted = true;
+      setLiveError('마이크 소리를 재생하지 못했습니다.');
+    }
   };
 
   const startAuxiliaryLive = async (examinee) => {
@@ -251,14 +336,38 @@ export default function LiveMonitoringTab() {
         if (livePeerRef.current !== peer || !['closed', 'disconnected', 'failed'].includes(peer.connectionState)) return;
         if (frontLiveRef.current) frontLiveRef.current.srcObject = null;
         if (screenLiveRef.current) screenLiveRef.current.srcObject = null;
+        if (microphoneLiveRef.current) microphoneLiveRef.current.srcObject = null;
+        microphoneStreamRef.current = null;
+        stopMicrophoneMeter();
         setFrontLiveReady(false);
         setScreenLiveReady(false);
+        setMicrophoneLiveReady(false);
+        setMicrophoneLiveEnabled(false);
         setLiveError('응시자 영상 연결이 종료되었습니다.');
       };
       peer.addTransceiver('video', { direction: 'recvonly' });
       const screenVideoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
       peer.addTransceiver('audio', { direction: 'recvonly' });
       peer.ontrack = (event) => {
+        if (event.track.kind === 'audio') {
+          const microphoneStream = new MediaStream([event.track]);
+          microphoneStreamRef.current = microphoneStream;
+          startMicrophoneMeter(microphoneStream);
+          if (microphoneLiveRef.current) {
+            microphoneLiveRef.current.srcObject = microphoneStream;
+            microphoneLiveRef.current.muted = true;
+          }
+          setMicrophoneLiveReady(true);
+          event.track.onended = () => {
+            if (livePeerRef.current !== peer) return;
+            if (microphoneLiveRef.current) microphoneLiveRef.current.srcObject = null;
+            microphoneStreamRef.current = null;
+            stopMicrophoneMeter();
+            setMicrophoneLiveReady(false);
+            setMicrophoneLiveEnabled(false);
+          };
+          return;
+        }
         if (event.track.kind !== 'video') return;
         const isScreen = event.transceiver === screenVideoTransceiver;
         const target = isScreen ? screenLiveRef.current : frontLiveRef.current;
@@ -387,7 +496,16 @@ export default function LiveMonitoringTab() {
               <h2 id="monitoring-live-title">{currentLiveExaminee.name} 응시자 라이브 화면</h2>
               <p>정면 영상의 박스는 2초 주기 최신 AI 분석 결과와 동기화됩니다.</p>
             </div>
-            <button className="icon-button" type="button" onClick={closeLive} aria-label="라이브 화면 닫기"><X size={18} /></button>
+            <div className="monitoring-live-actions">
+              <button className={'monitoring-live-audio-toggle ' + (microphoneLiveEnabled ? 'active' : '')} type="button" onClick={toggleMicrophoneLive} disabled={!microphoneLiveReady} aria-pressed={microphoneLiveEnabled}>
+                <span className={'monitoring-live-audio-wave ' + (microphoneLiveSpeaking ? 'speaking' : '')} aria-hidden="true">
+                  {[0.45, 0.72, 1, 0.72, 0.45].map((height, index) => <span key={index} style={{ transform: `scaleY(${Math.max(0.12, microphoneLiveLevel * height)})` }} />)}
+                </span>
+                <span>{microphoneLiveReady ? (microphoneLiveEnabled ? '마이크 듣기 중' : '마이크 듣기') : '마이크 연결 대기'}</span>
+                {microphoneLiveReady && <small>{microphoneLiveSpeaking ? '소리 감지 중' : '무음'}</small>}
+              </button>
+              <button className="icon-button" type="button" onClick={closeLive} aria-label="라이브 화면 닫기"><X size={18} /></button>
+            </div>
           </div>
           <div className="monitoring-live-grid">
             <div className="monitoring-live-surface">
@@ -414,6 +532,7 @@ export default function LiveMonitoringTab() {
               <small>응시자 화면 공유 스트림을 기다리고 있습니다.</small>
             </div>
           </div>
+          <audio ref={microphoneLiveRef} autoPlay muted className="monitoring-live-audio" aria-label="응시자 마이크 오디오" />
           <div className="monitoring-live-tools">
             <section className="monitoring-live-tool-panel">
               <div className="monitoring-live-tool-heading"><strong>AI 분석</strong>{currentLiveAiMonitoring?.analyzedAt && <time dateTime={currentLiveAiMonitoring.analyzedAt}>{new Date(currentLiveAiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}</div>
