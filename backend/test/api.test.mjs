@@ -54,7 +54,7 @@ test("updates objective questions and blocks question deletion after an invitati
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
   const organizations = await fetch(`${baseUrl}/api/manager/organizations`, { headers });
   const organization = (await organizations.json()).find((item) => item.status === "APPROVED" && item.canManage);
-  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers, body: JSON.stringify({ organizationId: organization.id, title: "문제 CRUD 시험", duration: "30분", questions: "2문제" }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers, body: JSON.stringify({ organizationId: organization.id, title: "문제 CRUD 시험", duration: "30분", questions: "2문제", date: "2099.06.01 10:00" }) });
   const exam = await examResponse.json();
   const createQuestion = async (prompt) => fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions`, { method: "POST", headers, body: JSON.stringify({ type: "MULTIPLE_CHOICE", prompt, options: ["1", "2"], answer: "2" }) });
   const questionResponse = await createQuestion("수정 전 문제");
@@ -177,6 +177,11 @@ test("scopes manager notices to assigned organizations and exams", async (contex
   });
   const { token } = await login.json();
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers, body: JSON.stringify({ organizationId: "org-aivle-cs", title: "공지 범위 시험", duration: "60분", questions: "1문제", date: "2099.05.01 10:00" }) });
+  const exam = await examResponse.json();
+  assert.equal(examResponse.status, 201);
+  const assignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(assignment.status, 201);
 
   const created = await fetch(`${baseUrl}/api/manager/notices`, {
     method: "POST",
@@ -187,7 +192,7 @@ test("scopes manager notices to assigned organizations and exams", async (contex
       category: "EXAM",
       scope: "EXAM",
       organizationId: "org-aivle-cs",
-      examId: "exam-2026-second-half"
+      examId: exam.id
     })
   });
   assert.equal(created.status, 201);
@@ -198,7 +203,7 @@ test("scopes manager notices to assigned organizations and exams", async (contex
   const publicNotices = await fetch(`${baseUrl}/api/notices`);
   assert.equal((await publicNotices.json()).some((item) => item.id === notice.id), false);
 
-  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/invitations/send`, {
+  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, {
     method: "POST",
     headers,
     body: JSON.stringify({ candidateIds: ["candidate-1"] })
@@ -340,7 +345,9 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(organization.status, "PENDING");
   const approve = await fetch(`${baseUrl}/api/admin/organizations/${organization.id}/approve`, { method: "POST", headers: adminHeaders });
   assert.equal(approve.status, 200);
-  const afterApprovalExam = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "승인 후 평가", duration: "60분", questions: "총 1문제" }) });
+  const missingScheduleExam = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "일정 없는 평가", duration: "60분", questions: "총 1문제" }) });
+  assert.equal(missingScheduleExam.status, 400);
+  const afterApprovalExam = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "승인 후 평가", duration: "60분", questions: "총 1문제", date: "2099.07.01 10:00" }) });
   assert.equal(afterApprovalExam.status, 201);
   const organizations = await fetch(`${baseUrl}/api/admin/organizations`, { headers: { Authorization: `Bearer ${admin.token}` } });
   const managedOrganization = (await organizations.json()).find((candidate) => candidate.id === organization.id);
@@ -407,7 +414,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal((await batchDelete.json()).removedCount, 2);
   const outOfScopeDelete = await fetch(`${baseUrl}/api/manager/candidates/candidate-1`, { method: "DELETE", headers: managerHeaders });
   assert.equal(outOfScopeDelete.status, 403);
-  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id], expiresInHours: 1 }) });
   const invitation = await invitationResponse.json();
   assert.equal(invitation.count, 1);
   assert.equal(invitation.deliveryStatus, "PREVIEW");
@@ -428,12 +435,8 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const pastAssignment = await fetch(`${baseUrl}/api/manager/exams/${pastExam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
   assert.equal(pastAssignment.status, 201);
   const pastInvitationResponse = await fetch(`${baseUrl}/api/manager/exams/${pastExam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
-  const pastInvitation = await pastInvitationResponse.json();
-  assert.equal(pastInvitationResponse.status, 201);
-  assert.ok(Date.parse(pastInvitation.mailPreviews[0].expiresAt) > Date.now());
-  const pastToken = new URL(pastInvitation.mailPreviews[0].entryLink).searchParams.get("token");
-  const pastInvitationInfo = await fetch(`${baseUrl}/api/invitations/${pastToken}`);
-  assert.equal(pastInvitationInfo.status, 200);
+  assert.equal(pastInvitationResponse.status, 409);
+  assert.deepEqual(await pastInvitationResponse.json(), { message: "이미 종료된 시험에는 초대 링크를 발송할 수 없습니다." });
 
   const savedDatabase = JSON.parse(await readFile(join(directory, "database.json"), "utf8"));
   assert.equal(savedDatabase.invitations[0].token, undefined);
@@ -547,7 +550,7 @@ test("runs Python, Java, and C through the configured code execution server", as
   const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
   const organizations = await fetch(`${baseUrl}/api/manager/organizations`, { headers: managerHeaders });
   const organization = (await organizations.json()).find((item) => item.status === "APPROVED" && item.canManage);
-  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "다국어 실행 시험", duration: "30분", questions: "1문제" }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "다국어 실행 시험", duration: "30분", questions: "1문제", date: "2099.09.01 10:00" }) });
   const exam = await examResponse.json();
   const questionResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ type: "CODING", title: "합계", languages: ["Python", "Java", "C"], description: "두 수의 합을 출력하세요.", inputFormat: "A B", outputFormat: "합계", constraints: "정수", publicExamples: [{ input: "2 3", expectedOutput: "5" }], hiddenTestCases: [{ input: "1 2", expectedOutput: "3" }], judgeMode: "EXACT" }) });
   assert.equal(questionResponse.status, 201);
@@ -556,7 +559,7 @@ test("runs Python, Java, and C through the configured code execution server", as
   const candidateResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "실행 테스트 응시자", email: "code-runner@example.com", birthDate: "2000-01-01" }) });
   const candidate = await candidateResponse.json();
   await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
-  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id], expiresInHours: 1 }) });
   const invitation = await invitationResponse.json();
   const token = new URL(invitation.mailPreviews[0].entryLink).searchParams.get("token");
   const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
@@ -664,9 +667,10 @@ test("scopes exam policies to the supervising manager's organization", async (co
   const initial = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { headers });
   assert.equal(initial.status, 200);
   const policies = await initial.json();
-  const update = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { method: "PATCH", headers, body: JSON.stringify({ ...policies, invitationExpiryHours: 48, cheatDetection: { ...policies.cheatDetection, tabSwitchSubmitEnabled: false } }) });
+  assert.equal(policies.invitationExpiryHours, undefined);
+  const update = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { method: "PATCH", headers, body: JSON.stringify({ ...policies, cheatDetection: { ...policies.cheatDetection, tabSwitchSubmitEnabled: false } }) });
   assert.equal(update.status, 200);
-  assert.equal((await update.json()).invitationExpiryHours, 48);
+  assert.equal((await update.json()).invitationExpiryHours, undefined);
   const persisted = await fetch(`${baseUrl}/api/supervisor/exams/exam-2026-second-half/policies`, { headers });
   assert.equal((await persisted.json()).cheatDetection.tabSwitchSubmitEnabled, false);
   const outOfScope = await fetch(`${baseUrl}/api/supervisor/exams/not-managed/policies`, { headers });
@@ -686,7 +690,12 @@ test("allows only ADMIN to govern invitation policies, inventory, audit logs, an
 
   const denied = await fetch(`${baseUrl}/api/admin/invitations/overview`, { headers: managerHeaders });
   assert.equal(denied.status, 403);
-  const sent = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: "org-aivle-cs", title: "초대 운영 시험", duration: "90분", questions: "4문제", date: "2099.10.01 10:00" }) });
+  const exam = await examResponse.json();
+  assert.equal(examResponse.status, 201);
+  const assignment = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(assignment.status, 201);
+  const sent = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
   assert.equal(sent.status, 201);
 
   const inventory = await fetch(`${baseUrl}/api/admin/invitations`, { headers: adminHeaders });
@@ -699,7 +708,8 @@ test("allows only ADMIN to govern invitation policies, inventory, audit logs, an
   assert.equal((await overview.json()).metrics.active, 1);
 
   const policies = await (await fetch(`${baseUrl}/api/admin/policies`, { headers: adminHeaders })).json();
-  const policyUpdate = await fetch(`${baseUrl}/api/admin/policies`, { method: "PATCH", headers: adminHeaders, body: JSON.stringify({ ...policies, invitationExpiryHours: 48, invitationSecurity: { ...policies.invitationSecurity, maxVerificationAttempts: 3, verificationLockoutMinutes: 30 } }) });
+  assert.equal(policies.invitationExpiryHours, undefined);
+  const policyUpdate = await fetch(`${baseUrl}/api/admin/policies`, { method: "PATCH", headers: adminHeaders, body: JSON.stringify({ ...policies, invitationSecurity: { ...policies.invitationSecurity, maxVerificationAttempts: 3, verificationLockoutMinutes: 30 } }) });
   assert.equal(policyUpdate.status, 200);
   assert.equal((await policyUpdate.json()).invitationSecurity.maxVerificationAttempts, 3);
 

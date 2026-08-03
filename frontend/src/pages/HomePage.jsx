@@ -40,7 +40,7 @@ export default function HomePage() {
   const defaultTab = getDefaultTab();
   const requestedTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
   const protectedGuestTabs = new Set(['EXAM', 'CHECK', 'PRACTICE']);
-  const normalizedTab = requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab;
+  const normalizedTab = requestedTab === 'EXAM_POLICY' ? 'EXAMS' : requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab;
   const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(normalizedTab)
     ? defaultTab
     : normalizedTab === 'RESULT' ? defaultTab : normalizedTab === 'EXAM_CREATE' ? 'EXAMS' : normalizedTab;
@@ -87,8 +87,7 @@ export default function HomePage() {
             {activeTab === 'COMMUNITY' && <CommunityTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
             {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
-            {activeTab === 'EXAM_POLICY' && <ExamPolicyTab />}
-            {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab prohibitions />}
+            {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab />}
           </div>
         )}
         </Suspense>

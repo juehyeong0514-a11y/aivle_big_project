@@ -3,7 +3,7 @@ import { ShieldAlert, Save } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 export default function CheatMgmtTab() {
-  const [policies, setPolicies] = useState({ invitationExpiryHours: 24, aiAnalysisEnabled: true, cheatDetection: { gazeWarningEnabled: true, audioDetectionEnabled: true, tabSwitchSubmitEnabled: true } });
+  const [policies, setPolicies] = useState({ aiAnalysisEnabled: true, cheatDetection: { gazeWarningEnabled: true, audioDetectionEnabled: true, tabSwitchSubmitEnabled: true } });
   const [message, setMessage] = useState('');
   useEffect(() => { api.get('/admin/policies', { headers: authHeaders() }).then(({ data }) => setPolicies(data)).catch((reason) => setMessage(apiErrorMessage(reason, '부정행위 정책을 불러오지 못했습니다.'))); }, []);
   const updateDetection = (key, value) => setPolicies({ ...policies, cheatDetection: { ...policies.cheatDetection, [key]: value } });

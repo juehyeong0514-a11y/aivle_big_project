@@ -55,7 +55,7 @@ const SUPERVISOR_GROUPS = [
     icon: Users,
     items: [
       { key: 'EXAMS', label: '시험 총괄 대시보드', icon: ClipboardList },
-      { key: 'EXAM_POLICY', label: '시험 정책 관리', icon: FileText },
+      { key: 'NOTICE_MANAGEMENT', label: '공지사항 관리', icon: Megaphone },
       { key: 'EXAM_PROHIBITIONS', label: '시험 금지사항 관리', icon: ShieldAlert }
     ]
   },
@@ -127,6 +127,7 @@ export default function Header() {
 
   const defaultTab = getDefaultTab();
   const requestedTab = searchParams.get('tab') || defaultTab;
+  const normalizedRequestedTab = requestedTab === 'EXAM_POLICY' ? 'EXAMS' : requestedTab;
   const invitationToken = getInvitationContextToken(
     location.pathname,
     searchParams.get('token'),
@@ -134,7 +135,7 @@ export default function Header() {
     sessionStorage.getItem('candidateInvitationToken'),
     Boolean(localStorage.getItem('candidateAccessToken'))
   );
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab);
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (normalizedRequestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : normalizedRequestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : normalizedRequestedTab);
   const isCandidateInvitation = Boolean(invitationToken && candidateName);
 
   useEffect(() => {

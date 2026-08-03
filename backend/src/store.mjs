@@ -27,7 +27,6 @@ const collectionDefaults = {
   aiGradingRequests: [],
   organizationAiPolicies: {},
   systemPolicies: {
-    invitationExpiryHours: 24,
     invitationSecurity: {
       maxVerificationAttempts: 5,
       verificationLockoutMinutes: 15,
@@ -45,7 +44,8 @@ const collectionDefaults = {
   }
 };
 
-const defaultExamPolicies = (systemPolicies) => clone({ invitationExpiryHours: systemPolicies.invitationExpiryHours, aiAnalysisEnabled: systemPolicies.aiAnalysisEnabled, cheatDetection: systemPolicies.cheatDetection });
+const withoutInvitationExpiry = (policies) => Object.fromEntries(Object.entries(policies ?? {}).filter(([key]) => key !== "invitationExpiryHours"));
+const defaultExamPolicies = (systemPolicies) => clone({ aiAnalysisEnabled: systemPolicies.aiAnalysisEnabled, cheatDetection: systemPolicies.cheatDetection });
 
 const withDefaults = (value) => ({
   ...value,
@@ -123,12 +123,12 @@ export const createStore = async (filePath) => {
         ? databaseData
         : JSON.parse(await readFile(filePath, "utf8"))
     );
-    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...data.systemPolicies, cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) }, invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
+    const normalizedPolicies = { ...collectionDefaults.systemPolicies, ...withoutInvitationExpiry(data.systemPolicies), cheatDetection: { ...collectionDefaults.systemPolicies.cheatDetection, ...(data.systemPolicies.cheatDetection ?? {}) }, invitationSecurity: { ...collectionDefaults.systemPolicies.invitationSecurity, ...(data.systemPolicies.invitationSecurity ?? {}) } };
     if (JSON.stringify(normalizedPolicies) !== JSON.stringify(data.systemPolicies)) {
       data = { ...data, systemPolicies: normalizedPolicies };
       shouldSave = true;
     }
-    const examsWithPolicies = data.exams.map((exam) => ({ ...exam, examPolicies: { ...defaultExamPolicies(data.systemPolicies), ...(exam.examPolicies ?? {}), cheatDetection: { ...data.systemPolicies.cheatDetection, ...(exam.examPolicies?.cheatDetection ?? {}) } } }));
+    const examsWithPolicies = data.exams.map((exam) => ({ ...exam, examPolicies: { ...defaultExamPolicies(data.systemPolicies), ...withoutInvitationExpiry(exam.examPolicies), cheatDetection: { ...data.systemPolicies.cheatDetection, ...(exam.examPolicies?.cheatDetection ?? {}) } } }));
     if (examsWithPolicies.some((exam, index) => JSON.stringify(exam.examPolicies) !== JSON.stringify(data.exams[index].examPolicies))) { data = { ...data, exams: examsWithPolicies }; shouldSave = true; }
     const validSessions = data.sessions.filter((session) => new Date(session.expiresAt) > new Date());
     if (validSessions.length !== data.sessions.length) {

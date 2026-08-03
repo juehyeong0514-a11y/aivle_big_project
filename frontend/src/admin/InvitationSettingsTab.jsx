@@ -59,11 +59,11 @@ export default function InvitationSettingsTab() {
   const metricCards = [[overview.metrics.active ?? 0, '활성 링크', ShieldCheck], [overview.metrics.sentToday ?? 0, '오늘 발송', Send], [overview.metrics.expiringSoon ?? 0, '24시간 내 만료', Clock3], [overview.metrics.deliveryFailures ?? 0, '발송 실패', FileWarning]];
 
   return <section className="workspace-shell">
-    <div className="workspace-heading"><div><span className="workspace-eyebrow">초대 운영 관리</span><h1>초대 링크 설정</h1><p>플랫폼 전역의 초대 정책, 보안 규칙, 발급 현황과 긴급 폐기를 관리합니다.</p></div><div className="workspace-role-mark admin"><ShieldCheck size={16} /> 관리자 전용 운영</div></div>
+    <div className="workspace-heading"><div><span className="workspace-eyebrow">초대 운영 관리</span><h1>초대 링크 설정</h1><p>플랫폼 전역의 초대 보안 규칙, 발급 현황과 긴급 폐기를 관리합니다.</p></div><div className="workspace-role-mark admin"><ShieldCheck size={16} /> 관리자 전용 운영</div></div>
     {message && <div className="workspace-alert">{message}</div>}
     <div className="metric-grid">{metricCards.map(([value, label, Icon]) => <div className="metric-card" key={label}><Icon size={17} /><strong>{value}</strong><span>{label}</span></div>)}</div>
 
-    <div className="data-panel form-panel invitation-security-panel"><div className="panel-heading"><div><h2>보안 정책</h2><p>링크 만료는 각 시험의 설정과 시험 종료 시각으로 결정합니다. 링크 원문과 토큰 해시는 어떤 사용자에게도 표시하지 않습니다.</p></div><LockKeyhole size={20} /></div>
+    <div className="data-panel form-panel invitation-security-panel"><div className="panel-heading"><div><h2>보안 정책</h2><p>링크 만료는 시험 시작 일시와 제한 시간으로 계산한 시험 종료 시각으로 자동 결정됩니다. 링크 원문과 토큰 해시는 어떤 사용자에게도 표시하지 않습니다.</p></div><LockKeyhole size={20} /></div>
       <div className="invitation-security-fixed"><strong>항상 적용되는 보호 규칙</strong><span>재발송 시 기존 미제출 링크는 자동 폐기되며, 제출 완료 링크는 즉시 차단됩니다.</span></div>
       <div className="security-setting-grid">
         <label><span><strong>응시번호 검증 실패 허용 횟수</strong><small>초과 시 링크별·IP별 접근을 잠급니다.</small></span><input type="number" min="1" max="10" value={policies.invitationSecurity.maxVerificationAttempts} onChange={(event) => updateSecurity('maxVerificationAttempts', Number(event.target.value))} /></label>

@@ -1818,7 +1818,19 @@ main {
 .exam-card-metrics { display: grid; gap: 8px; align-content: end; color: var(--text-secondary); font-size: 12px; }
 .exam-card-metrics span { display: inline-flex; align-items: center; gap: 6px; }
 .exam-summary-card footer { padding: 12px 18px; border-top: 1px solid var(--border-default); color: var(--text-muted); font-size: 12px; }
-.create-exam-form { max-width: 720px; }
+.create-exam-form { width: min(720px, calc(100vw - 32px)); max-width: 720px; }
+.create-exam-form .form-row { align-items: start; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.duration-field { display: grid; min-width: 0; gap: 6px; }
+.duration-control { gap: 4px !important; font-size: 12px !important; }
+.duration-control-label { min-height: 14px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.schedule-fieldset { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; gap: 6px; }
+.schedule-fieldset-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+.schedule-fieldset-heading strong { color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.schedule-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; }
+.schedule-picker-row label { gap: 4px; font-size: 12px; }
+.schedule-end-hint { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px; min-height: 34px; color: var(--text-muted); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.schedule-end-hint > span { min-width: 0; overflow-wrap: anywhere; }
+.schedule-end-hint svg { margin-top: 1px; }
 .exam-detail-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; padding: 8px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-secondary); }
 .exam-detail-tab { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 12px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out; }
 .exam-detail-tab:hover { background: var(--surface-soft); color: var(--text-primary); }

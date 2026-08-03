@@ -64,7 +64,6 @@ export const seedData = {
   invitationAuditLogs: [],
   organizationAiPolicies: {},
   systemPolicies: {
-    invitationExpiryHours: 24,
     invitationSecurity: { maxVerificationAttempts: 5, verificationLockoutMinutes: 15, applicantSessionMinutes: 240, reverificationCooldownMinutes: 0 },
     aiAnalysisEnabled: true,
     aiProvider: "OpenAI",

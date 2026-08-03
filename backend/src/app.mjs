@@ -1239,16 +1239,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/admin/policies", authenticate, requireRole("ADMIN"), (_request, response) => response.json(store.systemPolicies));
   app.patch("/api/admin/policies", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
-      const invitationExpiryHours = request.body.invitationExpiryHours === undefined ? store.systemPolicies.invitationExpiryHours : Number(request.body.invitationExpiryHours);
       const aiAnalysisEnabled = request.body.aiAnalysisEnabled;
       const cheatDetection = request.body.cheatDetection;
       const invitationSecurity = request.body.invitationSecurity;
       const validCheatDetection = cheatDetection === undefined || (cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean");
       const validInvitationSecurity = invitationSecurity === undefined || (invitationSecurity && Number.isInteger(invitationSecurity.maxVerificationAttempts) && invitationSecurity.maxVerificationAttempts >= 1 && invitationSecurity.maxVerificationAttempts <= 10 && Number.isInteger(invitationSecurity.verificationLockoutMinutes) && invitationSecurity.verificationLockoutMinutes >= 1 && invitationSecurity.verificationLockoutMinutes <= 1440 && Number.isInteger(invitationSecurity.applicantSessionMinutes) && invitationSecurity.applicantSessionMinutes >= 30 && invitationSecurity.applicantSessionMinutes <= 480 && Number.isInteger(invitationSecurity.reverificationCooldownMinutes) && invitationSecurity.reverificationCooldownMinutes >= 0 && invitationSecurity.reverificationCooldownMinutes <= 1440);
-      if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection || !validInvitationSecurity) return response.status(400).json({ message: "정책 값을 확인해주세요." });
-      const previous = { invitationExpiryHours: store.systemPolicies.invitationExpiryHours, invitationSecurity: store.systemPolicies.invitationSecurity };
-      const updated = await store.updateSystemPolicies({ invitationExpiryHours, aiAnalysisEnabled, ...(cheatDetection === undefined ? {} : { cheatDetection }), ...(invitationSecurity === undefined ? {} : { invitationSecurity }) });
-      await addInvitationAudit("POLICY_UPDATED", request.user, { previous, next: { invitationExpiryHours: updated.invitationExpiryHours, invitationSecurity: updated.invitationSecurity } });
+      if (typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection || !validInvitationSecurity) return response.status(400).json({ message: "정책 값을 확인해주세요." });
+      const previous = { invitationSecurity: store.systemPolicies.invitationSecurity };
+      const updated = await store.updateSystemPolicies({ aiAnalysisEnabled, ...(cheatDetection === undefined ? {} : { cheatDetection }), ...(invitationSecurity === undefined ? {} : { invitationSecurity }) });
+      await addInvitationAudit("POLICY_UPDATED", request.user, { previous, next: { invitationSecurity: updated.invitationSecurity } });
       return response.json(updated);
     } catch (error) {
       return next(error);
@@ -1770,9 +1769,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/manager/exams", authenticate, requireManager, async (request, response, next) => {
     try {
       const { title, duration, questions, date, organizationId } = request.body;
-      if (![title, duration, questions, organizationId].every(isNonEmptyText)) return response.status(400).json({ message: "조직, 시험명, 제한 시간, 문제 수를 입력해주세요." });
+      if (![title, duration, questions, date, organizationId].every(isNonEmptyText)) return response.status(400).json({ message: "조직, 시험명, 제한 시간, 시험 일정을 모두 입력해주세요." });
       if (!scopedOrganization(request, organizationId)) return response.status(403).json({ message: "배정된 승인 조직만 시험을 만들 수 있습니다." });
-      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: questions.trim(), date: isNonEmptyText(date) ? date.trim() : "일정 미정", category: "정규 평가", status: "AVAILABLE", organizationId };
+      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: questions.trim(), date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId };
+      if (!scheduledExamEndsAt(exam)) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
       await store.addExam(exam);
       return response.status(201).json(exam);
     } catch (error) {
@@ -1792,12 +1792,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       const exam = scopedExam(request, request.params.id);
       if (!exam) return response.status(403).json({ message: "배정된 승인 조직의 시험 정책만 수정할 수 있습니다." });
-      const invitationExpiryHours = Number(request.body.invitationExpiryHours);
       const aiAnalysisEnabled = request.body.aiAnalysisEnabled;
       const cheatDetection = request.body.cheatDetection;
       const validCheatDetection = cheatDetection && typeof cheatDetection.gazeWarningEnabled === "boolean" && typeof cheatDetection.audioDetectionEnabled === "boolean" && typeof cheatDetection.tabSwitchSubmitEnabled === "boolean";
-      if (!Number.isFinite(invitationExpiryHours) || invitationExpiryHours < 1 || invitationExpiryHours > 168 || typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection) return response.status(400).json({ message: "정책 값을 확인해주세요." });
-      const updated = await store.updateExam(exam.id, { examPolicies: { invitationExpiryHours, aiAnalysisEnabled, cheatDetection } });
+      if (typeof aiAnalysisEnabled !== "boolean" || !validCheatDetection) return response.status(400).json({ message: "정책 값을 확인해주세요." });
+      const updated = await store.updateExam(exam.id, { examPolicies: { aiAnalysisEnabled, cheatDetection } });
       return response.json(updated.examPolicies);
     } catch (error) {
       return next(error);
@@ -1944,9 +1943,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!exam || candidateIds.length === 0) return response.status(400).json({ message: "시험과 초대할 응시자를 확인해주세요." });
       const eligibleCandidateIds = candidateIds.filter((candidateId) => store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidateId));
       if (eligibleCandidateIds.length !== candidateIds.length) return response.status(409).json({ message: "시험 대상자로 먼저 배정한 응시자만 초대할 수 있습니다." });
-      const fallbackExpiresAt = new Date(Date.now() + (Number(request.body.expiresInHours) || exam.examPolicies?.invitationExpiryHours || 24) * 60 * 60 * 1000).toISOString();
-      const scheduledExpiresAt = scheduledExamEndsAt(exam);
-      const expiresAt = scheduledExpiresAt && new Date(scheduledExpiresAt) > new Date() ? scheduledExpiresAt : fallbackExpiresAt;
+      const expiresAt = scheduledExamEndsAt(exam);
+      if (!expiresAt) return response.status(409).json({ message: "시험 일정과 제한 시간을 확인한 뒤 초대해주세요." });
+      if (new Date(expiresAt) <= new Date()) return response.status(409).json({ message: "이미 종료된 시험에는 초대 링크를 발송할 수 없습니다." });
       const previews = [];
       const createdInvitationIds = [];
       for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
