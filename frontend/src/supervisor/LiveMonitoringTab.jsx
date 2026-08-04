@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Clock3, Monitor, Radio, Search, Video, X } from 'lucide-react';
+import { AlertTriangle, Building2, Clock3, Monitor, PanelLeftClose, PanelLeftOpen, Radio, Search, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { createMonitoringRefreshGate } from './monitoringRefreshGate.mjs';
 import { normalizeAiMonitoring, warningSourceLabel } from './aiMonitoring.mjs';
@@ -14,6 +14,8 @@ export default function LiveMonitoringTab() {
   const [examinees, setExaminees] = useState([]);
   const [warnings, setWarnings] = useState([]);
   const [candidateQuery, setCandidateQuery] = useState('');
+  const [candidateSort, setCandidateSort] = useState('attention');
+  const [isAlertFeedCollapsed, setIsAlertFeedCollapsed] = useState(false);
   const [selectedExamineeId, setSelectedExamineeId] = useState('');
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [liveExaminee, setLiveExaminee] = useState(null);
@@ -174,7 +176,17 @@ export default function LiveMonitoringTab() {
   const normalizedCandidateQuery = candidateQuery.trim().toLowerCase();
   const warningExamineeName = (warning) => warning.examineeName || examinees.find((examinee) => examinee.id === warning.examineeId)?.name || '응시자';
   const visibleWarnings = orderedWarnings.filter((warning) => !normalizedCandidateQuery || warningExamineeName(warning).toLowerCase().includes(normalizedCandidateQuery));
-  const visibleExaminees = examinees.filter((examinee) => !normalizedCandidateQuery || String(examinee.name ?? '').toLowerCase().includes(normalizedCandidateQuery));
+  const visibleExaminees = examinees
+    .filter((examinee) => !normalizedCandidateQuery || String(examinee.name ?? '').toLowerCase().includes(normalizedCandidateQuery))
+    .sort((first, second) => {
+      if (candidateSort === 'name') return String(first.name ?? '').localeCompare(String(second.name ?? ''), 'ko');
+      if (candidateSort === 'warnings') return warningsFor(second.id).length - warningsFor(first.id).length
+        || String(first.name ?? '').localeCompare(String(second.name ?? ''), 'ko');
+      const statusPriority = { DANGER: 0, WARNING: 1, NORMAL: 2 };
+      return (statusPriority[first.status] ?? 3) - (statusPriority[second.status] ?? 3)
+        || warningsFor(second.id).length - warningsFor(first.id).length
+        || String(first.name ?? '').localeCompare(String(second.name ?? ''), 'ko');
+    });
   const currentLiveExaminee = liveExaminee ? examinees.find((examinee) => examinee.id === liveExaminee.id) ?? liveExaminee : null;
   const currentLiveAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.monitoringSnapshot);
   const currentLiveWarnings = currentLiveExaminee ? warningsFor(currentLiveExaminee.id) : [];
@@ -435,29 +447,29 @@ export default function LiveMonitoringTab() {
       </div>
 
       {loadError && <div className="workspace-alert error">{loadError}</div>}
-      <div className="data-panel organization-switcher">
-        <label><span>관제 조직</span>
+      <div className="data-panel monitoring-scope-panel" aria-label="관제 대상 선택">
+        <div className="monitoring-scope-title"><span className="workspace-eyebrow">관제 대상</span><strong>조직과 시험 선택</strong></div>
+        <label><span>조직</span>
           <select value={organizationId} onFocus={deferMonitoringRefresh} onPointerDown={deferMonitoringRefresh} onKeyDown={deferMonitoringRefreshOnKey} onBlur={applyDeferredMonitoringRefresh} onChange={(event) => changeOrganization(event.target.value)}>
-            <option value="">관제할 조직을 선택하세요</option>
+            <option value="">조직을 선택하세요</option>
             {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
           </select>
         </label>
-        <span className="organization-scope-note"><Building2 size={15} /> {selectedOrganization ? selectedOrganization.name + ' 소속 시험만 표시' : '배정된 승인 조직만 표시됩니다.'}</span>
-      </div>
-
-      <div className="data-panel organization-switcher">
-        <label><span>관제할 시험</span>
+        <label><span>시험</span>
           <select value={selectedExamId} onFocus={deferMonitoringRefresh} onPointerDown={deferMonitoringRefresh} onKeyDown={deferMonitoringRefreshOnKey} onBlur={applyDeferredMonitoringRefresh} onChange={(event) => changeExam(event.target.value)} disabled={!organizationId}>
             <option value="">시험을 선택하세요</option>
             {exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}
           </select>
         </label>
-        <span>{selectedExam ? `${selectedExam.examineeCount}명 관제 중` : '선택한 조직의 시험을 선택하세요.'}</span>
+        <span className="monitoring-scope-summary"><Building2 size={15} /> {selectedExam ? `${selectedOrganization?.name} · ${selectedExam.examineeCount}명 관제 중` : selectedOrganization ? '시험을 선택하세요.' : '조직과 시험을 선택하세요.'}</span>
       </div>
 
-      <div className="monitoring-layout">
-      {selectedExamId && <aside className="data-panel monitoring-alert-feed" aria-labelledby="monitoring-alert-feed-title">
+      <div className={'monitoring-layout ' + (isAlertFeedCollapsed ? 'alert-feed-collapsed' : '')}>
+      {selectedExamId && <aside className={'data-panel monitoring-alert-feed ' + (isAlertFeedCollapsed ? 'collapsed' : '')} aria-labelledby="monitoring-alert-feed-title">
         <div className="monitoring-alert-feed-heading">
+          <button className="monitoring-alert-feed-tab" type="button" onClick={() => setIsAlertFeedCollapsed((collapsed) => !collapsed)} aria-expanded={!isAlertFeedCollapsed} aria-label={isAlertFeedCollapsed ? '실시간 감시 로그 펼치기' : '실시간 감시 로그 최소화'} title={isAlertFeedCollapsed ? '감시 로그 펼치기' : '감시 로그 접기'}>
+            {isAlertFeedCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
           <div>
             <span className="workspace-eyebrow"><AlertTriangle size={14} /> AI MONITORING FEED</span>
             <h2 id="monitoring-alert-feed-title">실시간 감시 로그</h2>
@@ -465,6 +477,7 @@ export default function LiveMonitoringTab() {
           </div>
           <span className="monitoring-alert-feed-count">{visibleWarnings.length}건</span>
         </div>
+        <div className="monitoring-alert-feed-content" hidden={isAlertFeedCollapsed}>
         <label className="monitoring-alert-search"><Search size={15} /><span className="sr-only">응시자 이름 검색</span><input value={candidateQuery} onChange={(event) => {
           setCandidateQuery(event.target.value);
           setSelectedExamineeId('');
@@ -482,6 +495,7 @@ export default function LiveMonitoringTab() {
             <span>{warning.message}</span>
           </button>
         </li>)}</ol> : <p className="empty-state monitoring-alert-feed-empty">{candidateQuery ? '검색된 응시자 알림이 없습니다.' : '현재 기록된 감시 로그가 없습니다.'}</p>}
+        </div>
       </aside>}
 
       {!organizationId && <div className="data-panel empty-state">관제할 조직을 선택해주세요.</div>}
@@ -563,7 +577,26 @@ export default function LiveMonitoringTab() {
           {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><span className={'monitoring-source-badge source-' + String(warning.source ?? 'UNKNOWN').toLowerCase()}>{warningSourceLabel(warning.source)}</span><strong>{warning.source === 'SUPERVISOR' ? `발송메시지 - ${warning.message}` : warning.message}</strong></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 감시 로그가 없습니다.</p>}
         </section>
       </div>}
-      <div className="monitoring-grid">
+      {selectedExamId && <section className="data-panel monitoring-candidate-panel" aria-labelledby="monitoring-candidate-list-title">
+        <div className="monitoring-candidate-toolbar">
+          <div>
+            <h2 id="monitoring-candidate-list-title">응시자 목록</h2>
+            <span>{visibleExaminees.length} / {examinees.length}명</span>
+          </div>
+          <label className="monitoring-candidate-search"><Search size={15} /><span className="sr-only">응시자 이름 검색</span><input value={candidateQuery} onChange={(event) => {
+            setCandidateQuery(event.target.value);
+            setSelectedExamineeId('');
+          }} placeholder="응시자 이름 검색" />{candidateQuery && <button type="button" onClick={() => {
+            setCandidateQuery('');
+            setSelectedExamineeId('');
+          }} aria-label="응시자 검색 지우기"><X size={15} /></button>}</label>
+          <label className="monitoring-candidate-sort"><span>정렬</span><select value={candidateSort} onChange={(event) => setCandidateSort(event.target.value)}>
+            <option value="attention">주의 필요 순</option>
+            <option value="warnings">감시 로그 많은 순</option>
+            <option value="name">이름 순</option>
+          </select></label>
+        </div>
+        <div className="monitoring-grid">
         {visibleExaminees.map((examinee) => {
           const examineeWarnings = warningsFor(examinee.id);
           const latestWarning = examineeWarnings[0];
@@ -590,6 +623,9 @@ export default function LiveMonitoringTab() {
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 보조 라이브 화면 열기'}>
                 <span>보조 모니터링</span>{auxiliaryConnected && examinee.auxiliarySnapshot?.image ? <img src={examinee.auxiliarySnapshot.image} alt={examinee.name + ' 응시자 휴대폰 보조 카메라 정지 화면'} /> : <Video size={24} />}<small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>
               </button>
+              <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 PC 화면 공유 라이브 화면 열기'}>
+                <span>PC 화면 공유</span><Monitor size={24} /><small>{screenConnected ? '화면 공유 연결됨 · 클릭하여 라이브 보기' : '화면 공유 연결 안 됨'}</small>
+              </button>
             </div>
             <div className="monitoring-status-row"><span>진행 현황</span><strong>{examinee.currentProb}</strong><small><Clock3 size={13} /> 2초마다 갱신</small></div>
             {aiMonitoring && <div className="monitoring-ai-summary"><div><strong>AI 분석</strong><span>{aiMonitoring.personCount === null ? '사람 수 미확인' : `사람 ${aiMonitoring.personCount}명`} · {aiMonitoring.model}</span></div>{aiMonitoring.events.length ? <div className="monitoring-ai-events">{aiMonitoring.events.map((event) => <span key={event.type}>{event.label} {Math.round(event.confidence * 100)}%</span>)}</div> : <small>최근 분석에서 감지 이벤트가 없습니다.</small>}{aiMonitoring.analyzedAt && <time dateTime={aiMonitoring.analyzedAt}>{new Date(aiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')} 분석</time>}</div>}
@@ -600,8 +636,9 @@ export default function LiveMonitoringTab() {
             <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(examinee)}>경고 메시지 발송</button>
           </article>;
         })}
-      </div>
-      {selectedExamId && candidateQuery && !visibleExaminees.length && <div className="data-panel empty-state monitoring-filter-empty">검색된 응시자가 없습니다.</div>}
+        {candidateQuery && !visibleExaminees.length && <div className="empty-state monitoring-filter-empty">검색된 응시자가 없습니다.</div>}
+        </div>
+      </section>}
       </div>
     </section>
   );
