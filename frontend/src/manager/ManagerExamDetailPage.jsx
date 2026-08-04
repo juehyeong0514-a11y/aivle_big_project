@@ -33,9 +33,85 @@ const initialCodingProblem = () => ({
   judgeMode: "EXACT",
   numericTolerance: 0,
   customJudgeCode: "",
+  aiAnalysis: {
+    enabled: true,
+    rubrics: [],
+    customRubrics: [],
+    customRubricsEnabled: false,
+    customRubricDraft: "",
+    mistakePatterns: [],
+    customMistakes: [],
+    customMistakesEnabled: false,
+    customMistakeDraft: "",
+    algorithmRequirements: [],
+    recommendedAlgorithms: [],
+    customAlgorithms: [],
+    customAlgorithmsEnabled: false,
+    customAlgorithmDraft: "",
+    expectedTimeComplexity: "",
+    expectedSpaceComplexity: "",
+    learningMaterials: [{ title: "", url: "" }],
+    referenceMaterials: [],
+    referenceAnswer: {
+      status: "NOT_RUN",
+      generatedAt: "",
+    },
+    validation: {
+      sampleCount: 10,
+      language: "Python",
+      status: "NOT_RUN",
+      samples: [],
+      generatedAt: "",
+    },
+  },
   referenceSolutions: { Python: "", Java: "", C: "", JavaScript: "" },
 });
 const initialMultipleChoiceQuestion = () => ({ prompt: "", options: ["", ""], answer: "" });
+const normalizeCustomTextItems = (value) => {
+  const items = Array.isArray(value) ? value : [value];
+  return items.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim());
+};
+const hasCustomItems = (value) => Array.isArray(value) ? value.length > 0 : Boolean(value);
+const normalizeCustomAlgorithmItems = (value, fallbackLevel = "RECOMMENDED") => {
+  const items = Array.isArray(value) ? value : (typeof value === "string" ? [{ name: value, level: fallbackLevel }] : []);
+  return items.map((item) => ({
+    name: typeof item === "string" ? item.trim() : (typeof item?.name === "string" ? item.name.trim() : ""),
+    level: (typeof item?.level === "string" ? item.level : fallbackLevel) === "REQUIRED" ? "REQUIRED" : "RECOMMENDED",
+  })).filter((item) => item.name || Array.isArray(value));
+};
+const normalizeLearningMaterials = (value) => {
+  const materials = Array.isArray(value) ? value : [];
+  const committed = materials
+    .map((material) => ({ title: "", url: "", ...(material ?? {}) }))
+    .filter((material) => String(material.title ?? "").trim() || String(material.url ?? "").trim());
+  return [...committed, { title: "", url: "" }];
+};
+const isHttpUrl = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
+const normalizeAiValidation = (value) => {
+  const sampleCount = Number(value?.sampleCount) === 5 ? 5 : 10;
+  const status = ["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"].includes(value?.status) ? value.status : "NOT_RUN";
+  const samples = Array.isArray(value?.samples)
+    ? value.samples.map((sample) => ({
+      id: typeof sample?.id === "string" ? sample.id : "",
+      kind: typeof sample?.kind === "string" ? sample.kind : "",
+      summary: typeof sample?.summary === "string" ? sample.summary : "",
+      expectedIssue: typeof sample?.expectedIssue === "string" ? sample.expectedIssue : "",
+      language: typeof sample?.language === "string" ? sample.language : "Python",
+      source: typeof sample?.source === "string" ? sample.source : "",
+    })).filter((sample) => sample.source).slice(0, 10)
+    : [];
+  return {
+    sampleCount,
+    language: typeof value?.language === "string" ? value.language : "Python",
+    status,
+    samples,
+    generatedAt: typeof value?.generatedAt === "string" ? value.generatedAt : "",
+  };
+};
+const normalizeAiReferenceAnswer = (value) => ({
+  status: ["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"].includes(value?.status) ? value.status : "NOT_RUN",
+  generatedAt: typeof value?.generatedAt === "string" ? value.generatedAt : "",
+});
 const questionToForm = (question) => ({
   ...initialCodingProblem(),
   ...question,
@@ -52,7 +128,53 @@ const questionToForm = (question) => ({
     JavaScript: "",
     ...(question.referenceSolutions ?? {}),
   },
+  aiAnalysis: {
+    ...initialCodingProblem().aiAnalysis,
+    ...(question.aiAnalysis ?? {}),
+    algorithmRequirements: Array.isArray(question.aiAnalysis?.algorithmRequirements)
+      ? question.aiAnalysis.algorithmRequirements
+      : (question.aiAnalysis?.recommendedAlgorithms ?? []).map((algorithm) => ({ algorithm, level: "RECOMMENDED" })),
+    customRubrics: normalizeCustomTextItems(question.aiAnalysis?.customRubrics),
+    customRubricsEnabled: question.aiAnalysis?.customRubricsEnabled ?? hasCustomItems(question.aiAnalysis?.customRubrics),
+    customRubricDraft: "",
+    customMistakes: normalizeCustomTextItems(question.aiAnalysis?.customMistakes),
+    customMistakesEnabled: question.aiAnalysis?.customMistakesEnabled ?? hasCustomItems(question.aiAnalysis?.customMistakes),
+    customMistakeDraft: "",
+    customAlgorithms: normalizeCustomAlgorithmItems(question.aiAnalysis?.customAlgorithms, question.aiAnalysis?.customAlgorithmLevel),
+    customAlgorithmsEnabled: question.aiAnalysis?.customAlgorithmsEnabled ?? hasCustomItems(question.aiAnalysis?.customAlgorithms),
+    customAlgorithmDraft: "",
+    learningMaterials: normalizeLearningMaterials(question.aiAnalysis?.learningMaterials),
+    referenceMaterials: question.aiAnalysis?.referenceMaterials ?? [],
+    referenceAnswer: normalizeAiReferenceAnswer(question.aiAnalysis?.referenceAnswer),
+    validation: normalizeAiValidation(question.aiAnalysis?.validation),
+  },
 });
+
+const aiRubricOptions = [
+  ["CORRECTNESS", "정답성"],
+  ["EDGE_CASE", "경계값 처리"],
+  ["TIME_COMPLEXITY", "시간복잡도"],
+  ["SPACE_COMPLEXITY", "공간복잡도"],
+  ["READABILITY", "코드 가독성"],
+  ["ERROR_HANDLING", "예외 처리"],
+  ["MODULARITY", "함수 분리"],
+];
+const aiMistakeOptions = [
+  ["EMPTY_INPUT", "빈 입력 처리 누락"],
+  ["DUPLICATE_VALUE", "중복값 처리 누락"],
+  ["NEGATIVE_VALUE", "음수 처리 누락"],
+  ["TIMEOUT", "시간복잡도 초과"],
+  ["TYPE_ERROR", "자료형 오류"],
+  ["OFF_BY_ONE", "인덱스 범위 오류"],
+];
+const aiAlgorithmOptions = [
+  ["ARRAY_TRAVERSAL", "배열 순회"],
+  ["SORTING", "정렬"],
+  ["HASH_MAP", "해시맵"],
+  ["TWO_POINTERS", "투 포인터"],
+  ["DYNAMIC_PROGRAMMING", "동적 계획법"],
+  ["BFS_DFS", "BFS·DFS"],
+];
 const normalizeBirthDate = (value) => {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
@@ -209,6 +331,44 @@ export default function ManagerExamDetailPage() {
     visibleAdminCandidates.every((candidate) =>
       selectedAdminCandidateIds.includes(candidate.id),
     );
+
+  const requestAiReferenceAnswer = async () => {
+    setQuestionForm((current) => ({
+      ...current,
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        referenceAnswer: {
+          status: "NOT_RUN",
+          generatedAt: "",
+          ...(current.aiAnalysis.referenceAnswer ?? {}),
+          status: "PROCESSING",
+        },
+      },
+    }));
+    try {
+      const { data } = await api.post(`/manager/exams/${examId}/ai-reference-answer`, {
+        question: { ...questionForm, type: "CODING", numericTolerance: Number(questionForm.numericTolerance) },
+      }, headers);
+      setQuestionForm((current) => ({
+        ...current,
+        referenceSolutions: { ...current.referenceSolutions, ...(data.answers ?? {}) },
+        aiAnalysis: {
+          ...current.aiAnalysis,
+          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "" },
+        },
+      }));
+      showMessage("6단계까지 입력한 내용을 바탕으로 AI 모범 답안을 생성했습니다.");
+    } catch (reason) {
+      setQuestionForm((current) => ({
+        ...current,
+        aiAnalysis: {
+          ...current.aiAnalysis,
+          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "FAILED" },
+        },
+      }));
+      showMessage(apiErrorMessage(reason, "AI 모범 답안 생성에 실패했습니다."), "error");
+    }
+  };
 
 
 
@@ -635,7 +795,7 @@ export default function ManagerExamDetailPage() {
             <span className="status-badge approved">{exam.status}</span>
           </div>
           <p>
-            {exam.date} · {exam.duration} · {exam.questions}
+            {exam.date} · {exam.duration}
           </p>
         </div>
       </div>
@@ -680,7 +840,7 @@ export default function ManagerExamDetailPage() {
         activeQuestionStep={activeQuestionStep} setActiveQuestionStep={setActiveQuestionStep} createQuestion={createQuestion}
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
-        openPreview={() => setIsExamPreviewOpen(true)} />}
+        openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
 
       {activeManagementPanel === "legacy-questions" && (
         <form
@@ -1390,13 +1550,120 @@ export default function ManagerExamDetailPage() {
   );
 }
 
-function QuestionManagement({ questionType, setQuestionType, questionForm, setQuestionForm, multipleChoiceForm, setMultipleChoiceForm, editingQuestionId, activeQuestionStep, setActiveQuestionStep, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview }) {
-  const steps = ["기본 정보", "설명·입출력", "공개 예제", "숨김 테스트", "채점 설정", "모범 답안"];
+function QuestionManagement({ questionType, setQuestionType, questionForm, setQuestionForm, multipleChoiceForm, setMultipleChoiceForm, editingQuestionId, activeQuestionStep, setActiveQuestionStep, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
+  const steps = ["기본 정보", "설명·입출력", "공개 예제", "숨김 테스트", "AI 분석 기준 및 참고자료", "채점 설정", "AI 답안"];
   const isCoding = questionType === "CODING";
   const updateOption = (index, value) => setMultipleChoiceForm((current) => ({ ...current, options: current.options.map((option, optionIndex) => optionIndex === index ? value : option) }));
   const addOption = () => setMultipleChoiceForm((current) => ({ ...current, options: [...current.options, ""] }));
   const removeOption = (index) => setMultipleChoiceForm((current) => ({ ...current, options: current.options.filter((_, optionIndex) => optionIndex !== index), answer: current.answer === current.options[index] ? "" : current.answer }));
   const updateForm = (field, value) => setQuestionForm((current) => ({ ...current, [field]: value }));
+  const updateAiAnalysis = (field, value) => setQuestionForm((current) => ({ ...current, aiAnalysis: { ...current.aiAnalysis, [field]: value } }));
+  const toggleAiCustomEnabled = (enabledField, enabled) => setQuestionForm((current) => ({
+    ...current,
+    aiAnalysis: {
+      ...current.aiAnalysis,
+      [enabledField]: enabled,
+    },
+  }));
+  const addAiCustomTextItem = (field, draftField, enabledField) => setQuestionForm((current) => {
+    const value = current.aiAnalysis[draftField].trim();
+    if (!value) return current;
+    return {
+      ...current,
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        [field]: [...(current.aiAnalysis[field] ?? []), value],
+        [enabledField]: false,
+        [draftField]: "",
+      },
+    };
+  });
+  const updateAiCustomDraft = (field, value) => updateAiAnalysis(field, value);
+  const removeAiCustomTextItem = (field, index) => updateAiAnalysis(field, (questionForm.aiAnalysis[field] ?? []).filter((_, itemIndex) => itemIndex !== index));
+  const setCustomAlgorithmsEnabled = (enabled) => setQuestionForm((current) => ({
+    ...current,
+    aiAnalysis: {
+      ...current.aiAnalysis,
+      customAlgorithmsEnabled: enabled,
+      customAlgorithmDraft: "",
+    },
+  }));
+  const addCustomAlgorithm = () => setQuestionForm((current) => {
+    const name = current.aiAnalysis.customAlgorithmDraft.trim();
+    if (!name) return current;
+    return {
+      ...current,
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        customAlgorithms: [...(current.aiAnalysis.customAlgorithms ?? []), { name, level: "RECOMMENDED" }],
+        customAlgorithmsEnabled: false,
+        customAlgorithmDraft: "",
+      },
+    };
+  });
+  const updateCustomAlgorithm = (index, field, value) => updateAiAnalysis("customAlgorithms", (questionForm.aiAnalysis.customAlgorithms ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+  const removeCustomAlgorithm = (index) => updateAiAnalysis("customAlgorithms", (questionForm.aiAnalysis.customAlgorithms ?? []).filter((_, itemIndex) => itemIndex !== index));
+  const toggleAiAnalysisValue = (field, value) => setQuestionForm((current) => ({
+    ...current,
+    aiAnalysis: {
+      ...current.aiAnalysis,
+      [field]: current.aiAnalysis[field].includes(value)
+        ? current.aiAnalysis[field].filter((item) => item !== value)
+        : [...current.aiAnalysis[field], value],
+    },
+  }));
+  const toggleAlgorithm = (algorithm) => setQuestionForm((current) => {
+    const requirements = current.aiAnalysis.algorithmRequirements ?? [];
+    const isSelected = requirements.some((item) => item.algorithm === algorithm);
+    return {
+      ...current,
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        algorithmRequirements: isSelected
+          ? requirements.filter((item) => item.algorithm !== algorithm)
+          : [...requirements, { algorithm, level: "RECOMMENDED" }],
+      },
+    };
+  });
+  const updateAlgorithmLevel = (algorithm, level) => setQuestionForm((current) => ({
+    ...current,
+    aiAnalysis: {
+      ...current.aiAnalysis,
+      algorithmRequirements: (current.aiAnalysis.algorithmRequirements ?? []).map((item) => item.algorithm === algorithm ? { ...item, level } : item),
+    },
+  }));
+  const updateLearningMaterial = (index, field, value) => updateAiAnalysis("learningMaterials", questionForm.aiAnalysis.learningMaterials.map((material, materialIndex) => materialIndex === index ? { ...material, [field]: value } : material));
+  const addLearningMaterial = () => setQuestionForm((current) => {
+    const materials = current.aiAnalysis.learningMaterials ?? [];
+    const lastMaterial = materials[materials.length - 1];
+    if (lastMaterial && !String(lastMaterial.title ?? "").trim() && !String(lastMaterial.url ?? "").trim()) return current;
+    return {
+      ...current,
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        learningMaterials: [...materials, { title: "", url: "" }],
+      },
+    };
+  });
+  const removeLearningMaterial = (index) => updateAiAnalysis("learningMaterials", questionForm.aiAnalysis.learningMaterials.filter((_, materialIndex) => materialIndex !== index));
+  const uploadReferenceMaterial = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!/\.(txt|md|markdown|json|csv)$/i.test(file.name)) {
+      window.alert("텍스트, Markdown, JSON, CSV 파일만 첨부할 수 있습니다.");
+      return;
+    }
+    if (file.size > 250_000) {
+      window.alert("첨부 파일은 250KB 이하로 올려주세요.");
+      return;
+    }
+    updateAiAnalysis("referenceMaterials", [
+      ...questionForm.aiAnalysis.referenceMaterials,
+      { name: file.name, mimeType: file.type || "text/plain", content: await file.text() },
+    ]);
+  };
+  const removeReferenceMaterial = (index) => updateAiAnalysis("referenceMaterials", questionForm.aiAnalysis.referenceMaterials.filter((_, materialIndex) => materialIndex !== index));
   return <section id="question-management" className="data-panel form-panel coding-problem-form">
     <div className="panel-heading"><div><h2>문제 및 미리보기</h2><p>문제를 구성하고 응시자 화면을 바로 확인하세요.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 시험지 미리보기</button><BookOpen size={20} /></div></div>
     <div className="question-type-switch" role="group" aria-label="문제 유형"><button type="button" disabled={Boolean(editingQuestionId)} className={isCoding ? "active" : ""} onClick={() => { setQuestionType("CODING"); setActiveQuestionStep(0); }}>코딩 문제</button><button type="button" disabled={Boolean(editingQuestionId)} className={!isCoding ? "active" : ""} onClick={() => { setQuestionType("MULTIPLE_CHOICE"); setActiveQuestionStep(0); }}>객관식 문제</button>{editingQuestionId && <span className="form-hint">수정 중에는 문제 유형을 변경할 수 없습니다.</span>}</div>
@@ -1406,9 +1673,10 @@ function QuestionManagement({ questionType, setQuestionType, questionForm, setQu
         <div className="coding-step-panel" role="tabpanel" aria-labelledby={`coding-step-${activeQuestionStep}`}>
           {activeQuestionStep === 0 && <><label>문제 제목<input value={questionForm.title} onChange={(event) => updateForm("title", event.target.value)} required /></label><div className="language-options">{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div></>}
           {activeQuestionStep === 1 && <><label>문제 설명<textarea value={questionForm.description} onChange={(event) => updateForm("description", event.target.value)} required /></label><label>입력 형식<textarea value={questionForm.inputFormat} onChange={(event) => updateForm("inputFormat", event.target.value)} required /></label><label>출력 형식<textarea value={questionForm.outputFormat} onChange={(event) => updateForm("outputFormat", event.target.value)} required /></label><label>제한<textarea value={questionForm.constraints} onChange={(event) => updateForm("constraints", event.target.value)} required /></label></>}
-          {[2, 3].includes(activeQuestionStep) && <TestCaseEditor collection={activeQuestionStep === 2 ? "publicExamples" : "hiddenTestCases"} cases={activeQuestionStep === 2 ? questionForm.publicExamples : questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} />}
-          {activeQuestionStep === 4 && <><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} required /></label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} required /></label>}</>}
-          {activeQuestionStep === 5 && <><p className="form-hint">모범 답안은 문제 검증용이며 응시자에게 노출되지 않습니다.</p>{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}>{language}<textarea className="code-editor" value={questionForm.referenceSolutions[language]} onChange={(event) => setQuestionForm((current) => ({ ...current, referenceSolutions: { ...current.referenceSolutions, [language]: event.target.value } }))} /></label>)}</>}
+         {[2, 3].includes(activeQuestionStep) && <TestCaseEditor collection={activeQuestionStep === 2 ? "publicExamples" : "hiddenTestCases"} cases={activeQuestionStep === 2 ? questionForm.publicExamples : questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} />}
+          {activeQuestionStep === 4 && <AiAnalysisEditor aiAnalysis={questionForm.aiAnalysis} updateAiAnalysis={updateAiAnalysis} toggleAiAnalysisValue={toggleAiAnalysisValue} toggleAiCustomEnabled={toggleAiCustomEnabled} addAiCustomTextItem={addAiCustomTextItem} updateAiCustomDraft={updateAiCustomDraft} removeAiCustomTextItem={removeAiCustomTextItem} setCustomAlgorithmsEnabled={setCustomAlgorithmsEnabled} addCustomAlgorithm={addCustomAlgorithm} updateCustomAlgorithm={updateCustomAlgorithm} removeCustomAlgorithm={removeCustomAlgorithm} toggleAlgorithm={toggleAlgorithm} updateAlgorithmLevel={updateAlgorithmLevel} updateLearningMaterial={updateLearningMaterial} addLearningMaterial={addLearningMaterial} removeLearningMaterial={removeLearningMaterial} uploadReferenceMaterial={uploadReferenceMaterial} removeReferenceMaterial={removeReferenceMaterial} />}
+          {activeQuestionStep === 5 && <><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} required /></label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} required /></label>}</>}
+          {activeQuestionStep === 6 && <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
         </div>
         <div className="coding-step-actions"><button className="secondary-button" type="button" disabled={activeQuestionStep === 0} onClick={() => setActiveQuestionStep((step) => step - 1)}>이전</button>{activeQuestionStep < steps.length - 1 && <button className="secondary-button" type="button" onClick={() => setActiveQuestionStep((step) => step + 1)}>다음</button>}</div>
       </> : <div className="multiple-choice-editor"><label>문제 문구<textarea value={multipleChoiceForm.prompt} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, prompt: event.target.value }))} required /></label><div className="section-title-row"><h3>선택지</h3><button className="secondary-button compact-button" type="button" onClick={addOption}>선택지 추가</button></div>{multipleChoiceForm.options.map((option, index) => <div className="multiple-choice-option" key={index}><label>선택지 {index + 1}<input value={option} onChange={(event) => updateOption(index, event.target.value)} required /></label>{multipleChoiceForm.options.length > 2 && <button className="text-button" type="button" onClick={() => removeOption(index)}>삭제</button>}</div>)}<label>정답<select value={multipleChoiceForm.answer} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, answer: event.target.value }))} required><option value="">정답 선택</option>{multipleChoiceForm.options.filter(Boolean).map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>}
@@ -1416,6 +1684,172 @@ function QuestionManagement({ questionType, setQuestionType, questionForm, setQu
     </form>
     <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 숨김 테스트 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions"><button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button><button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
   </section>;
+}
+
+function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
+  const answerState = questionForm.aiAnalysis.referenceAnswer ?? { status: "NOT_RUN", generatedAt: "" };
+  const languages = questionForm.languages?.length ? questionForm.languages : [];
+  const statusLabels = { NOT_RUN: "생성 전", PROCESSING: "생성 중", GENERATED: "생성 완료", FAILED: "생성 실패" };
+  const hasGeneratedAnswer = languages.some((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
+  return <section className="ai-reference-answer-section">
+    <div className="section-title-row">
+      <div>
+        <h3>AI 생성 모범 답안</h3>
+        <p className="form-hint">1~6단계에서 입력한 문제 설명, 예제, 숨김 테스트, 채점 설정, AI 분석 기준을 바탕으로 생성합니다.</p>
+      </div>
+      <span className={`ai-validation-status ${answerState.status.toLowerCase()}`}>{statusLabels[answerState.status] ?? "생성 전"}</span>
+    </div>
+    <div className="ai-reference-answer-actions">
+      <button className="secondary-button" type="button" onClick={requestAiReferenceAnswer} disabled={!questionForm.aiAnalysis.enabled || answerState.status === "PROCESSING" || !questionForm.title.trim() || !questionForm.description.trim() || languages.length === 0}>
+        <CheckSquare size={16} /> {answerState.status === "PROCESSING" ? "모범 답안 생성 중..." : hasGeneratedAnswer ? "모범 답안 다시 생성" : "모범 답안 생성"}
+      </button>
+      <span className="form-hint">언어를 선택하고 문제 제목과 설명을 입력하면 생성할 수 있습니다.</span>
+    </div>
+    {hasGeneratedAnswer ? <div className="ai-generated-answer-list">
+      {languages.map((language) => {
+        const source = String(questionForm.referenceSolutions?.[language] ?? "").trim();
+        return source ? <article className="ai-generated-answer" key={language}>
+          <div className="section-title-row"><strong>{language}</strong><span className="form-hint">AI가 생성한 모범 답안</span></div>
+          <pre>{source}</pre>
+        </article> : null;
+      })}
+    </div> : <p className="empty-state">아직 생성된 모범 답안이 없습니다.</p>}
+    <p className="form-hint">생성된 답안은 출제자 검토와 AI 채점 참고용이며 응시자에게 공개되지 않습니다. 실제 점수는 숨김 테스트 결과를 기준으로 합니다.</p>
+  </section>;
+}
+
+function ComplexityOptionGroup({ title, name, value, onChange, options, disabled }) {
+  return <fieldset className="ai-option-group ai-complexity-group">
+    <legend>{title} <span className="text-muted">(선택)</span></legend>
+    <div className="ai-option-grid">
+      {options.map(([optionValue, label]) => <label className="ai-option" key={`${name}-${optionValue || "none"}`}>
+        <input type="radio" name={name} value={optionValue} checked={value === optionValue} onChange={() => onChange(optionValue)} disabled={disabled} />
+        {label}
+      </label>)}
+    </div>
+  </fieldset>;
+}
+
+function AiAnalysisEditor({ aiAnalysis, updateAiAnalysis, toggleAiAnalysisValue, toggleAiCustomEnabled, addAiCustomTextItem, updateAiCustomDraft, removeAiCustomTextItem, setCustomAlgorithmsEnabled, addCustomAlgorithm, updateCustomAlgorithm, removeCustomAlgorithm, toggleAlgorithm, updateAlgorithmLevel, updateLearningMaterial, addLearningMaterial, removeLearningMaterial, uploadReferenceMaterial, removeReferenceMaterial }) {
+  const optionGroup = (title, field, options, customField, customEnabledField, draftField, customLabel, customPlaceholder) => {
+    const selectedOptions = aiAnalysis[field] ?? [];
+    const customItems = aiAnalysis[customField] ?? [];
+    return <fieldset className="ai-option-group">
+      <legend>{title}</legend>
+      <div className="ai-option-grid">
+        {options.map(([value, label]) => (
+          <label key={value} className="ai-option">
+            <input type="checkbox" checked={aiAnalysis[field].includes(value)} onChange={() => toggleAiAnalysisValue(field, value)} disabled={!aiAnalysis.enabled} />
+            {label}
+          </label>
+        ))}
+        <div className="ai-custom-algorithm-option ai-custom-text-option">
+          <label className="ai-option ai-custom-algorithm-toggle">
+            <input type="checkbox" checked={aiAnalysis[customEnabledField]} onChange={(event) => toggleAiCustomEnabled(customEnabledField, event.target.checked)} disabled={!aiAnalysis.enabled} />
+            {customLabel}
+          </label>
+          {aiAnalysis[customEnabledField] && <div className="ai-custom-algorithm-draft">
+            <input value={aiAnalysis[draftField]} onChange={(event) => updateAiCustomDraft(draftField, event.target.value)} disabled={!aiAnalysis.enabled} placeholder={customPlaceholder} aria-label={`${customLabel} 입력`} />
+            <button className="secondary-button compact-button" type="button" onClick={() => addAiCustomTextItem(customField, draftField, customEnabledField)} disabled={!aiAnalysis.enabled || !aiAnalysis[draftField].trim()}>추가</button>
+          </div>}
+        </div>
+      </div>
+      {(selectedOptions.length > 0 || customItems.length > 0) && <div className="ai-selected-algorithms">
+        <p className="form-hint">선택한 {title}</p>
+        {selectedOptions.map((value) => {
+          const label = options.find(([optionValue]) => optionValue === value)?.[1] ?? value;
+          return <div className="ai-algorithm-rule" key={value}>
+            <span>{label}</span>
+            <button className="ai-remove-button" type="button" onClick={() => toggleAiAnalysisValue(field, value)} disabled={!aiAnalysis.enabled} aria-label={`${label} 선택 해제`}><X size={14} /></button>
+          </div>;
+        })}
+        {customItems.map((item, index) => <div className="ai-algorithm-rule" key={`${customField}-${index}`}>
+          <span>{item}</span>
+          <button className="ai-remove-button" type="button" onClick={() => removeAiCustomTextItem(customField, index)} disabled={!aiAnalysis.enabled} aria-label={`${item} 삭제`}><X size={14} /></button>
+        </div>)}
+      </div>}
+    </fieldset>;
+  };
+  const selectedAlgorithms = aiAnalysis.algorithmRequirements ?? [];
+  const customAlgorithms = aiAnalysis.customAlgorithms ?? [];
+  const learningMaterials = aiAnalysis.learningMaterials ?? [{ title: "", url: "" }];
+  const learningMaterialDraftIndex = learningMaterials.length - 1;
+  const savedLearningMaterials = learningMaterials.slice(0, learningMaterialDraftIndex);
+  const algorithmGroup = (
+    <fieldset className="ai-option-group">
+      <legend>사용 알고리즘</legend>
+      <div className="ai-option-grid">
+        {aiAlgorithmOptions.map(([value, label]) => (
+          <label key={value} className="ai-option">
+            <input type="checkbox" checked={selectedAlgorithms.some((item) => item.algorithm === value)} onChange={() => toggleAlgorithm(value)} disabled={!aiAnalysis.enabled} />
+            {label}
+          </label>
+        ))}
+        <div className="ai-custom-algorithm-option">
+          <label className="ai-option ai-custom-algorithm-toggle">
+            <input type="checkbox" checked={aiAnalysis.customAlgorithmsEnabled} onChange={(event) => setCustomAlgorithmsEnabled(event.target.checked)} disabled={!aiAnalysis.enabled} />
+            기타 알고리즘
+          </label>
+          {aiAnalysis.customAlgorithmsEnabled && <div className="ai-custom-algorithm-draft">
+            <input value={aiAnalysis.customAlgorithmDraft} onChange={(event) => updateAiAnalysis("customAlgorithmDraft", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="예: 단조 스택" aria-label="기타 알고리즘 이름" />
+            <button className="secondary-button compact-button" type="button" onClick={addCustomAlgorithm} disabled={!aiAnalysis.enabled || !aiAnalysis.customAlgorithmDraft.trim()}>추가</button>
+          </div>}
+        </div>
+      </div>
+      {(selectedAlgorithms.length > 0 || customAlgorithms.length > 0) && (
+        <div className="ai-selected-algorithms">
+          <p className="form-hint">선택한 알고리즘의 사용 조건을 설정하세요.</p>
+          {selectedAlgorithms.map((item) => {
+            const label = aiAlgorithmOptions.find(([value]) => value === item.algorithm)?.[1] ?? item.algorithm;
+            return <div className="ai-algorithm-rule" key={item.algorithm}><span>{label}</span><select value={item.level} onChange={(event) => updateAlgorithmLevel(item.algorithm, event.target.value)} disabled={!aiAnalysis.enabled}><option value="RECOMMENDED">권장</option><option value="REQUIRED">필수</option></select><button className="ai-remove-button" type="button" onClick={() => toggleAlgorithm(item.algorithm)} disabled={!aiAnalysis.enabled} aria-label={`${label} 선택 해제`}><X size={14} /></button></div>;
+          })}
+          {customAlgorithms.map((item, index) => <div className="ai-algorithm-rule" key={`custom-algorithm-${index}`}>
+            <span>{item.name}</span>
+            <select value={item.level} onChange={(event) => updateCustomAlgorithm(index, "level", event.target.value)} disabled={!aiAnalysis.enabled} aria-label={`${item.name} 조건`}><option value="RECOMMENDED">권장</option><option value="REQUIRED">필수</option></select>
+            <button className="ai-remove-button" type="button" onClick={() => removeCustomAlgorithm(index)} disabled={!aiAnalysis.enabled} aria-label={`${item.name} 삭제`}><X size={14} /></button>
+          </div>)}
+        </div>
+      )}
+      <p className="form-hint">‘필수’는 AI 분석과 운영자 검토에 반영됩니다. 실제 점수는 테스트 결과를 기준으로 합니다.</p>
+    </fieldset>
+  );
+  return <>
+    <div className="ai-analysis-heading">
+      <div>
+        <h3>AI 분석 기준 및 참고자료</h3>
+        <p className="form-hint">채점 결과와 함께 AI가 피드백을 작성할 때 사용할 기준입니다. 숨김 테스트와 모범 답안은 응시자에게 공개되지 않습니다.</p>
+      </div>
+      <label className="ai-toggle"><input type="checkbox" checked={aiAnalysis.enabled} onChange={(event) => updateAiAnalysis("enabled", event.target.checked)} /> AI 분석 사용</label>
+    </div>
+    {optionGroup("평가 기준", "rubrics", aiRubricOptions, "customRubrics", "customRubricsEnabled", "customRubricDraft", "기타 평가 기준", "예: 함수 분리와 재사용성")}
+    {optionGroup("대표 오답 패턴", "mistakePatterns", aiMistakeOptions, "customMistakes", "customMistakesEnabled", "customMistakeDraft", "기타 오답 패턴", "예: 초기값을 고정 상수로 설정")}
+    {algorithmGroup}
+    <div className="ai-complexity-grid">
+      <ComplexityOptionGroup title="예상 시간복잡도" name="expectedTimeComplexity" value={aiAnalysis.expectedTimeComplexity} onChange={(value) => updateAiAnalysis("expectedTimeComplexity", value)} options={[["", "모르겠어요 / 선택 안 함"], ["O(1)", "O(1) · 상수"], ["O(log N)", "O(log N) · 로그"], ["O(N)", "O(N) · 선형"], ["O(N log N)", "O(N log N) · 선형로그"], ["O(N²)", "O(N²) · 제곱"], ["O(2^N)", "O(2^N) · 지수"]]} disabled={!aiAnalysis.enabled} />
+      <ComplexityOptionGroup title="예상 공간복잡도" name="expectedSpaceComplexity" value={aiAnalysis.expectedSpaceComplexity} onChange={(value) => updateAiAnalysis("expectedSpaceComplexity", value)} options={[["", "모르겠어요 / 선택 안 함"], ["O(1)", "O(1) · 추가 공간 없음"], ["O(log N)", "O(log N) · 로그"], ["O(N)", "O(N) · 선형"], ["O(N log N)", "O(N log N) · 선형로그"], ["O(N²)", "O(N²) · 제곱"]]} disabled={!aiAnalysis.enabled} />
+    </div>
+    <section className="ai-material-section">
+      <div className="section-title-row"><div><h3>학습 자료 링크</h3><p className="form-hint">분석 결과에 연결할 개념 설명이나 공식 문서입니다.</p></div><button className="secondary-button compact-button" type="button" onClick={addLearningMaterial} disabled={!aiAnalysis.enabled}>링크 추가</button></div>
+      <div className="ai-material-row ai-material-draft-row">
+        <label>자료명<input value={learningMaterials[learningMaterialDraftIndex]?.title ?? ""} onChange={(event) => updateLearningMaterial(learningMaterialDraftIndex, "title", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="예: 배열 순회 기초" /></label>
+        <label>URL<input type="url" value={learningMaterials[learningMaterialDraftIndex]?.url ?? ""} onChange={(event) => updateLearningMaterial(learningMaterialDraftIndex, "url", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="https://..." /></label>
+      </div>
+      {savedLearningMaterials.length > 0 && <div className="ai-selected-algorithms ai-selected-learning-materials">
+        <p className="form-hint">추가한 학습 자료</p>
+        {savedLearningMaterials.map((material, index) => {
+          const materialUrl = String(material.url ?? "").trim();
+          return <div className="ai-algorithm-rule" key={`learning-${index}`}>
+            <span className="ai-learning-material-summary"><strong>{material.title || "제목 없는 자료"}</strong>{isHttpUrl(materialUrl) ? <a href={materialUrl} target="_blank" rel="noopener noreferrer">{materialUrl}</a> : <small>{materialUrl}</small>}</span>
+            <button className="ai-remove-button" type="button" onClick={() => removeLearningMaterial(index)} disabled={!aiAnalysis.enabled} aria-label={`${material.title || material.url} 삭제`}><X size={14} /></button>
+          </div>;
+        })}
+      </div>}
+    </section>
+    <section className="ai-material-section">
+      <div className="section-title-row"><div><h3>참고 파일 첨부</h3><p className="form-hint">TXT, Markdown, JSON, CSV 파일만 지원하며 파일 내용은 AI 분석 참고용으로 저장됩니다. 파일당 250KB 이하.</p></div><label className="secondary-button compact-button file-button"><FileUp size={14} /> 파일 첨부<input type="file" accept=".txt,.md,.markdown,.json,.csv,text/plain,text/markdown,application/json,text/csv" onChange={uploadReferenceMaterial} disabled={!aiAnalysis.enabled} /></label></div>
+      {aiAnalysis.referenceMaterials.length > 0 ? <div className="ai-upload-list">{aiAnalysis.referenceMaterials.map((material, index) => <div className="ai-upload-item" key={material.name + index}><span>{material.name}</span><button className="text-button" type="button" onClick={() => removeReferenceMaterial(index)}>삭제</button></div>)}</div> : <p className="empty-state">첨부한 참고 파일이 없습니다.</p>}
+    </section>
+  </>;
 }
 
 function TestCaseEditor({ collection, cases, addTestCase, removeTestCase, updateTestCase }) {

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { calculateExamEndsAt, formatExamEndsAt, formatScheduleForApi } from './examSchedule.mjs';
 
-const initialForm = { title: '', duration: '60', questions: '총 10문제', date: '', hour: '10', minute: '00' };
+const initialForm = { title: '', duration: '60', date: '', hour: '10', minute: '00' };
 const hourOptions = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
 const minuteOptions = Array.from({ length: 12 }, (_, minute) => String(minute * 5).padStart(2, '0'));
 
@@ -75,7 +75,6 @@ export default function ManagerExamCreatePage() {
             <span className="schedule-end-hint" aria-live="polite"><Clock3 size={14} /><span>{examEndsAt ? `예상 종료 ${formatExamEndsAt(examEndsAt)}` : '시작 일시와 제한 시간을 선택하면 종료 시각이 표시됩니다.'}</span></span>
           </section>
         </div>
-        <label>문항 수<input value={form.questions} onChange={(event) => setForm({ ...form, questions: event.target.value })} required /></label>
         <button className="primary-button" type="submit" disabled={!organizationId}><Plus size={17} /> 시험 생성하고 상세 관리로 이동</button>
       </form>
     </section>

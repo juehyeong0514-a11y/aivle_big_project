@@ -164,7 +164,110 @@ const normalizeTestCases = (testCases, requireAtLeastOne = false) => {
   if ((requireAtLeastOne && normalized.length === 0) || normalized.some((testCase) => !testCase.input || !testCase.expectedOutput)) return undefined;
   return normalized;
 };
-const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJudgeCode, ...question }) => question;
+const normalizeAiTextList = (value, allowedValues, limit = 8) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item) => allowedValues.has(item)))].slice(0, limit);
+};
+const normalizeAiCustomTextList = (value, limit = 8) => {
+  const items = Array.isArray(value) ? value : [value];
+  return [...new Set(items.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean))].slice(0, limit);
+};
+const normalizeAiCustomAlgorithms = (value, fallbackLevel = "RECOMMENDED", limit = 8) => {
+  const items = Array.isArray(value) ? value : (typeof value === "string" ? [{ name: value, level: fallbackLevel }] : []);
+  const seen = new Set();
+  return items.reduce((algorithms, item) => {
+    const name = typeof item === "string" ? item.trim() : (typeof item?.name === "string" ? item.name.trim() : "");
+    if (!name || seen.has(name)) return algorithms;
+    seen.add(name);
+    algorithms.push({ name, level: item?.level === "REQUIRED" ? "REQUIRED" : "RECOMMENDED" });
+    return algorithms;
+  }, []).slice(0, limit);
+};
+const normalizeAiAlgorithmRequirements = (value, allowedValues, limit = 8) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.reduce((requirements, item) => {
+    const algorithm = item?.algorithm;
+    if (!allowedValues.has(algorithm) || seen.has(algorithm)) return requirements;
+    seen.add(algorithm);
+    requirements.push({ algorithm, level: item?.level === "REQUIRED" ? "REQUIRED" : "RECOMMENDED" });
+    return requirements;
+  }, []).slice(0, limit);
+};
+const normalizeAiMaterials = (value, limit = 6) => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit).map((material) => ({
+    title: typeof material?.title === "string" ? material.title.trim().slice(0, 200) : "",
+    url: typeof material?.url === "string" ? material.url.trim().slice(0, 2000) : ""
+  })).filter((material) => material.title || material.url);
+};
+const normalizeAiReferenceMaterials = (value, limit = 6) => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit).map((material) => ({
+    name: typeof material?.name === "string" ? material.name.trim().slice(0, 200) : "",
+    mimeType: typeof material?.mimeType === "string" ? material.mimeType.trim().slice(0, 100) : "text/plain",
+    content: typeof material?.content === "string" ? material.content.slice(0, 250_000) : ""
+  })).filter((material) => material.name && material.content);
+};
+const normalizeAiValidationSamples = (value, limit = 10) => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, limit).map((sample, index) => ({
+    id: typeof sample?.id === "string" ? sample.id.slice(0, 80) : `sample-${index + 1}`,
+    kind: typeof sample?.kind === "string" ? sample.kind.trim().slice(0, 80) : "검증 샘플",
+    summary: typeof sample?.summary === "string" ? sample.summary.trim().slice(0, 300) : "",
+    expectedIssue: typeof sample?.expectedIssue === "string" ? sample.expectedIssue.trim().slice(0, 300) : "",
+    language: codingLanguages.has(sample?.language) ? sample.language : "Python",
+    source: typeof sample?.source === "string" ? sample.source.slice(0, 100_000) : "",
+  })).filter((sample) => sample.source);
+};
+const normalizeAiValidation = (value) => {
+  const validation = value && typeof value === "object" ? value : {};
+  const statusValues = new Set(["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"]);
+  return {
+    sampleCount: Number(validation.sampleCount) === 5 ? 5 : 10,
+    language: codingLanguages.has(validation.language) ? validation.language : "Python",
+    status: statusValues.has(validation.status) ? validation.status : "NOT_RUN",
+    samples: normalizeAiValidationSamples(validation.samples),
+    generatedAt: typeof validation.generatedAt === "string" ? validation.generatedAt.slice(0, 50) : "",
+  };
+};
+const normalizeAiReferenceAnswer = (value) => ({
+  status: new Set(["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"]).has(value?.status) ? value.status : "NOT_RUN",
+  generatedAt: typeof value?.generatedAt === "string" ? value.generatedAt.slice(0, 50) : "",
+});
+const normalizeAiAnalysis = (value) => {
+  const aiAnalysis = value && typeof value === "object" ? value : {};
+  const rubricValues = new Set(["CORRECTNESS", "EDGE_CASE", "TIME_COMPLEXITY", "SPACE_COMPLEXITY", "READABILITY", "ERROR_HANDLING", "MODULARITY"]);
+  const mistakeValues = new Set(["EMPTY_INPUT", "DUPLICATE_VALUE", "NEGATIVE_VALUE", "TIMEOUT", "TYPE_ERROR", "OFF_BY_ONE"]);
+  const algorithmValues = new Set(["ARRAY_TRAVERSAL", "SORTING", "HASH_MAP", "TWO_POINTERS", "DYNAMIC_PROGRAMMING", "BFS_DFS"]);
+  const legacyAlgorithms = normalizeAiTextList(aiAnalysis.recommendedAlgorithms, algorithmValues);
+  const customAlgorithmLevel = aiAnalysis.customAlgorithmLevel === "REQUIRED" ? "REQUIRED" : "RECOMMENDED";
+  const algorithmRequirements = Array.isArray(aiAnalysis.algorithmRequirements)
+    ? normalizeAiAlgorithmRequirements(aiAnalysis.algorithmRequirements, algorithmValues)
+    : legacyAlgorithms.map((algorithm) => ({ algorithm, level: "RECOMMENDED" }));
+  const customAlgorithms = normalizeAiCustomAlgorithms(aiAnalysis.customAlgorithms, customAlgorithmLevel);
+  return {
+    enabled: aiAnalysis.enabled !== false,
+    rubrics: normalizeAiTextList(aiAnalysis.rubrics, rubricValues),
+    customRubrics: normalizeAiCustomTextList(aiAnalysis.customRubrics),
+    customRubricsEnabled: aiAnalysis.customRubricsEnabled === true,
+    mistakePatterns: normalizeAiTextList(aiAnalysis.mistakePatterns, mistakeValues),
+    customMistakes: normalizeAiCustomTextList(aiAnalysis.customMistakes),
+    customMistakesEnabled: aiAnalysis.customMistakesEnabled === true,
+    algorithmRequirements,
+    recommendedAlgorithms: algorithmRequirements.map(({ algorithm }) => algorithm),
+    customAlgorithms,
+    customAlgorithmsEnabled: aiAnalysis.customAlgorithmsEnabled === true,
+    customAlgorithmLevel: customAlgorithms[0]?.level ?? customAlgorithmLevel,
+    expectedTimeComplexity: typeof aiAnalysis.expectedTimeComplexity === "string" ? aiAnalysis.expectedTimeComplexity.trim().slice(0, 100) : "",
+    expectedSpaceComplexity: typeof aiAnalysis.expectedSpaceComplexity === "string" ? aiAnalysis.expectedSpaceComplexity.trim().slice(0, 100) : "",
+    learningMaterials: normalizeAiMaterials(aiAnalysis.learningMaterials),
+    referenceMaterials: normalizeAiReferenceMaterials(aiAnalysis.referenceMaterials),
+    referenceAnswer: normalizeAiReferenceAnswer(aiAnalysis.referenceAnswer),
+    validation: normalizeAiValidation(aiAnalysis.validation)
+  };
+};
+const publicQuestion = ({ answer, hiddenTestCases, referenceSolutions, customJudgeCode, aiAnalysis, ...question }) => question;
 const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questions.map((question) => {
   if (question.type !== "CODING") return [question.id, typeof answers[question.id] === "string" ? answers[question.id].slice(0, 10000) : ""];
   const answer = answers[question.id] && typeof answers[question.id] === "object" ? answers[question.id] : {};
@@ -459,12 +562,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((exam) => exam.id === item.examId);
     return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
   };
-  const invokeAiGrading = async ({ apiKey, provider, model, prompt }) => {
+  const invokeAiGrading = async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
     const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
     let response;
     if (provider === "OpenAI") {
       requestOptions.headers.Authorization = `Bearer ${apiKey}`;
-      requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
+      requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
       response = await fetch("https://api.openai.com/v1/chat/completions", requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "OpenAI 채점 호출에 실패했습니다.");
@@ -473,14 +576,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (provider === "Anthropic") {
       requestOptions.headers["x-api-key"] = apiKey;
       requestOptions.headers["anthropic-version"] = "2023-06-01";
-      requestOptions.body = JSON.stringify({ model, max_tokens: 1200, system: "You are an exam grader. Return JSON with score, feedback, and rubricBreakdown.", messages: [{ role: "user", content: prompt }] });
+      requestOptions.body = JSON.stringify({ model, max_tokens: 1200, system: systemPrompt, messages: [{ role: "user", content: prompt }] });
       response = await fetch("https://api.anthropic.com/v1/messages", requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "Anthropic 채점 호출에 실패했습니다.");
       return JSON.parse(payload.content?.[0]?.text ?? "{}");
     }
     if (provider === "Google Gemini") {
-      requestOptions.body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: `You are an exam grader. Return JSON with score, feedback, and rubricBreakdown.\n${prompt}` }] }], generationConfig: { responseMimeType: "application/json" } });
+      requestOptions.body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n${prompt}` }] }], generationConfig: { responseMimeType: "application/json" } });
       response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "Gemini 채점 호출에 실패했습니다.");
@@ -492,7 +595,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
     if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
     const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
-    const questions = store.questions.filter((item) => item.examId === request.examId).map((item) => ({ id: item.id, title: item.title, type: item.type, description: item.description, rubric: item.rubric }));
+    const questions = store.questions.filter((item) => item.examId === request.examId).map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      description: item.description,
+      constraints: item.constraints,
+      aiAnalysis: item.aiAnalysis ?? { rubrics: item.rubric ?? [] }
+    }));
     const prompt = JSON.stringify({ examId: request.examId, candidateId: request.candidateId, questions, submission: submission ? { answers: submission.answers, submittedAt: submission.submittedAt } : null });
     const grading = await invokeAiGrading({ apiKey, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, prompt });
     const result = { ...grading, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, gradedAt: new Date().toISOString() };
@@ -784,7 +894,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/applicant/session", authenticateApplicant, (request, response) => {
     const { invitation, candidate, exam } = request.applicantSession;
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt });
+    const questionCount = store.questions.filter((question) => question.examId === exam.id).length;
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt });
   });
   app.get("/api/applicant/notices", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
@@ -1072,7 +1183,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
     const questions = store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: exam.questions, date: exam.date }, questions });
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions });
   });
   app.post("/api/applicant/exam/run", authenticateApplicant, async (request, response, next) => {
     let releaseExecutionSlot;
@@ -1786,10 +1897,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.post("/api/manager/exams", authenticate, requireManager, async (request, response, next) => {
     try {
-      const { title, duration, questions, date, organizationId } = request.body;
-      if (![title, duration, questions, date, organizationId].every(isNonEmptyText)) return response.status(400).json({ message: "조직, 시험명, 제한 시간, 시험 일정을 모두 입력해주세요." });
+      const { title, duration, date, organizationId } = request.body;
+      if (![title, duration, date, organizationId].every(isNonEmptyText)) return response.status(400).json({ message: "조직, 시험명, 제한 시간, 시험 일정을 모두 입력해주세요." });
       if (!scopedOrganization(request, organizationId)) return response.status(403).json({ message: "배정된 승인 조직만 시험을 만들 수 있습니다." });
-      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: questions.trim(), date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId };
+      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: "", date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId };
       if (!scheduledExamEndsAt(exam)) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
       await store.addExam(exam);
       return response.status(201).json(exam);
@@ -1830,7 +1941,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       if (!scopedExam(request, request.params.id)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 관리할 수 있습니다." });
       if (request.body.type === "CODING") {
-        const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
+        const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions, aiAnalysis } = request.body;
         const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
         const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
         const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
@@ -1842,7 +1953,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           id: randomUUID(), examId: request.params.id, type: "CODING", title: title.trim(), prompt: description.trim(), description: description.trim(),
           languages: normalizedLanguages, inputFormat: inputFormat.trim(), outputFormat: outputFormat.trim(), constraints: constraints.trim(),
           publicExamples: normalizedPublicExamples, hiddenTestCases: normalizedHiddenTestCases, judgeMode, numericTolerance: judgeMode === "NUMERIC_TOLERANCE" ? numericTolerance : undefined,
-          customJudgeCode: judgeMode === "CUSTOM" ? customJudgeCode.trim() : undefined, referenceSolutions: normalizedReferenceSolutions, createdAt: new Date().toISOString()
+          customJudgeCode: judgeMode === "CUSTOM" ? customJudgeCode.trim() : undefined, referenceSolutions: normalizedReferenceSolutions,
+          aiAnalysis: normalizeAiAnalysis(aiAnalysis), createdAt: new Date().toISOString()
         };
         await store.addQuestion(question);
         return response.status(201).json(question);
@@ -1875,7 +1987,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         const question = await store.updateQuestion(current.id, { type: "MULTIPLE_CHOICE", prompt: prompt.trim(), options: normalizedOptions, answer: normalizedAnswer, updatedAt: new Date().toISOString() });
         return response.json(question);
       }
-      const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions } = request.body;
+      const { title, languages, description, inputFormat, outputFormat, constraints, publicExamples, hiddenTestCases, judgeMode, numericTolerance, customJudgeCode, referenceSolutions, aiAnalysis } = request.body;
       const normalizedLanguages = Array.isArray(languages) ? [...new Set(languages.filter((language) => codingLanguages.has(language)))] : [];
       const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
       const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
@@ -1887,9 +1999,112 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         title: title.trim(), prompt: description.trim(), description: description.trim(), languages: normalizedLanguages,
         inputFormat: inputFormat.trim(), outputFormat: outputFormat.trim(), constraints: constraints.trim(), publicExamples: normalizedPublicExamples, hiddenTestCases: normalizedHiddenTestCases,
         judgeMode, numericTolerance: judgeMode === "NUMERIC_TOLERANCE" ? numericTolerance : undefined, customJudgeCode: judgeMode === "CUSTOM" ? customJudgeCode.trim() : undefined,
-        referenceSolutions: normalizedReferenceSolutions, updatedAt: new Date().toISOString()
+        referenceSolutions: normalizedReferenceSolutions, aiAnalysis: normalizeAiAnalysis(aiAnalysis), updatedAt: new Date().toISOString()
       });
       return response.json(question);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/manager/exams/:examId/ai-reference-answer", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 시험만 AI 모범 답안을 생성할 수 있습니다." });
+      const input = request.body?.question && typeof request.body.question === "object" ? request.body.question : {};
+      const title = typeof input.title === "string" ? input.title.trim() : "";
+      const description = typeof input.description === "string" ? input.description.trim() : "";
+      const languages = Array.isArray(input.languages) ? [...new Set(input.languages.filter((language) => codingLanguages.has(language)))] : [];
+      if (!title || !description || languages.length === 0) return response.status(400).json({ message: "문제 제목, 설명, 사용 언어를 먼저 입력해주세요." });
+      const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+      if (!apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다." });
+      const aiAnalysis = { ...normalizeAiAnalysis(input.aiAnalysis) };
+      delete aiAnalysis.validation;
+      const prompt = JSON.stringify({
+        task: "Generate the official reference solution for a coding exam problem.",
+        output: { answers: Object.fromEntries(languages.map((language) => [language, "complete source code only"])) },
+        rules: [
+          "Return exactly one complete solution for every requested language in the answers object.",
+          "Return only valid JSON and never Markdown fences or commentary.",
+          "Follow the problem statement, constraints, judge settings, and requested algorithm requirements.",
+          "Use standard input and standard output. Do not hard-code public or hidden test outputs.",
+        ],
+        problem: {
+          title,
+          languages,
+          description,
+          inputFormat: typeof input.inputFormat === "string" ? input.inputFormat.trim().slice(0, 10_000) : "",
+          outputFormat: typeof input.outputFormat === "string" ? input.outputFormat.trim().slice(0, 10_000) : "",
+          constraints: typeof input.constraints === "string" ? input.constraints.trim().slice(0, 10_000) : "",
+          publicExamples: normalizeTestCases(input.publicExamples, false) ?? [],
+          hiddenTestCases: normalizeTestCases(input.hiddenTestCases, false) ?? [],
+          judgeMode: input.judgeMode,
+          numericTolerance: input.numericTolerance,
+          customJudgeCode: typeof input.customJudgeCode === "string" ? input.customJudgeCode.trim().slice(0, 100_000) : "",
+          aiAnalysis,
+        },
+      });
+      const generated = await invokeAiGrading({
+        apiKey,
+        provider: store.systemPolicies.aiProvider,
+        model: store.systemPolicies.aiModel,
+        prompt,
+        systemPrompt: "You are a coding-exam reference-solution generator. Return only valid JSON and never Markdown fences.",
+      });
+      const answers = Object.fromEntries(languages.map((language) => [
+        language,
+        typeof generated.answers?.[language] === "string" ? generated.answers[language].trim().slice(0, 100_000) : "",
+      ]));
+      if (Object.values(answers).some((source) => !source)) return response.status(502).json({ message: "AI가 선택한 모든 언어의 모범 답안을 생성하지 못했습니다." });
+      return response.json({ answers, status: "GENERATED", generatedAt: new Date().toISOString() });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/manager/exams/:examId/ai-validation", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 시험만 AI 검증할 수 있습니다." });
+      const input = request.body?.question && typeof request.body.question === "object" ? request.body.question : {};
+      const title = typeof input.title === "string" ? input.title.trim() : "";
+      const description = typeof input.description === "string" ? input.description.trim() : "";
+      const sampleCount = Number(input.aiAnalysis?.validation?.sampleCount) === 5 ? 5 : 10;
+      const language = codingLanguages.has(input.aiAnalysis?.validation?.language) ? input.aiAnalysis.validation.language : (Array.isArray(input.languages) && codingLanguages.has(input.languages[0]) ? input.languages[0] : "Python");
+      if (!title || !description) return response.status(400).json({ message: "문제 제목과 설명을 먼저 입력해주세요." });
+      const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+      if (!apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다." });
+      const aiAnalysis = { ...normalizeAiAnalysis(input.aiAnalysis) };
+      delete aiAnalysis.validation;
+      const referenceSolution = typeof input.referenceSolutions?.[language] === "string" ? input.referenceSolutions[language].slice(0, 100_000) : "";
+      const prompt = JSON.stringify({
+        task: "Generate realistic coding-exam submission samples for evaluator preflight validation.",
+        output: { samples: "array", fields: { id: "string", kind: "string", summary: "string", expectedIssue: "string", language, source: "complete source code" } },
+        rules: [
+          `Return exactly ${sampleCount} samples in one JSON object.`,
+          "Include a mixture of correct, edge-case-failing, inefficient, and logic-error submissions when the problem allows it.",
+          "Keep every source syntactically complete for the requested language.",
+          "Do not include Markdown fences or commentary outside JSON.",
+          "Do not use hidden test outputs as hard-coded answers.",
+        ],
+        language,
+        problem: {
+          title,
+          description,
+          inputFormat: typeof input.inputFormat === "string" ? input.inputFormat.trim().slice(0, 10_000) : "",
+          outputFormat: typeof input.outputFormat === "string" ? input.outputFormat.trim().slice(0, 10_000) : "",
+          constraints: typeof input.constraints === "string" ? input.constraints.trim().slice(0, 10_000) : "",
+          publicExamples: normalizeTestCases(input.publicExamples, false) ?? [],
+          aiAnalysis,
+          referenceSolution,
+        },
+      });
+      const generated = await invokeAiGrading({
+        apiKey,
+        provider: store.systemPolicies.aiProvider,
+        model: store.systemPolicies.aiModel,
+        prompt,
+        systemPrompt: "You are a coding-exam validation sample generator. Return only valid JSON and never Markdown fences.",
+      });
+      const samples = normalizeAiValidationSamples(generated.samples, sampleCount);
+      if (samples.length < sampleCount) return response.status(502).json({ message: "AI가 요청한 수만큼 검증 샘플을 생성하지 못했습니다." });
+      return response.json({ sampleCount, language, status: "GENERATED", samples, generatedAt: new Date().toISOString() });
     } catch (error) {
       return next(error);
     }
@@ -2080,7 +2295,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
     const candidate = store.candidates.find((candidate) => candidate.id === invitation.candidateId);
-    return response.json({ organizationName: organization?.name ?? "조직", candidateName: candidate?.name ?? "응시자", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: exam?.questions ?? "문항 수 미정", expiresAt: invitation.expiresAt });
+    const questionCount = store.questions.filter((question) => question.examId === exam?.id).length;
+    return response.json({ organizationName: organization?.name ?? "조직", candidateName: candidate?.name ?? "응시자", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: `총 ${questionCount}문제`, expiresAt: invitation.expiresAt });
   });
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
