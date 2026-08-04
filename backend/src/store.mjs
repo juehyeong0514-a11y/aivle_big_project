@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createHash, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
@@ -7,6 +7,8 @@ import { seedData } from "./seed.mjs";
 const scrypt = promisify(scryptCallback);
 
 const clone = (value) => structuredClone(value);
+const replaceRetryableErrors = new Set(["EPERM", "EBUSY", "EACCES"]);
+const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 
 const collectionDefaults = {
   organizations: [],
@@ -217,18 +219,31 @@ const save = async () => {
     return;
   }
 
-  const temporaryPath = `${filePath}.tmp`;
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(data, null, 2));
-  await rename(temporaryPath, filePath);
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(temporaryPath, filePath);
+        break;
+      } catch (error) {
+        if (!replaceRetryableErrors.has(error?.code) || attempt >= 7) throw error;
+        await wait(25 * (2 ** attempt));
+      }
+    }
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
 };
 
   let saveQueue = Promise.resolve();
   const queuedSave = () => {
-    saveQueue = saveQueue.then(save);
+    saveQueue = saveQueue.then(save, save);
     return saveQueue;
   };
 
-  if (shouldSave) await save();
+  if (shouldSave) await queuedSave();
 
   return {
     get users() { return data.users; },

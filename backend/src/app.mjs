@@ -280,7 +280,21 @@ const normalizeCodingAnswers = (answers, questions) => Object.fromEntries(questi
 const normalizeRunResults = (runResults, questions) => Object.fromEntries(questions.filter((question) => question.type === "CODING").flatMap((question) => {
   const result = runResults?.[question.id];
   if (!result || typeof result !== "object" || typeof result.output !== "string") return [];
-  return [[question.id, { type: ["success", "error", "notice"].includes(result.type) ? result.type : "notice", output: result.output.slice(0, 20000), executedAt: typeof result.executedAt === "string" ? result.executedAt : new Date().toISOString() }]];
+  const text = (value, limit = 20_000) => typeof value === "string" ? value.slice(0, limit) : "";
+  const number = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  return [[question.id, {
+    type: ["success", "error", "notice"].includes(result.type) ? result.type : "notice",
+    output: result.output.slice(0, 20_000),
+    status: text(result.status, 500),
+    statusId: number(result.statusId),
+    stdout: text(result.stdout),
+    stderr: text(result.stderr),
+    compileOutput: text(result.compileOutput),
+    timeSeconds: number(result.timeSeconds),
+    memoryKb: number(result.memoryKb),
+    stdin: text(result.stdin),
+    executedAt: typeof result.executedAt === "string" ? result.executedAt : new Date().toISOString()
+  }]];
 }));
 
 const defaultCodeExecutionUrl = "https://ce.judge0.com";
@@ -374,7 +388,18 @@ const executeCode = async ({ baseUrl, language, source, stdin }) => {
       .find((value) => typeof value === "string" && value.trim())?.trimEnd() ?? "출력이 없습니다.";
     const truncationNotice = "\n[출력이 길어 일부 생략되었습니다.]";
     const output = rawOutput.length > executionOutputLimit ? `${rawOutput.slice(0, executionOutputLimit - truncationNotice.length)}${truncationNotice}` : rawOutput;
-    return { type: statusId === 3 ? "success" : "error", output, status: result.status?.description ?? "실행 완료" };
+    return {
+      type: statusId === 3 ? "success" : "error",
+      output,
+      status: result.status?.description ?? "실행 완료",
+      statusId,
+      stdout: typeof result.stdout === "string" ? result.stdout.slice(0, executionOutputLimit) : "",
+      stderr: typeof result.stderr === "string" ? result.stderr.slice(0, executionOutputLimit) : "",
+      compileOutput: typeof result.compile_output === "string" ? result.compile_output.slice(0, executionOutputLimit) : "",
+      timeSeconds: Number.isFinite(Number(result.time)) ? Number(result.time) : null,
+      memoryKb: Number.isFinite(Number(result.memory)) ? Number(result.memory) : null,
+      stdin
+    };
   } catch (reason) {
     if (reason.status) throw reason;
     const error = new Error(reason?.name === "TimeoutError" || reason?.message === "코드 실행 시간이 초과되었습니다."
@@ -574,6 +599,26 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((exam) => exam.id === item.examId);
     return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
   };
+  const parseAiJsonResponse = (rawValue) => {
+    const rawText = typeof rawValue === "string" ? rawValue.trim() : "";
+    const withoutFence = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const candidates = [withoutFence];
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) candidates.push(withoutFence.slice(firstBrace, lastBrace + 1));
+    let parseError;
+    for (const candidate of [...new Set(candidates)]) {
+      try {
+        return JSON.parse(candidate || "{}");
+      } catch (error) {
+        parseError = error;
+      }
+    }
+    const error = new Error(`AI 응답이 올바른 JSON이 아닙니다: ${parseError?.message ?? "JSON 형식을 확인해주세요."}`);
+    error.code = "AI_RESPONSE_JSON_INVALID";
+    error.rawResponse = rawText.slice(0, 200_000);
+    throw error;
+  };
   const invokeAiGrading = aiProviderInvoker ?? (async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
     const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
     let response;
@@ -583,7 +628,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       response = await fetch("https://api.openai.com/v1/chat/completions", requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "OpenAI 채점 호출에 실패했습니다.");
-      return JSON.parse(payload.choices?.[0]?.message?.content ?? "{}");
+      return parseAiJsonResponse(payload.choices?.[0]?.message?.content ?? "{}");
     }
     if (provider === "Anthropic") {
       requestOptions.headers["x-api-key"] = apiKey;
@@ -592,36 +637,120 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       response = await fetch("https://api.anthropic.com/v1/messages", requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "Anthropic 채점 호출에 실패했습니다.");
-      return JSON.parse(payload.content?.[0]?.text ?? "{}");
+      return parseAiJsonResponse(payload.content?.[0]?.text ?? "{}");
     }
     if (provider === "Google Gemini") {
       requestOptions.body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n${prompt}` }] }], generationConfig: { responseMimeType: "application/json" } });
       response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, requestOptions);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "Gemini 채점 호출에 실패했습니다.");
-      return JSON.parse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
+      return parseAiJsonResponse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
     }
     throw new Error(`${provider} 채점 어댑터는 아직 서버에 구성되지 않았습니다.`);
   });
   const executeAiGrading = async (request) => {
+    const startedAt = Date.now();
     const aiConfig = centralAiConfig();
-    const { apiKey } = aiConfig;
-    if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
-    const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
-    const questions = store.questions.filter((item) => item.examId === request.examId).map((item) => ({
-      id: item.id,
-      title: item.title,
-      type: item.type,
-      description: item.description,
-      constraints: item.constraints,
-      aiAnalysis: item.aiAnalysis ?? { rubrics: item.rubric ?? [] }
-    }));
-    const prompt = JSON.stringify({ examId: request.examId, candidateId: request.candidateId, questions, submission: submission ? { answers: submission.answers, submittedAt: submission.submittedAt } : null });
-    const grading = await invokeAiGrading({ apiKey, provider: aiConfig.provider, model: aiConfig.model, prompt });
-    const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
-    await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result });
-    const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
-    if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
+    const actor = store.users.find((user) => user.id === request.acceptedBy);
+    let promptPayload;
+    try {
+      const { apiKey } = aiConfig;
+      if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
+      const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+      if (!submission) throw new Error("AI 채점에 사용할 코딩 시험 제출 내역이 없습니다.");
+      const questions = store.questions.filter((item) => item.examId === request.examId && item.type === "CODING").map((item) => {
+        const aiAnalysis = item.aiAnalysis ?? { rubrics: item.rubric ?? [] };
+        const answer = submission.answers?.[item.id];
+        return {
+          id: item.id,
+          title: item.title,
+          problem: {
+            description: item.description ?? item.prompt ?? "",
+            inputFormat: item.inputFormat ?? "",
+            outputFormat: item.outputFormat ?? "",
+            constraints: item.constraints ?? "",
+            publicExamples: item.publicExamples ?? [],
+            judgeMode: item.judgeMode ?? "EXACT",
+            numericTolerance: item.numericTolerance ?? 0
+          },
+          evaluation: {
+            rubrics: aiAnalysis.rubrics ?? [],
+            customRubrics: aiAnalysis.customRubricsEnabled ? aiAnalysis.customRubrics ?? [] : [],
+            mistakePatterns: aiAnalysis.mistakePatterns ?? [],
+            algorithmRequirements: aiAnalysis.algorithmRequirements ?? [],
+            recommendedAlgorithms: aiAnalysis.recommendedAlgorithms ?? [],
+            customAlgorithms: aiAnalysis.customAlgorithmsEnabled ? aiAnalysis.customAlgorithms ?? [] : [],
+            expectedTimeComplexity: aiAnalysis.expectedTimeComplexity ?? "",
+            expectedSpaceComplexity: aiAnalysis.expectedSpaceComplexity ?? ""
+          },
+          reference: {
+            solutions: item.referenceSolutions ?? {},
+            learningMaterials: aiAnalysis.learningMaterials ?? [],
+            referenceMaterials: aiAnalysis.referenceMaterials ?? []
+          },
+          candidateSubmission: {
+            language: typeof answer === "object" ? answer?.language ?? "" : "",
+            sourceCode: typeof answer === "object" ? answer?.source ?? "" : "",
+            judge0RunResult: submission.runResults?.[item.id] ?? null
+          }
+        };
+      });
+      if (!questions.length) throw new Error("AI 채점에 사용할 코딩 문제가 없습니다.");
+      promptPayload = {
+        task: "Grade every candidate coding answer once using the supplied evidence.",
+        examId: request.examId,
+        candidateId: request.candidateId,
+        submittedAt: submission.submittedAt,
+        adminInstructions: request.adminInstructions ?? "",
+        scoring: {
+          algorithm: { maxScore: 20, description: "알고리즘 선택, 요구 알고리즘 충족, 정확성과 효율성" },
+          codeQuality: { maxScore: 10, description: "가독성, 구조, 안정성, 언어 관례" },
+          totalMaxScorePerQuestion: 30
+        },
+        output: {
+          score: "number; average score across questions, 0 to 30",
+          maxScore: 30,
+          feedback: "overall Korean feedback",
+          rubricBreakdown: [{
+            questionId: "question id",
+            title: "question title",
+            score: "algorithmScore + codeQualityScore, 0 to 30",
+            maxScore: 30,
+            algorithmScore: "number, 0 to 20",
+            codeQualityScore: "number, 0 to 10",
+            timeComplexity: { estimated: "Big-O", expected: "Big-O from requirements", analysis: "Korean analysis" },
+            spaceComplexity: { estimated: "Big-O", expected: "Big-O from requirements", analysis: "Korean analysis" },
+            deductions: [{ category: "algorithm or codeQuality", points: "positive deducted points", reason: "Korean reason" }],
+            feedback: "actionable Korean feedback"
+          }]
+        },
+        rules: [
+          "Return only valid JSON matching output and include exactly one rubricBreakdown item per question.",
+          "Judge only the candidateSubmission.sourceCode for that question; never confuse it with a reference solution.",
+          "Use reference solutions and materials only as grading evidence, not as the candidate answer.",
+          "Judge0 run result is execution evidence from the candidate's recorded run. Consider status, stdout, stderr, compile output, time, memory, and stdin when present.",
+          "Do not assume a successful single run proves correctness for hidden cases. Explicitly mention insufficient execution evidence when applicable.",
+          "If sourceCode is empty, assign zero for that question and state that no candidate code was submitted.",
+          "All human-readable analysis, deductions, and feedback must be written in Korean. Scores must stay within their stated maxima."
+        ],
+        questions
+      };
+      const grading = await invokeAiGrading({
+        apiKey,
+        provider: aiConfig.provider,
+        model: aiConfig.model,
+        prompt: JSON.stringify(promptPayload),
+        systemPrompt: "You are a strict coding assessment agent. Evaluate candidate code using the supplied problem, rubric, reference information, and recorded Judge0 evidence. Return valid JSON only."
+      });
+      const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "COMPLETED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload, response: grading, durationMs: Date.now() - startedAt, createdAt: result.gradedAt });
+      await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result });
+      const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+      if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
+    } catch (error) {
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "FAILED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload ?? null, response: error.rawResponse ? { rawText: error.rawResponse } : null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      throw error;
+    }
   };
   const verifyAiApiKey = aiKeyVerifier ?? (async ({ provider, apiKey }) => {
     const checks = {
@@ -1537,12 +1666,38 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/admin/ai-grading-requests", authenticate, requireRole("ADMIN"), (_request, response) => response.json(store.aiGradingRequests.map(publicAiGradingRequest)));
+  app.patch("/api/admin/ai-grading-requests/:id", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
+      if (!gradingRequest) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
+      if (gradingRequest.status === "PROCESSING") return response.status(409).json({ message: "채점 실행 중에는 요청을 수정할 수 없습니다." });
+      const adminInstructions = typeof request.body.adminInstructions === "string" ? request.body.adminInstructions.trim() : "";
+      if (adminInstructions.length > 4_000) return response.status(400).json({ message: "관리자 보완 지시사항은 4,000자 이하로 입력해주세요." });
+      const updated = await store.updateAiGradingRequest(gradingRequest.id, { adminInstructions, updatedAt: new Date().toISOString(), updatedBy: request.user.id });
+      return response.json(publicAiGradingRequest(updated));
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.post("/api/admin/ai-grading-requests/:id/accept", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
       if (!gradingRequest) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
       if (gradingRequest.status !== "PENDING") return response.status(409).json({ message: "이미 처리 중이거나 완료된 요청입니다." });
       const processing = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: new Date().toISOString(), acceptedBy: request.user.id });
+      void executeAiGrading(processing).catch(async (error) => store.updateAiGradingRequest(processing.id, { status: "FAILED", failedAt: new Date().toISOString(), errorMessage: error.message }));
+      return response.status(202).json(publicAiGradingRequest(processing));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/admin/ai-grading-requests/:id/retry", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
+      if (!gradingRequest) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
+      if (gradingRequest.status === "PROCESSING") return response.status(409).json({ message: "이미 채점 실행 중입니다." });
+      if (!['FAILED', 'COMPLETED'].includes(gradingRequest.status)) return response.status(409).json({ message: "실패하거나 완료된 요청만 다시 채점할 수 있습니다." });
+      const processing = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: new Date().toISOString(), acceptedBy: request.user.id, errorMessage: "", failedAt: undefined, completedAt: undefined, result: undefined, retryCount: (gradingRequest.retryCount ?? 0) + 1 });
       void executeAiGrading(processing).catch(async (error) => store.updateAiGradingRequest(processing.id, { status: "FAILED", failedAt: new Date().toISOString(), errorMessage: error.message }));
       return response.status(202).json(publicAiGradingRequest(processing));
     } catch (error) {
@@ -2130,7 +2285,22 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         prompt: requestPrompt,
         systemPrompt: "You are a strict coding-exam specification reviewer and reference-solution generator. Return exactly one top-level JSON object with keys feasible, feasibilityMessage, warnings, and answers. Never wrap these fields inside output or task. Preserve underscores and source-code characters exactly. Never use Markdown formatting or fences.",
       });
-      let generated = await invokeReferenceGenerator(prompt);
+      let generated;
+      const attempts = [];
+      try {
+        generated = await invokeReferenceGenerator(prompt);
+        attempts.push(generated);
+      } catch (error) {
+        if (error.code !== "AI_RESPONSE_JSON_INVALID") throw error;
+        attempts.push({ parseError: error.message, rawText: error.rawResponse });
+        generated = await invokeReferenceGenerator(JSON.stringify({
+          instruction: "The previous response was invalid JSON. Return ONLY one valid top-level JSON object with keys feasible, feasibilityMessage, warnings, and answers. Escape every newline and quote inside source-code strings according to JSON. Do not use Markdown fences.",
+          requestedLanguages: languages,
+          originalRequest: JSON.parse(prompt),
+          previousRawResponse: error.rawResponse,
+        }));
+        attempts.push(generated);
+      }
       const normalizedGeneration = (value) => {
         const payload = value?.answers && typeof value.answers === "object" ? value : (value?.output && typeof value.output === "object" ? value.output : value ?? {});
         const answers = Object.fromEntries(languages.map((language) => [language, typeof payload.answers?.[language] === "string" ? payload.answers[language].trim().replace(/^```\w*\s*/i, "").replace(/```$/i, "").trim().slice(0, 100_000) : ""]));
@@ -2138,7 +2308,6 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       };
       let normalized = normalizedGeneration(generated);
       const damagedAnswer = () => Object.values(normalized.answers).some((source) => !source || /\*\*(?:name|main)\*\*/i.test(source));
-      let attempts = [generated];
       if (normalized.payload.feasible !== false && damagedAnswer()) {
         const retryPrompt = JSON.stringify({
           instruction: "Your previous response used the wrong JSON nesting or damaged source-code characters. Return ONLY the corrected top-level object { feasible, feasibilityMessage, warnings, answers }. The answers keys must exactly match requestedLanguages. Preserve Python identifiers such as __name__ and __main__ literally; never convert underscores to Markdown emphasis.",
@@ -2179,7 +2348,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return response.json({ feasible: true, answers, warnings, status: "GENERATED", provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, generatedAt: new Date().toISOString() });
     } catch (error) {
-      if (auditContext) await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: auditContext.title, provider: auditContext.aiConfig.provider, model: auditContext.aiConfig.model, connectionName: auditContext.aiConfig.connectionName, prompt: auditContext.prompt, response: null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      if (auditContext) await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: auditContext.title, provider: auditContext.aiConfig.provider, model: auditContext.aiConfig.model, connectionName: auditContext.aiConfig.connectionName, prompt: auditContext.prompt, response: error.rawResponse ? { rawText: error.rawResponse } : null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return next(error);
     }
   });

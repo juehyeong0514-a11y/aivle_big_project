@@ -100,6 +100,16 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   const runResult = runResults[question.id] ?? { type: 'notice', output: '코드를 작성한 뒤 실행을 눌러 결과를 확인하세요.' };
 
   useEffect(() => {
+    if (!isCodingQuestion) return;
+    const savedAnswer = answers[question.id];
+    if (savedAnswer?.language === language && savedAnswer?.source === source) return;
+    updateAnswers((currentAnswers) => ({
+      ...currentAnswers,
+      [question.id]: { language, source },
+    }));
+  }, [answers, isCodingQuestion, language, question.id, source, updateAnswers]);
+
+  useEffect(() => {
     if (submissionError) setActiveResultTab('submission');
   }, [submissionError]);
 

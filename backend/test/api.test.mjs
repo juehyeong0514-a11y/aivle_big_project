@@ -576,6 +576,11 @@ test("governs organization approval, manager scope, and invitations reusable bef
 
 test("runs Python, Java, and C through the configured code execution server", async (context) => {
   const receivedLanguageIds = [];
+  const aiCalls = [];
+  const aiProviderInvoker = async (request) => {
+    aiCalls.push(request);
+    return { score: 30, maxScore: 30, feedback: "좋습니다.", rubricBreakdown: [] };
+  };
   const executionSubmissions = new Map();
   const executionServer = createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json");
@@ -595,7 +600,7 @@ test("runs Python, Java, and C through the configured code execution server", as
   });
   await new Promise((resolveReady) => executionServer.listen(0, "127.0.0.1", resolveReady));
   const executionAddress = executionServer.address();
-  const { baseUrl, server } = await startServer({ codeExecutionUrl: `http://127.0.0.1:${executionAddress.port}` });
+  const { baseUrl, server } = await startServer({ codeExecutionUrl: `http://127.0.0.1:${executionAddress.port}`, aiSettingsEncryptionKey: "grading-prompt-test-key", aiProviderInvoker });
   context.after(() => {
     executionServer.close();
     server.close();
@@ -621,18 +626,40 @@ test("runs Python, Java, and C through the configured code execution server", as
   const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
   const applicantToken = (await verified.json()).accessToken;
 
+  let latestRunResult;
   for (const [language, source] of [["Python", "print(input())"], ["Java", "class Main { public static void main(String[] args) { System.out.println(1); } }"], ["C", "#include <stdio.h>\nint main(void) { puts(\"1\"); }"]]) {
     const run = await fetch(`${baseUrl}/api/applicant/exam/run`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ questionId: question.id, language, source, stdin: "2 3" }) });
     assert.equal(run.status, 200);
     const result = await run.json();
+    latestRunResult = result;
     assert.equal(result.type, "success");
     assert.equal(result.output, "echo:2 3");
+    assert.equal(result.statusId, 3);
+    assert.equal(result.stdout, "echo:2 3");
   }
-  const submitted = await fetch(`${baseUrl}/api/applicant/exam/submit`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ answers: { [question.id]: { language: "C", source: "int main(void) { return 0; }" } } }) });
+  const candidateSource = "int main(void) { return 0; }";
+  const submitted = await fetch(`${baseUrl}/api/applicant/exam/submit`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ answers: { [question.id]: { language: "C", source: candidateSource } }, runResults: { [question.id]: latestRunResult } }) });
   assert.equal(submitted.status, 200);
   const rerunAfterSubmit = await fetch(`${baseUrl}/api/applicant/exam/run`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` }, body: JSON.stringify({ questionId: question.id, language: "C", source: "int main(void) { return 0; }", stdin: "" }) });
   assert.equal(rerunAfterSubmit.status, 409);
   assert.deepEqual(receivedLanguageIds, [71, 62, 50]);
+
+  const admin = await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123", role: "ADMIN" }) })).json();
+  const adminHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const settings = await (await fetch(`${baseUrl}/api/admin/ai-settings`, { headers: adminHeaders })).json();
+  await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers: adminHeaders, body: JSON.stringify({ provider: "OpenAI", model: "gpt-4.1-mini", apiKey: "grading-key", organizations: settings.organizations }) });
+  const gradingRequestResponse = await fetch(`${baseUrl}/api/manager/ai-grading-requests`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ examId: exam.id, candidateId: candidate.id }) });
+  assert.equal(gradingRequestResponse.status, 201);
+  const gradingRequest = await gradingRequestResponse.json();
+  await fetch(`${baseUrl}/api/admin/ai-grading-requests/${gradingRequest.id}/accept`, { method: "POST", headers: adminHeaders });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  assert.equal(aiCalls.length, 1);
+  const gradingPrompt = JSON.parse(aiCalls[0].prompt);
+  assert.equal(gradingPrompt.scoring.algorithm.maxScore, 20);
+  assert.equal(gradingPrompt.scoring.codeQuality.maxScore, 10);
+  assert.equal(gradingPrompt.questions[0].candidateSubmission.sourceCode, candidateSource);
+  assert.equal(gradingPrompt.questions[0].candidateSubmission.judge0RunResult.stdout, "echo:2 3");
+  assert.equal(gradingPrompt.questions[0].candidateSubmission.judge0RunResult.statusId, 3);
 });
 
 test("allows ADMIN to view the full exam directory without exam creation access", async (context) => {
@@ -957,4 +984,13 @@ test("uses an organization request and central admin acceptance workflow for AI 
   const acceptance = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}/accept`, { method: "POST", headers: adminHeaders });
   assert.equal(acceptance.status, 202);
   assert.equal((await acceptance.json()).status, "PROCESSING");
+  await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  const edit = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}`, { method: "PATCH", headers: { ...adminHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ adminInstructions: "경계값 처리를 엄격히 평가하세요." }) });
+  assert.equal(edit.status, 200);
+  assert.equal((await edit.json()).adminInstructions, "경계값 처리를 엄격히 평가하세요.");
+  const retry = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}/retry`, { method: "POST", headers: adminHeaders });
+  assert.equal(retry.status, 202);
+  const retried = await retry.json();
+  assert.equal(retried.status, "PROCESSING");
+  assert.equal(retried.retryCount, 1);
 });

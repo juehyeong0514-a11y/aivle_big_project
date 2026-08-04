@@ -6,6 +6,7 @@ const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
 const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
 const AiInvocationLogsTab = lazy(() => import('../admin/AiInvocationLogsTab'));
+const AiGradingQueueTab = lazy(() => import('../admin/AiGradingQueueTab'));
 const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
 const NoticeManagementTab = lazy(() => import('../admin/NoticeManagementTab'));
 const CommunityTab = lazy(() => import('../manager/CommunityTab'));
@@ -70,6 +71,7 @@ export default function HomePage() {
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
             {activeTab === 'AI_LOGS' && <AiInvocationLogsTab />}
+            {activeTab === 'AI_GRADING_QUEUE' && <AiGradingQueueTab />}
             {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
             {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Cpu, KeyRound, LoaderCircle, Play, Save, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CheckCircle2, Cpu, KeyRound, LoaderCircle, Save, ShieldCheck } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 const providerModels = {
@@ -12,38 +12,19 @@ const providerModels = {
   'Meta (Together AI, Groq 등)': ['llama-3.3', 'llama-3.2']
 };
 
-const statusLabel = { PENDING: '대기 중', PROCESSING: '채점 실행 중', COMPLETED: '완료', FAILED: '실패' };
-const formatDate = (value) => value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '-';
-
 export default function AiConfigTab() {
   const [settings, setSettings] = useState({ provider: 'OpenAI', model: 'gpt-4o-mini', apiKeyConfigured: false, organizations: [] });
-  const [requests, setRequests] = useState([]);
   const [apiKey, setApiKey] = useState('');
   const [connectionName, setConnectionName] = useState('');
   const [newProvider, setNewProvider] = useState('OpenAI');
   const [message, setMessage] = useState('');
   const [keyCheck, setKeyCheck] = useState(null);
   const [checkingKey, setCheckingKey] = useState(false);
-  const [acceptingId, setAcceptingId] = useState('');
-
-  const loadRequests = useCallback(async () => {
-    const { data } = await api.get('/admin/ai-grading-requests', { headers: authHeaders() });
-    setRequests(data);
-  }, []);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/admin/ai-settings', { headers: authHeaders() }),
-      loadRequests()
-    ]).then(([{ data }]) => setSettings(data))
+    api.get('/admin/ai-settings', { headers: authHeaders() }).then(({ data }) => setSettings(data))
       .catch((error) => setMessage(apiErrorMessage(error, 'AI 설정을 불러오지 못했습니다.')));
-  }, [loadRequests]);
-
-  useEffect(() => {
-    if (!requests.some((request) => request.status === 'PROCESSING')) return undefined;
-    const timer = window.setInterval(() => loadRequests().catch(() => {}), 4000);
-    return () => window.clearInterval(timer);
-  }, [loadRequests, requests]);
+  }, []);
 
   const updateProvider = (provider) => {
     setNewProvider(provider);
@@ -114,19 +95,6 @@ export default function AiConfigTab() {
     }
   };
 
-  const acceptAndRun = async (requestId) => {
-    setAcceptingId(requestId);
-    try {
-      const { data } = await api.post(`/admin/ai-grading-requests/${requestId}/accept`, {}, { headers: authHeaders() });
-      setRequests((current) => current.map((item) => item.id === requestId ? data : item));
-      setMessage('채점을 중앙 서버에서 실행했습니다. 완료 상태는 자동으로 갱신됩니다.');
-    } catch (error) {
-      setMessage(apiErrorMessage(error, '채점 실행 요청에 실패했습니다.'));
-    } finally {
-      setAcceptingId('');
-    }
-  };
-
   return <section className="workspace-shell">
     <div className="workspace-heading"><div><span className="workspace-eyebrow">AI 운영 설정</span><h1>중앙 AI 채점 설정</h1><p>조직의 채점 요청을 관리자가 수락하면 중앙 API 키로 채점하고 결과를 조직에 전달합니다.</p></div><div className="workspace-role-mark admin"><Cpu size={16} /> 전체 운영 설정</div></div>
     {message && <div className="workspace-alert">{message}</div>}
@@ -147,9 +115,5 @@ export default function AiConfigTab() {
       <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>조직</th><th>이번 달 사용량</th></tr></thead><tbody>{settings.organizations.map((organization) => { const ratio = organization.monthlyLimit > 0 ? Math.min((organization.monthlyUsage / organization.monthlyLimit) * 100, 100) : 0; return <tr key={organization.organizationId}><td>{organization.organizationName}</td><td><div className="ai-quota-meter" role="progressbar" aria-label={`${organization.organizationName} 이번 달 AI 채점 사용량`} aria-valuenow={organization.monthlyUsage} aria-valuemin="0" aria-valuemax={organization.monthlyLimit}><div className="ai-quota-meter-track"><span style={{ width: `${ratio}%` }} /></div><div className="ai-quota-meter-label"><strong>{Math.round(ratio)}% 사용</strong><span>{organization.monthlyUsage}건 · {organization.usageMonth}</span></div></div></td></tr>; })}</tbody></table></div>
     </div>
 
-    <div className="data-panel form-panel" style={{ maxWidth: 1000, marginTop: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><Cpu size={18} /><h2 style={{ margin: 0, fontSize: '1.05rem' }}>AI 채점 요청 대기열</h2></div>
-      <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>요청 일시</th><th>대상 응시자 / 시험</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.length === 0 ? <tr><td colSpan="5">대기 중인 AI 채점 요청이 없습니다.</td></tr> : requests.map((request) => <tr key={request.id}><td>{request.organizationName}</td><td>{formatDate(request.requestedAt)}</td><td><strong>{request.candidateName}</strong><br /><span className="form-hint">{request.examTitle}</span></td><td>{statusLabel[request.status] ?? request.status}{request.status === 'FAILED' && request.errorMessage ? <><br /><span className="form-error">{request.errorMessage}</span></> : null}</td><td>{request.status === 'PENDING' ? <button className="primary-button" type="button" onClick={() => acceptAndRun(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />} 채점 수락 및 실행</button> : '-'}</td></tr>)}</tbody></table></div>
-    </div>
   </section>;
 }

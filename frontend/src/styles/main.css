@@ -1748,14 +1748,34 @@ main {
 .ai-request-status.processing { background: #fff7ed; color: #c2410c; }
 .ai-request-status.completed { background: #ecfdf5; color: #047857; }
 .ai-request-status.failed { background: #fef2f2; color: #dc2626; }
+.ai-analysis-open-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #a7f3d0; border-radius: 7px; padding: 6px 9px; background: #ecfdf5; color: #047857; cursor: pointer; font: inherit; font-size: 12px; font-weight: 750; }
+.ai-analysis-open-button:hover { border-color: #6ee7b7; background: #d1fae5; }
 .ai-analysis-result { display: grid; gap: 10px; margin: 18px 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-soft); }
+.result-analysis-section { width: 100%; margin-top: 18px; }
+.result-analysis-section .ai-analysis-result { margin: 0; padding: 20px; }
+.result-analysis-section .ai-analysis-question-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ai-analysis-result h3, .ai-analysis-result p, .ai-analysis-result pre { margin: 0; }
 .ai-analysis-result pre { overflow: auto; color: var(--text-secondary); font-size: 12px; white-space: pre-wrap; }
+.ai-analysis-summary, .ai-analysis-question-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ai-analysis-summary > strong, .ai-analysis-question-heading span { flex: 0 0 auto; color: var(--accent-primary); }
+.ai-analysis-question-list { display: grid; gap: 12px; }
+.ai-analysis-question-list > article { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-secondary); }
+.ai-analysis-score-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ai-analysis-score-grid .result-metric { padding: 10px; }
+.ai-complexity-analysis, .ai-analysis-deductions, .ai-analysis-feedback { padding-top: 9px; border-top: 1px solid var(--border-default); }
+.ai-complexity-analysis > strong, .ai-complexity-analysis > span { display: block; }
+.ai-complexity-analysis > span { margin-top: 3px; color: var(--text-secondary); font-size: 12px; }
+.ai-analysis-deductions ul { margin: 7px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 12px; }
+.ai-analysis-deductions li + li { margin-top: 5px; }
+.ai-analysis-deductions li span { color: var(--danger); font-weight: 700; }
+.ai-analysis-legacy-rubrics { display: grid; gap: 8px; }
+.ai-analysis-legacy-rubrics > div { padding: 9px; border-radius: 7px; background: var(--surface-soft); }
+.ai-analysis-legacy-rubrics span { float: right; color: var(--accent-primary); font-weight: 700; }
 .active-result-row { background: var(--surface-soft); }
 .result-candidate-button { border: 0; padding: 0; background: transparent; color: var(--accent-primary); cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .result-detail-modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; }
 .result-detail-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(15, 23, 42, .58); cursor: pointer; }
-.result-detail-panel { position: relative; z-index: 1; width: min(1180px, 100%); max-height: calc(100dvh - 48px); margin: 0; overflow-y: auto; box-shadow: 0 24px 70px rgba(15, 23, 42, .3); }
+.result-detail-panel { position: relative; z-index: 1; width: min(1320px, 100%); max-height: calc(100dvh - 48px); margin: 0; overflow-y: auto; box-shadow: 0 24px 70px rgba(15, 23, 42, .3); }
 .result-detail-heading-actions { display: flex; align-items: center; gap: 10px; }
 .result-detail-close { flex: 0 0 auto; }
 .result-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
@@ -1785,7 +1805,7 @@ main {
 .result-review-form select, .result-review-form textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 7px; padding: 9px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; }
 .result-review-form textarea { min-height: 110px; resize: vertical; }
 .coding-save-status { display: inline-block; margin-left: 10px; color: var(--text-muted); font-size: 12px; }
-@media (max-width: 900px) { .result-detail-modal { padding: 12px; } .result-detail-panel { max-height: calc(100dvh - 24px); } .result-summary-grid, .result-detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .result-detail-modal { padding: 12px; } .result-detail-panel { max-height: calc(100dvh - 24px); } .result-summary-grid, .result-detail-grid, .result-analysis-section .ai-analysis-question-list { grid-template-columns: 1fr; } }
 .toggle-row { display: flex; align-items: center; gap: 8px; }
 .form-panel .toggle-row input[type="checkbox"] { width: 16px; min-height: 16px; height: 16px; margin: 0; padding: 0; flex: 0 0 16px; accent-color: var(--accent-primary); }
 .invitation-security-panel { gap: 16px; }
@@ -1854,6 +1874,12 @@ main {
 .ai-log-detail header p { margin: 0; color: var(--text-muted); font-size: 12px; }
 .ai-log-detail section h3 { margin: 0 0 7px; font-size: 14px; }
 .ai-log-detail pre { max-height: 360px; overflow: auto; margin: 0; padding: 14px; border-radius: 8px; background: #0f172a; color: #e2e8f0; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.ai-grading-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-grading-edit { width: min(100%, 620px); }
+.ai-grading-edit .section-title-row { align-items: flex-start; }
+.ai-grading-edit .section-title-row p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.ai-grading-edit label { display: grid; gap: 7px; margin-top: 16px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.ai-grading-edit textarea { min-height: 140px; }
 @media (max-width: 640px) { .ai-connection-card, .ai-active-model { align-items: stretch; flex-direction: column; } .ai-connection-card > div:last-child { justify-content: flex-end; } }
 @media (max-width: 640px) { .ai-log-row { grid-template-columns: 1fr; } .ai-log-row > .status-badge { width: fit-content; } .ai-log-detail { max-height: calc(100vh - 20px); padding: 15px; } }
 .exam-policy-workspace { max-width: 640px; }

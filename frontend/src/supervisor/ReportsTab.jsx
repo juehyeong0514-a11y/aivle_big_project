@@ -5,6 +5,10 @@ import { api, apiErrorMessage, authHeaders } from '../api/client';
 const reviewStatusLabels = { NOT_REVIEWED: '미검토', NORMAL: '정상', REVIEW_REQUIRED: '재검토 필요', SUSPICIOUS: '부정행위 의심' };
 const aiStatusLabels = { PENDING: '승인 대기', PROCESSING: '분석 중', COMPLETED: '분석 완료', FAILED: '분석 실패' };
 
+const latestAiRequestFor = (requests, candidateId) => requests
+  .filter((item) => item.candidateId === candidateId)
+  .sort((first, second) => new Date(second.requestedAt ?? 0) - new Date(first.requestedAt ?? 0))[0];
+
 export default function ReportsTab() {
   const [organizations, setOrganizations] = useState([]);
   const [organizationId, setOrganizationId] = useState('');
@@ -156,7 +160,7 @@ export default function ReportsTab() {
   const activeQuestion = detail?.questions.find((question) => question.id === activeQuestionId);
   const codeAnswer = activeQuestion && detail?.codingSubmission?.answers?.[activeQuestion.id];
   const runResult = activeQuestion && detail?.codingSubmission?.runResults?.[activeQuestion.id];
-  const selectedAiRequest = aiRequests.filter((item) => item.candidateId === selectedCandidateId).at(-1);
+  const selectedAiRequest = latestAiRequestFor(aiRequests, selectedCandidateId);
 
   return (
     <section className="workspace-shell">
@@ -179,9 +183,9 @@ export default function ReportsTab() {
         <table className="status-table examinee-result-table"><thead><tr><th>응시자</th><th>이메일</th><th>접속 상태</th><th>현재 문제</th><th>시험</th><th>제출 상태</th><th>점수</th><th>제출 시간</th><th>AI 결과 분석</th></tr></thead><tbody>
           {results.map((result) => {
             const examinee = examinees.find((item) => item.candidateId === result.candidateId);
-            const aiRequest = aiRequests.filter((item) => item.candidateId === result.candidateId).at(-1);
+            const aiRequest = latestAiRequestFor(aiRequests, result.candidateId);
             const isSubmitted = Boolean(result.submittedAt) || result.status === 'SUBMITTED';
-            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}</td></tr>;
+            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{aiRequest?.status === 'COMPLETED' ? <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button> : aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}</td></tr>;
           })}
         </tbody></table>
         {!organizationId && <p className="empty-state">결과를 조회할 조직을 선택해주세요.</p>}
@@ -212,11 +216,11 @@ export default function ReportsTab() {
           <aside className="result-review-section">
             <div className="section-title-row"><div><h3>AI·감독 경고</h3><p>실시간 관제에서 기록된 경고입니다.</p></div><AlertTriangle size={19} /></div>
             <div className="result-warning-list">{detail.warnings.length ? detail.warnings.map((warning, index) => <article key={`${warning.createdAt}-${index}`}><strong>{warning.message}</strong><span>{new Date(warning.createdAt).toLocaleString('ko-KR')}</span></article>) : <p className="empty-state">기록된 경고가 없습니다.</p>}</div>
-            {selectedAiRequest?.status === 'COMPLETED' && <div className="ai-analysis-result"><h3>AI 분석 결과</h3><p>{selectedAiRequest.result?.feedback || '분석이 완료되었습니다.'}</p>{selectedAiRequest.result?.score != null && <strong>AI 평가 점수 {selectedAiRequest.result.score}</strong>}<pre>{selectedAiRequest.result?.rubricBreakdown ? JSON.stringify(selectedAiRequest.result.rubricBreakdown, null, 2) : ''}</pre></div>}
             {selectedAiRequest?.status === 'FAILED' && <div className="workspace-alert error">{selectedAiRequest.errorMessage || 'AI 분석에 실패했습니다.'}</div>}
             <div className="result-review-form"><h3>운영자 검토</h3><label>검토 상태<select value={review.reviewStatus} onChange={(event) => setReview({ ...review, reviewStatus: event.target.value })}>{Object.entries(reviewStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>검토 메모<textarea value={review.reviewNote} onChange={(event) => setReview({ ...review, reviewNote: event.target.value })} placeholder="검토 내용이나 후속 조치 사항을 작성하세요." /></label><button className="primary-button" type="button" disabled={savingReview} onClick={saveReview}><Save size={16} /> {savingReview ? '저장 중...' : '검토 저장'}</button></div>
           </aside>
         </div>
+        {selectedAiRequest?.status === 'COMPLETED' && <div className="result-analysis-section"><AiAnalysisResult result={selectedAiRequest.result} /></div>}
         </section>
       </div>}
     </section>
@@ -225,4 +229,32 @@ export default function ReportsTab() {
 
 function ResultMetric({ label, value }) {
   return <div className="result-metric"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function AiAnalysisResult({ result = {} }) {
+  const breakdown = Array.isArray(result.rubricBreakdown) ? result.rubricBreakdown : [];
+  const maxScore = result.maxScore ?? breakdown[0]?.maxScore ?? 30;
+  return <section className="ai-analysis-result" aria-labelledby="ai-analysis-result-title">
+    <div className="ai-analysis-summary"><div><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{result.feedback || '분석이 완료되었습니다.'}</p></div><strong>{result.score ?? '-'} / {maxScore}점</strong></div>
+    {breakdown.length ? <div className="ai-analysis-question-list">{breakdown.map((item, index) => <article key={item.questionId ?? index}>
+      <div className="ai-analysis-question-heading"><strong>{item.title || `문제 ${index + 1}`}</strong><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
+      {(item.algorithmScore != null || item.codeQualityScore != null) && <div className="ai-analysis-score-grid">
+        <ResultMetric label="알고리즘" value={`${item.algorithmScore ?? '-'} / 20`} />
+        <ResultMetric label="코드 품질" value={`${item.codeQualityScore ?? '-'} / 10`} />
+      </div>}
+      <ComplexityAnalysis label="시간 복잡도" value={item.timeComplexity} />
+      <ComplexityAnalysis label="공간 복잡도" value={item.spaceComplexity} />
+      {Array.isArray(item.deductions) && item.deductions.length > 0 && <div className="ai-analysis-deductions"><strong>감점 사유</strong><ul>{item.deductions.map((deduction, deductionIndex) => <li key={deductionIndex}><span>-{deduction.points ?? 0}점</span> {deduction.reason || deduction.category}</li>)}</ul></div>}
+      {item.feedback && <div className="ai-analysis-feedback"><strong>피드백</strong><p>{item.feedback}</p></div>}
+      {item.algorithmScore == null && item.codeQualityScore == null && item.breakdown && <div className="ai-analysis-legacy-rubrics">{Object.entries(item.breakdown).map(([name, rubric]) => <div key={name}><strong>{name}</strong><span>{rubric?.score ?? '-'} / {rubric?.maxScore ?? '-'}</span><p>{rubric?.feedback}</p></div>)}</div>}
+    </article>)}</div> : <p className="empty-state">문제별 분석 자료가 없습니다.</p>}
+  </section>;
+}
+
+function ComplexityAnalysis({ label, value }) {
+  if (!value) return null;
+  const analysis = typeof value === 'string' ? value : value.analysis;
+  const estimated = typeof value === 'object' ? value.estimated : '';
+  const expected = typeof value === 'object' ? value.expected : '';
+  return <div className="ai-complexity-analysis"><strong>{label}</strong><span>{estimated || '-'}{expected ? ` · 기준 ${expected}` : ''}</span>{analysis && <p>{analysis}</p>}</div>;
 }
