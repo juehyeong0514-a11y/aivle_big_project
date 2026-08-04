@@ -64,6 +64,11 @@ const initialCodingProblem = () => ({
     referenceAnswer: {
       status: "NOT_RUN",
       generatedAt: "",
+      feasibilityMessage: "",
+      errorMessage: "",
+      warnings: [],
+      provider: "",
+      model: "",
     },
     validation: {
       sampleCount: 10,
@@ -118,8 +123,13 @@ const normalizeAiValidation = (value) => {
   };
 };
 const normalizeAiReferenceAnswer = (value) => ({
-  status: ["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"].includes(value?.status) ? value.status : "NOT_RUN",
+  status: ["NOT_RUN", "PROCESSING", "GENERATED", "BLOCKED", "FAILED"].includes(value?.status) ? value.status : "NOT_RUN",
   generatedAt: typeof value?.generatedAt === "string" ? value.generatedAt : "",
+  feasibilityMessage: typeof value?.feasibilityMessage === "string" ? value.feasibilityMessage : "",
+  errorMessage: typeof value?.errorMessage === "string" ? value.errorMessage : "",
+  warnings: Array.isArray(value?.warnings) ? value.warnings.filter((item) => typeof item === "string") : [],
+  provider: typeof value?.provider === "string" ? value.provider : "",
+  model: typeof value?.model === "string" ? value.model : "",
 });
 const questionToForm = (question) => ({
   ...initialCodingProblem(),
@@ -350,6 +360,7 @@ export default function ManagerExamDetailPage() {
           generatedAt: "",
           ...(current.aiAnalysis.referenceAnswer ?? {}),
           status: "PROCESSING",
+          errorMessage: "",
         },
       },
     }));
@@ -357,24 +368,43 @@ export default function ManagerExamDetailPage() {
       const { data } = await api.post(`/manager/exams/${examId}/ai-reference-answer`, {
         question: { ...questionForm, type: "CODING", numericTolerance: Number(questionForm.numericTolerance) },
       }, headers);
+      if (data.feasible === false) {
+        setQuestionForm((current) => ({
+          ...current,
+          aiAnalysis: {
+            ...current.aiAnalysis,
+            referenceAnswer: {
+              status: "BLOCKED",
+              generatedAt: data.generatedAt ?? "",
+              feasibilityMessage: data.feasibilityMessage ?? "모범 답안을 생성할 수 없는 문제 조건입니다.",
+              warnings: data.warnings ?? [],
+              provider: data.provider ?? "",
+              model: data.model ?? "",
+            },
+          },
+        }));
+        showMessage(data.feasibilityMessage ?? "현재 문제 조건으로는 모범 답안을 생성할 수 없습니다.", "error");
+        return;
+      }
       setQuestionForm((current) => ({
         ...current,
         referenceSolutions: { ...current.referenceSolutions, ...(data.answers ?? {}) },
         aiAnalysis: {
           ...current.aiAnalysis,
-          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "" },
+          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "", feasibilityMessage: "", errorMessage: "", warnings: data.warnings ?? [], provider: data.provider ?? "", model: data.model ?? "" },
         },
       }));
       showMessage("6단계까지 입력한 내용을 바탕으로 AI 모범 답안을 생성했습니다.");
     } catch (reason) {
+      const errorMessage = apiErrorMessage(reason, reason?.message || "AI 모범 답안 생성에 실패했습니다.");
       setQuestionForm((current) => ({
         ...current,
         aiAnalysis: {
           ...current.aiAnalysis,
-          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "FAILED" },
+          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "FAILED", errorMessage },
         },
       }));
-      showMessage(apiErrorMessage(reason, "AI 모범 답안 생성에 실패했습니다."), "error");
+      showMessage(errorMessage, "error");
     }
   };
 
@@ -1816,18 +1846,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 function ReviewAndRegister({ questionForm, errors, focusError, requestAiReferenceAnswer }) {
   const errorEntries = Object.entries(errors);
   return <div className="coding-review">
-    <section className={`coding-review-result ${errorEntries.length ? "attention" : "complete"}`}>
-      <CheckSquare size={22} />
-      <div><strong>{errorEntries.length ? `등록 전 ${errorEntries.length}개 항목을 확인해주세요.` : "필수 항목을 모두 작성했습니다."}</strong><p>{errorEntries.length ? "항목을 선택하면 해당 입력 위치로 이동합니다." : "응시자 미리보기를 확인한 뒤 문제를 등록할 수 있습니다."}</p></div>
-    </section>
     {errorEntries.length > 0 && <div className="coding-error-summary" role="alert"><h4>확인할 항목</h4>{errorEntries.map(([field, message]) => <button type="button" key={field} onClick={() => focusError(field)}>{message}<span>수정하기 →</span></button>)}</div>}
-    <div className="coding-review-grid">
-      <section><span>사용 언어</span><strong>{questionForm.languages.length ? questionForm.languages.join(" · ") : "선택되지 않음"}</strong></section>
-      <section><span>공개 예제</span><strong>{questionForm.publicExamples.length}개</strong></section>
-      <section><span>숨김 테스트</span><strong>{questionForm.hiddenTestCases.length}개</strong></section>
-      <section><span>채점 방식</span><strong>{judgeModeLabel(questionForm.judgeMode)}</strong></section>
-      <section><span>AI 분석</span><strong>{questionForm.aiAnalysis.enabled ? "사용" : "사용 안 함"}</strong></section>
-    </div>
     <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={requestAiReferenceAnswer} />
   </div>;
 }
@@ -1846,7 +1865,7 @@ function DraftPreview({ questionForm, previewTab, setPreviewTab }) {
 function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
   const answerState = questionForm.aiAnalysis.referenceAnswer ?? { status: "NOT_RUN", generatedAt: "" };
   const languages = questionForm.languages?.length ? questionForm.languages : [];
-  const statusLabels = { NOT_RUN: "생성 전", PROCESSING: "생성 중", GENERATED: "생성 완료", FAILED: "생성 실패" };
+  const statusLabels = { NOT_RUN: "생성 전", PROCESSING: "생성 중", GENERATED: "생성 완료", BLOCKED: "조건 확인 필요", FAILED: "생성 실패" };
   const hasGeneratedAnswer = languages.some((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
   return <section className="ai-reference-answer-section">
     <div className="section-title-row">
@@ -1862,6 +1881,10 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
       </button>
       <span className="form-hint">언어를 선택하고 문제 제목과 설명을 입력하면 생성할 수 있습니다.</span>
     </div>
+    {answerState.status === "BLOCKED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>현재 조건으로 모범 답안을 생성할 수 없습니다.</strong><p>{answerState.feasibilityMessage}</p>{answerState.warnings.length > 0 && <ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</div>}
+    {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>모범 답안 생성에 실패했습니다.</strong><p>{answerState.errorMessage || "서버에서 실패 사유를 받지 못했습니다. 관리자 AI API 키와 모델 설정, 백엔드 로그를 확인해주세요."}</p></div>}
+    {answerState.status === "GENERATED" && answerState.warnings.length > 0 && <div className="ai-reference-feasibility-warning caution"><strong>생성 전제 확인</strong><ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
+    {answerState.provider && <p className="form-hint">관리자 중앙 AI 설정: {answerState.provider} · {answerState.model}</p>}
     {hasGeneratedAnswer ? <div className="ai-generated-answer-list">
       {languages.map((language) => {
         const source = String(questionForm.referenceSolutions?.[language] ?? "").trim();

@@ -25,6 +25,7 @@ const collectionDefaults = {
   sessions: [],
   emailVerifications: [],
   aiGradingRequests: [],
+  aiInvocationLogs: [],
   organizationAiPolicies: {},
   systemPolicies: {
     invitationSecurity: {
@@ -250,6 +251,7 @@ const save = async () => {
     get sessions() { return data.sessions; },
     get emailVerifications() { return data.emailVerifications; },
     get aiGradingRequests() { return data.aiGradingRequests; },
+    get aiInvocationLogs() { return data.aiInvocationLogs; },
     get organizationAiPolicies() { return data.organizationAiPolicies; },
     get systemPolicies() { return data.systemPolicies; },
     updateSystemPolicies: async (patch) => {
@@ -273,6 +275,12 @@ const save = async () => {
       Object.assign(request, patch);
       await queuedSave();
       return request;
+    },
+    addAiInvocationLog: async (log) => {
+      data.aiInvocationLogs.unshift(log);
+      data.aiInvocationLogs = data.aiInvocationLogs.slice(0, 500);
+      await queuedSave();
+      return log;
     },
     consumeOrganizationAiQuota: async (organizationId, usageMonth) => {
       const policy = data.organizationAiPolicies[organizationId];

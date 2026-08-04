@@ -848,6 +848,80 @@ test("encrypts an API key registered by an ADMIN without returning it", async (c
   assert.equal(database.includes("aiEncryptedApiKey"), true);
 });
 
+test("registers multiple encrypted AI connections and selects the active API", async (context) => {
+  const { baseUrl, directory, server } = await startServer({ aiSettingsEncryptionKey: "connection-test-key", aiKeyVerifier: async () => ({ valid: true, message: "API 키가 유효합니다." }) });
+  context.after(() => server.close());
+  const login = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123", role: "ADMIN" }) });
+  const admin = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const register = async (name, provider, apiKey) => (await fetch(`${baseUrl}/api/admin/ai-settings/connections`, { method: "POST", headers, body: JSON.stringify({ name, provider, apiKey }) })).json();
+  const first = await register("운영 OpenAI", "OpenAI", "sk-first-1234");
+  assert.equal(first.connections.length, 1);
+  assert.equal(first.connections[0].keyHint, "••••1234");
+  assert.equal(first.activeConnectionId, first.connections[0].id);
+  const second = await register("보조 Gemini", "Google Gemini", "gemini-second-5678");
+  assert.equal(second.connections.length, 2);
+  assert.equal(Object.hasOwn(second.connections[0], "encryptedApiKey"), false);
+  const gemini = second.connections.find((item) => item.name === "보조 Gemini");
+  const activatedResponse = await fetch(`${baseUrl}/api/admin/ai-settings/connections/${gemini.id}/activate`, { method: "PATCH", headers, body: JSON.stringify({ model: "gemini-2.5-flash" }) });
+  assert.equal(activatedResponse.status, 200);
+  const activated = await activatedResponse.json();
+  assert.equal(activated.activeConnectionId, gemini.id);
+  assert.equal(activated.provider, "Google Gemini");
+  assert.equal(activated.model, "gemini-2.5-flash");
+  const database = await readFile(join(directory, "database.json"), "utf8");
+  assert.equal(database.includes("sk-first-1234"), false);
+  assert.equal(database.includes("gemini-second-5678"), false);
+});
+
+test("generates reference answers with the central ADMIN AI setting and reports infeasible premises", async (context) => {
+  const calls = [];
+  const aiProviderInvoker = async (request) => {
+    calls.push(request);
+    const input = JSON.parse(request.prompt);
+    if (input.problem.title === "모순 문제") return { feasible: false, feasibilityMessage: "필수 시간복잡도가 문제의 출력 크기보다 작습니다.", warnings: ["제약 조건을 다시 확인하세요."], answers: {} };
+    return { feasible: true, feasibilityMessage: "", warnings: ["입력은 정수라고 가정했습니다."], answers: { Python: "print(sum(map(int, input().split())))" } };
+  };
+  const { baseUrl, server } = await startServer({ aiSettingsEncryptionKey: "reference-answer-test-key", aiProviderInvoker });
+  context.after(() => server.close());
+  const login = async (email, role) => (await (await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "123", role }) })).json());
+  const admin = await login("admin@aivle.com", "ADMIN");
+  const manager = await login("supervisor@aivle.com", "MANAGER");
+  const adminHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+  const settings = await (await fetch(`${baseUrl}/api/admin/ai-settings`, { headers: adminHeaders })).json();
+  const savedSettings = await fetch(`${baseUrl}/api/admin/ai-settings`, { method: "PATCH", headers: adminHeaders, body: JSON.stringify({ provider: "OpenAI", model: "gpt-4.1-mini", apiKey: "admin-central-key", organizations: settings.organizations }) });
+  assert.equal(savedSettings.status, 200);
+
+  const question = { title: "합계", description: "입력된 정수의 합을 출력한다.", languages: ["Python"], inputFormat: "정수 목록", outputFormat: "합계", constraints: "N >= 1", publicExamples: [{ input: "1 2", expectedOutput: "3" }], hiddenTestCases: [{ input: "2 3", expectedOutput: "5" }], judgeMode: "EXACT", aiAnalysis: { enabled: true, algorithmRequirements: [{ algorithm: "ARRAY_TRAVERSAL", level: "REQUIRED" }] } };
+  const generatedResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/ai-reference-answer`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ question }) });
+  assert.equal(generatedResponse.status, 200);
+  const generated = await generatedResponse.json();
+  assert.equal(generated.feasible, true);
+  assert.equal(generated.provider, "OpenAI");
+  assert.equal(generated.model, "gpt-4.1-mini");
+  assert.ok(generated.answers.Python.includes("print"));
+  assert.deepEqual(JSON.parse(calls[0].prompt).problem.aiAnalysis.algorithmRequirements, [{ algorithm: "ARRAY_TRAVERSAL", level: "REQUIRED" }]);
+  assert.equal(calls[0].apiKey, "admin-central-key");
+
+  const blockedResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/ai-reference-answer`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ question: { ...question, title: "모순 문제" } }) });
+  assert.equal(blockedResponse.status, 200);
+  const blocked = await blockedResponse.json();
+  assert.equal(blocked.status, "BLOCKED");
+  assert.equal(blocked.feasible, false);
+  assert.equal(blocked.answers && Object.keys(blocked.answers).length, 0);
+  assert.match(blocked.feasibilityMessage, /시간복잡도/);
+  const logsResponse = await fetch(`${baseUrl}/api/admin/ai-invocation-logs`, { headers: { Authorization: `Bearer ${admin.token}` } });
+  assert.equal(logsResponse.status, 200);
+  const logs = await logsResponse.json();
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0].status, "BLOCKED");
+  assert.equal(logs[1].status, "COMPLETED");
+  assert.equal(logs[1].prompt.problem.title, "합계");
+  assert.ok(logs[1].response.answers.Python);
+  assert.equal(JSON.stringify(logs).includes("admin-central-key"), false);
+});
+
 test("uses an organization request and central admin acceptance workflow for AI grading", async (context) => {
   const { baseUrl, server } = await startServer();
   context.after(() => server.close());

@@ -5,6 +5,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
 const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
+const AiInvocationLogsTab = lazy(() => import('../admin/AiInvocationLogsTab'));
 const InvitationSettingsTab = lazy(() => import('../admin/InvitationSettingsTab'));
 const NoticeManagementTab = lazy(() => import('../admin/NoticeManagementTab'));
 const CommunityTab = lazy(() => import('../manager/CommunityTab'));
@@ -68,6 +69,7 @@ export default function HomePage() {
             {activeTab === 'GOVERNANCE' && <AdminGovernanceTab />} 
             {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
+            {activeTab === 'AI_LOGS' && <AiInvocationLogsTab />}
             {activeTab === 'INVITATION_SETTINGS' && <InvitationSettingsTab />}
             {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}

@@ -418,7 +418,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {} } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -536,6 +536,13 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     decipher.setAuthTag(Buffer.from(authTag, "base64"));
     return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64")), decipher.final()]).toString("utf8");
   };
+  const savedAiConnections = () => Array.isArray(store.systemPolicies.aiConnections) ? store.systemPolicies.aiConnections : [];
+  const activeAiConnection = () => savedAiConnections().find((item) => item.id === store.systemPolicies.activeAiConnectionId);
+  const centralAiConfig = () => {
+    const connection = activeAiConnection();
+    if (connection) return { apiKey: decryptAiApiKey(connection.encryptedApiKey), provider: connection.provider, model: store.systemPolicies.aiModel, connectionId: connection.id, connectionName: connection.name };
+    return { apiKey: decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey) || process.env.AI_API_KEY, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, connectionId: process.env.AI_API_KEY ? "environment" : "legacy", connectionName: process.env.AI_API_KEY ? "서버 환경 변수" : "기존 중앙 API" };
+  };
   const organizationAiSettings = () => {
     const usageMonth = currentUsageMonth();
     return store.organizations.map((organization) => {
@@ -551,9 +558,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     });
   };
   const publicAiSettings = () => ({
-    provider: store.systemPolicies.aiProvider,
+    provider: centralAiConfig().provider,
     model: store.systemPolicies.aiModel,
-    apiKeyConfigured: Boolean(process.env.AI_API_KEY || store.systemPolicies.aiEncryptedApiKey),
+    apiKeyConfigured: Boolean(centralAiConfig().apiKey),
+    activeConnectionId: activeAiConnection()?.id ?? (process.env.AI_API_KEY ? "environment" : ""),
+    connections: [
+      ...savedAiConnections().map(({ encryptedApiKey, ...item }) => item),
+      ...(process.env.AI_API_KEY ? [{ id: "environment", name: "서버 환경 변수", provider: store.systemPolicies.aiProvider, keyHint: "환경 변수", readOnly: true }] : []),
+    ],
     organizations: organizationAiSettings()
   });
   const publicAiGradingRequest = (item) => {
@@ -562,7 +574,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((exam) => exam.id === item.examId);
     return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
   };
-  const invokeAiGrading = async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
+  const invokeAiGrading = aiProviderInvoker ?? (async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
     const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
     let response;
     if (provider === "OpenAI") {
@@ -590,9 +602,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return JSON.parse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
     }
     throw new Error(`${provider} 채점 어댑터는 아직 서버에 구성되지 않았습니다.`);
-  };
+  });
   const executeAiGrading = async (request) => {
-    const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+    const aiConfig = centralAiConfig();
+    const { apiKey } = aiConfig;
     if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
     const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
     const questions = store.questions.filter((item) => item.examId === request.examId).map((item) => ({
@@ -604,13 +617,13 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       aiAnalysis: item.aiAnalysis ?? { rubrics: item.rubric ?? [] }
     }));
     const prompt = JSON.stringify({ examId: request.examId, candidateId: request.candidateId, questions, submission: submission ? { answers: submission.answers, submittedAt: submission.submittedAt } : null });
-    const grading = await invokeAiGrading({ apiKey, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, prompt });
-    const result = { ...grading, provider: store.systemPolicies.aiProvider, model: store.systemPolicies.aiModel, gradedAt: new Date().toISOString() };
+    const grading = await invokeAiGrading({ apiKey, provider: aiConfig.provider, model: aiConfig.model, prompt });
+    const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
     await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result });
     const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
     if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
   };
-  const verifyAiApiKey = async ({ provider, apiKey }) => {
+  const verifyAiApiKey = aiKeyVerifier ?? (async ({ provider, apiKey }) => {
     const checks = {
       OpenAI: { url: "https://api.openai.com/v1/models", headers: { Authorization: `Bearer ${apiKey}` } },
       Anthropic: { url: "https://api.anthropic.com/v1/models", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } },
@@ -624,7 +637,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     } catch {
       return { valid: false, message: "AI 제공자에 연결하지 못했습니다. 네트워크와 키를 확인하세요." };
     }
-  };
+  });
 
   app.use(express.json({ limit: "6mb" }));
   app.use(express.urlencoded({ extended: false }));
@@ -1424,12 +1437,69 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/admin/ai-settings", authenticate, requireRole("ADMIN"), (_request, response) => response.json(publicAiSettings()));
+  app.get("/api/admin/ai-invocation-logs", authenticate, requireRole("ADMIN"), (request, response) => {
+    const limit = Math.min(Math.max(Number.parseInt(request.query.limit, 10) || 100, 1), 500);
+    return response.json(store.aiInvocationLogs.slice(0, limit));
+  });
   app.post("/api/admin/ai-settings/verify-key", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
       const apiKey = typeof request.body.apiKey === "string" ? request.body.apiKey.trim() : "";
       if (!aiProviderModels[provider] || !apiKey) return response.status(400).json({ message: "AI 제공자와 API 키를 입력하세요." });
       return response.json(await verifyAiApiKey({ provider, apiKey }));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/admin/ai-settings/connections", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const name = typeof request.body.name === "string" ? request.body.name.trim() : "";
+      const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
+      const apiKey = typeof request.body.apiKey === "string" ? request.body.apiKey.trim() : "";
+      if (!name || !aiProviderModels[provider] || !apiKey) return response.status(400).json({ message: "연결 이름, AI 제공자와 API 키를 입력해주세요." });
+      if (!aiSettingsEncryptionKey) return response.status(503).json({ message: "API 키 암호화 설정이 없어 등록할 수 없습니다. 서버의 AI_SETTINGS_ENCRYPTION_KEY를 설정해주세요." });
+      const verified = await verifyAiApiKey({ provider, apiKey });
+      if (!verified.valid) return response.status(400).json({ message: verified.message });
+      const now = new Date().toISOString();
+      const connection = { id: randomUUID(), name: name.slice(0, 80), provider, encryptedApiKey: encryptAiApiKey(apiKey), keyHint: `••••${apiKey.slice(-4)}`, createdAt: now, updatedAt: now };
+      const connections = [...savedAiConnections(), connection];
+      const shouldActivate = !activeAiConnection();
+      const currentModel = store.systemPolicies.aiModel;
+      const model = aiProviderModels[provider].has(currentModel) ? currentModel : [...aiProviderModels[provider]][0];
+      await store.updateSystemPolicies({ aiConnections: connections, ...(shouldActivate ? { activeAiConnectionId: connection.id, aiProvider: provider, aiModel: model } : {}) });
+      return response.status(201).json(publicAiSettings());
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/admin/ai-settings/connections/:connectionId/activate", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const connection = savedAiConnections().find((item) => item.id === request.params.connectionId);
+      if (!connection) return response.status(404).json({ message: "등록된 AI 연결을 찾을 수 없습니다." });
+      const requestedModel = typeof request.body.model === "string" ? request.body.model.trim() : "";
+      const model = aiProviderModels[connection.provider].has(requestedModel) ? requestedModel : [...aiProviderModels[connection.provider]][0];
+      await store.updateSystemPolicies({ activeAiConnectionId: connection.id, aiProvider: connection.provider, aiModel: model });
+      return response.json(publicAiSettings());
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/admin/ai-settings/connections/:connectionId", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      const connections = savedAiConnections();
+      if (!connections.some((item) => item.id === request.params.connectionId)) return response.status(404).json({ message: "등록된 AI 연결을 찾을 수 없습니다." });
+      const remaining = connections.filter((item) => item.id !== request.params.connectionId);
+      const patch = { aiConnections: remaining };
+      if (store.systemPolicies.activeAiConnectionId === request.params.connectionId) {
+        const nextConnection = remaining[0];
+        patch.activeAiConnectionId = nextConnection?.id ?? "";
+        if (nextConnection) {
+          patch.aiProvider = nextConnection.provider;
+          patch.aiModel = aiProviderModels[nextConnection.provider].has(store.systemPolicies.aiModel) ? store.systemPolicies.aiModel : [...aiProviderModels[nextConnection.provider]][0];
+        }
+      }
+      await store.updateSystemPolicies(patch);
+      return response.json(publicAiSettings());
     } catch (error) {
       return next(error);
     }
@@ -2007,6 +2077,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.post("/api/manager/exams/:examId/ai-reference-answer", authenticate, requireManager, async (request, response, next) => {
+    const startedAt = Date.now();
+    let auditContext;
     try {
       if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 시험만 AI 모범 답안을 생성할 수 있습니다." });
       const input = request.body?.question && typeof request.body.question === "object" ? request.body.question : {};
@@ -2014,14 +2086,22 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const description = typeof input.description === "string" ? input.description.trim() : "";
       const languages = Array.isArray(input.languages) ? [...new Set(input.languages.filter((language) => codingLanguages.has(language)))] : [];
       if (!title || !description || languages.length === 0) return response.status(400).json({ message: "문제 제목, 설명, 사용 언어를 먼저 입력해주세요." });
-      const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+      const aiConfig = centralAiConfig();
+      const { apiKey } = aiConfig;
       if (!apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다." });
       const aiAnalysis = { ...normalizeAiAnalysis(input.aiAnalysis) };
       delete aiAnalysis.validation;
       const prompt = JSON.stringify({
-        task: "Generate the official reference solution for a coding exam problem.",
-        output: { answers: Object.fromEntries(languages.map((language) => [language, "complete source code only"])) },
+        task: "First assess whether the problem specification and AI analysis requirements are mutually consistent and sufficient. If feasible, generate the official reference solution for every requested language.",
+        output: {
+          feasible: "boolean",
+          feasibilityMessage: "short Korean explanation; empty when feasible",
+          warnings: "array of short Korean warnings about ambiguous assumptions; empty when none",
+          answers: Object.fromEntries(languages.map((language) => [language, "complete source code only; empty when infeasible"])),
+        },
         rules: [
+          "Set feasible to false when requirements contradict the problem, required complexity is impossible under the constraints, input/output is underspecified, or no deterministic correct solution can be produced.",
+          "When feasible is false, explain the exact premise that the manager must revise and return an empty answers object.",
           "Return exactly one complete solution for every requested language in the answers object.",
           "Return only valid JSON and never Markdown fences or commentary.",
           "Follow the problem statement, constraints, judge settings, and requested algorithm requirements.",
@@ -2042,20 +2122,45 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           aiAnalysis,
         },
       });
+      auditContext = { aiConfig, title, languages, prompt: JSON.parse(prompt) };
       const generated = await invokeAiGrading({
         apiKey,
-        provider: store.systemPolicies.aiProvider,
-        model: store.systemPolicies.aiModel,
+        provider: aiConfig.provider,
+        model: aiConfig.model,
         prompt,
-        systemPrompt: "You are a coding-exam reference-solution generator. Return only valid JSON and never Markdown fences.",
+        systemPrompt: "You are a strict coding-exam specification reviewer and reference-solution generator. Check feasibility before writing code. Return only valid JSON and never Markdown fences.",
       });
+      const feasible = generated.feasible !== false;
+      const warnings = Array.isArray(generated.warnings)
+        ? generated.warnings.filter((warning) => typeof warning === "string" && warning.trim()).map((warning) => warning.trim().slice(0, 500)).slice(0, 10)
+        : [];
+      const feasibilityMessage = typeof generated.feasibilityMessage === "string" ? generated.feasibilityMessage.trim().slice(0, 2_000) : "";
+      if (!feasible) {
+        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "BLOCKED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, errorMessage: feasibilityMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+        return response.json({
+          feasible: false,
+          status: "BLOCKED",
+          feasibilityMessage: feasibilityMessage || "현재 문제 전제와 AI 분석 조건으로는 신뢰할 수 있는 모범 답안을 생성할 수 없습니다.",
+          warnings,
+          answers: {},
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+          generatedAt: new Date().toISOString(),
+        });
+      }
       const answers = Object.fromEntries(languages.map((language) => [
         language,
         typeof generated.answers?.[language] === "string" ? generated.answers[language].trim().slice(0, 100_000) : "",
       ]));
-      if (Object.values(answers).some((source) => !source)) return response.status(502).json({ message: "AI가 선택한 모든 언어의 모범 답안을 생성하지 못했습니다." });
-      return response.json({ answers, status: "GENERATED", generatedAt: new Date().toISOString() });
+      if (Object.values(answers).some((source) => !source)) {
+        const errorMessage = "AI가 선택한 모든 언어의 모범 답안을 생성하지 못했습니다.";
+        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, errorMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+        return response.status(502).json({ message: errorMessage });
+      }
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      return response.json({ feasible: true, answers, warnings, status: "GENERATED", provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, generatedAt: new Date().toISOString() });
     } catch (error) {
+      if (auditContext) await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: auditContext.title, provider: auditContext.aiConfig.provider, model: auditContext.aiConfig.model, connectionName: auditContext.aiConfig.connectionName, prompt: auditContext.prompt, response: null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return next(error);
     }
   });
@@ -2068,7 +2173,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const sampleCount = Number(input.aiAnalysis?.validation?.sampleCount) === 5 ? 5 : 10;
       const language = codingLanguages.has(input.aiAnalysis?.validation?.language) ? input.aiAnalysis.validation.language : (Array.isArray(input.languages) && codingLanguages.has(input.languages[0]) ? input.languages[0] : "Python");
       if (!title || !description) return response.status(400).json({ message: "문제 제목과 설명을 먼저 입력해주세요." });
-      const apiKey = process.env.AI_API_KEY || decryptAiApiKey(store.systemPolicies.aiEncryptedApiKey);
+      const aiConfig = centralAiConfig();
+      const { apiKey } = aiConfig;
       if (!apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다." });
       const aiAnalysis = { ...normalizeAiAnalysis(input.aiAnalysis) };
       delete aiAnalysis.validation;
@@ -2097,8 +2203,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       });
       const generated = await invokeAiGrading({
         apiKey,
-        provider: store.systemPolicies.aiProvider,
-        model: store.systemPolicies.aiModel,
+        provider: aiConfig.provider,
+        model: aiConfig.model,
         prompt,
         systemPrompt: "You are a coding-exam validation sample generator. Return only valid JSON and never Markdown fences.",
       });
