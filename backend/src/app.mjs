@@ -2123,20 +2123,41 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         },
       });
       auditContext = { aiConfig, title, languages, prompt: JSON.parse(prompt) };
-      const generated = await invokeAiGrading({
+      const invokeReferenceGenerator = (requestPrompt) => invokeAiGrading({
         apiKey,
         provider: aiConfig.provider,
         model: aiConfig.model,
-        prompt,
-        systemPrompt: "You are a strict coding-exam specification reviewer and reference-solution generator. Check feasibility before writing code. Return only valid JSON and never Markdown fences.",
+        prompt: requestPrompt,
+        systemPrompt: "You are a strict coding-exam specification reviewer and reference-solution generator. Return exactly one top-level JSON object with keys feasible, feasibilityMessage, warnings, and answers. Never wrap these fields inside output or task. Preserve underscores and source-code characters exactly. Never use Markdown formatting or fences.",
       });
-      const feasible = generated.feasible !== false;
-      const warnings = Array.isArray(generated.warnings)
-        ? generated.warnings.filter((warning) => typeof warning === "string" && warning.trim()).map((warning) => warning.trim().slice(0, 500)).slice(0, 10)
+      let generated = await invokeReferenceGenerator(prompt);
+      const normalizedGeneration = (value) => {
+        const payload = value?.answers && typeof value.answers === "object" ? value : (value?.output && typeof value.output === "object" ? value.output : value ?? {});
+        const answers = Object.fromEntries(languages.map((language) => [language, typeof payload.answers?.[language] === "string" ? payload.answers[language].trim().replace(/^```\w*\s*/i, "").replace(/```$/i, "").trim().slice(0, 100_000) : ""]));
+        return { payload, answers };
+      };
+      let normalized = normalizedGeneration(generated);
+      const damagedAnswer = () => Object.values(normalized.answers).some((source) => !source || /\*\*(?:name|main)\*\*/i.test(source));
+      let attempts = [generated];
+      if (normalized.payload.feasible !== false && damagedAnswer()) {
+        const retryPrompt = JSON.stringify({
+          instruction: "Your previous response used the wrong JSON nesting or damaged source-code characters. Return ONLY the corrected top-level object { feasible, feasibilityMessage, warnings, answers }. The answers keys must exactly match requestedLanguages. Preserve Python identifiers such as __name__ and __main__ literally; never convert underscores to Markdown emphasis.",
+          requestedLanguages: languages,
+          originalRequest: JSON.parse(prompt),
+          previousResponse: generated,
+        });
+        generated = await invokeReferenceGenerator(retryPrompt);
+        attempts.push(generated);
+        normalized = normalizedGeneration(generated);
+      }
+      const feasible = normalized.payload.feasible !== false;
+      const warnings = Array.isArray(normalized.payload.warnings)
+        ? normalized.payload.warnings.filter((warning) => typeof warning === "string" && warning.trim()).map((warning) => warning.trim().slice(0, 500)).slice(0, 10)
         : [];
-      const feasibilityMessage = typeof generated.feasibilityMessage === "string" ? generated.feasibilityMessage.trim().slice(0, 2_000) : "";
+      const feasibilityMessage = typeof normalized.payload.feasibilityMessage === "string" ? normalized.payload.feasibilityMessage.trim().slice(0, 2_000) : "";
+      const auditedResponse = attempts.length === 1 ? generated : { attempts };
       if (!feasible) {
-        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "BLOCKED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, errorMessage: feasibilityMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "BLOCKED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, errorMessage: feasibilityMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
         return response.json({
           feasible: false,
           status: "BLOCKED",
@@ -2148,16 +2169,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           generatedAt: new Date().toISOString(),
         });
       }
-      const answers = Object.fromEntries(languages.map((language) => [
-        language,
-        typeof generated.answers?.[language] === "string" ? generated.answers[language].trim().slice(0, 100_000) : "",
-      ]));
-      if (Object.values(answers).some((source) => !source)) {
-        const errorMessage = "AI가 선택한 모든 언어의 모범 답안을 생성하지 못했습니다.";
-        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, errorMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      const answers = normalized.answers;
+      if (damagedAnswer()) {
+        const missingLanguages = languages.filter((language) => !answers[language]);
+        const errorMessage = missingLanguages.length ? `AI 응답에서 다음 언어의 답안을 찾지 못했습니다: ${missingLanguages.join(", ")}` : "AI가 생성한 소스 코드의 문자가 손상되어 모범 답안으로 저장하지 않았습니다.";
+        await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, errorMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
         return response.status(502).json({ message: errorMessage });
       }
-      await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: generated, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return response.json({ feasible: true, answers, warnings, status: "GENERATED", provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, generatedAt: new Date().toISOString() });
     } catch (error) {
       if (auditContext) await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: auditContext.title, provider: auditContext.aiConfig.provider, model: auditContext.aiConfig.model, connectionName: auditContext.aiConfig.connectionName, prompt: auditContext.prompt, response: null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });

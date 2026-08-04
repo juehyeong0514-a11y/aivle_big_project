@@ -879,7 +879,9 @@ test("generates reference answers with the central ADMIN AI setting and reports 
   const aiProviderInvoker = async (request) => {
     calls.push(request);
     const input = JSON.parse(request.prompt);
+    if (input.instruction) return { feasible: true, feasibilityMessage: "", warnings: [], answers: { Python: "if __name__ == '__main__':\n    print('ok')" } };
     if (input.problem.title === "모순 문제") return { feasible: false, feasibilityMessage: "필수 시간복잡도가 문제의 출력 크기보다 작습니다.", warnings: ["제약 조건을 다시 확인하세요."], answers: {} };
+    if (input.problem.title === "중첩 응답 문제") return { task: input.task, output: { feasible: true, feasibilityMessage: "", warnings: [], answers: { Python: "if **name** == '**main**':\n    print('bad')" } } };
     return { feasible: true, feasibilityMessage: "", warnings: ["입력은 정수라고 가정했습니다."], answers: { Python: "print(sum(map(int, input().split())))" } };
   };
   const { baseUrl, server } = await startServer({ aiSettingsEncryptionKey: "reference-answer-test-key", aiProviderInvoker });
@@ -911,14 +913,20 @@ test("generates reference answers with the central ADMIN AI setting and reports 
   assert.equal(blocked.feasible, false);
   assert.equal(blocked.answers && Object.keys(blocked.answers).length, 0);
   assert.match(blocked.feasibilityMessage, /시간복잡도/);
+  const retriedResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/ai-reference-answer`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ question: { ...question, title: "중첩 응답 문제" } }) });
+  assert.equal(retriedResponse.status, 200);
+  const retried = await retriedResponse.json();
+  assert.match(retried.answers.Python, /__name__/);
   const logsResponse = await fetch(`${baseUrl}/api/admin/ai-invocation-logs`, { headers: { Authorization: `Bearer ${admin.token}` } });
   assert.equal(logsResponse.status, 200);
   const logs = await logsResponse.json();
-  assert.equal(logs.length, 2);
-  assert.equal(logs[0].status, "BLOCKED");
-  assert.equal(logs[1].status, "COMPLETED");
-  assert.equal(logs[1].prompt.problem.title, "합계");
-  assert.ok(logs[1].response.answers.Python);
+  assert.equal(logs.length, 3);
+  assert.equal(logs[0].status, "COMPLETED");
+  assert.equal(logs[0].response.attempts.length, 2);
+  assert.equal(logs[1].status, "BLOCKED");
+  assert.equal(logs[2].status, "COMPLETED");
+  assert.equal(logs[2].prompt.problem.title, "합계");
+  assert.ok(logs[2].response.answers.Python);
   assert.equal(JSON.stringify(logs).includes("admin-central-key"), false);
 });
 
