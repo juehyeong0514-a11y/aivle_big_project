@@ -6,7 +6,7 @@ const providerModels = {
   OpenAI: ['gpt-5.6', 'gpt-5.5', 'gpt-5.4', 'o3', 'o3-mini', 'gpt-4o', 'gpt-4o-mini', 'gpt-live', 'gpt-realtime'],
   Anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5', 'claude-opus-4.8', 'claude-sonnet-4.6', 'claude-haiku-4.5'],
   'Google Gemini': ['gemini-3.5-flash', 'gemini-3.1-pro', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'],
-  DeepSeek: ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v3.2', 'deepseek-r1'],
+  DeepSeek: ['deepseek-v4-flash'],
   Cohere: ['command-a-plus', 'command-a', 'north-mini-code', 'rerank-4-pro', 'embed-4'],
   'Mistral AI': ['mistral-large-3', 'mistral-small-4', 'codestral', 'pixtral'],
   'Meta (Together AI, Groq 등)': ['llama-3.3', 'llama-3.2']

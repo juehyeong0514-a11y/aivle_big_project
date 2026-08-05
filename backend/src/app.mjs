@@ -39,7 +39,7 @@ const aiProviderModels = {
   OpenAI: new Set(["gpt-5.6", "gpt-5.5", "gpt-5.4", "o3", "o3-mini", "gpt-4o", "gpt-4o-mini", "gpt-live", "gpt-realtime", "gpt-4.1-mini"]),
   Anthropic: new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4.8", "claude-sonnet-4.6", "claude-haiku-4.5", "claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"]),
   "Google Gemini": new Set(["gemini-3.5-flash", "gemini-3.1-pro", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"]),
-  DeepSeek: new Set(["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3.2", "deepseek-r1"]),
+  DeepSeek: new Set(["deepseek-v4-flash"]),
   Cohere: new Set(["command-a-plus", "command-a", "north-mini-code", "rerank-4-pro", "embed-4"]),
   "Mistral AI": new Set(["mistral-large-3", "mistral-small-4", "codestral", "pixtral"]),
   "Meta (Together AI, Groq 등)": new Set(["llama-3.3", "llama-3.2"])
@@ -655,6 +655,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!response.ok) throw new Error(payload.error?.message ?? "Gemini 채점 호출에 실패했습니다.");
       return parseAiJsonResponse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
     }
+    if (provider === "DeepSeek") {
+      requestOptions.headers.Authorization = `Bearer ${apiKey}`;
+      requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
+      response = await fetch("https://api.deepseek.com/v1/chat/completions", requestOptions);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error?.message ?? "DeepSeek 채점 호출에 실패했습니다.");
+      return parseAiJsonResponse(payload.choices?.[0]?.message?.content ?? "{}");
+    }
     throw new Error(`${provider} 채점 어댑터는 아직 서버에 구성되지 않았습니다.`);
   });
   const executeAiGrading = async (request) => {
@@ -766,7 +774,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const checks = {
       OpenAI: { url: "https://api.openai.com/v1/models", headers: { Authorization: `Bearer ${apiKey}` } },
       Anthropic: { url: "https://api.anthropic.com/v1/models", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } },
-      "Google Gemini": { url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, headers: {} }
+      "Google Gemini": { url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, headers: {} },
+      DeepSeek: { url: "https://api.deepseek.com/v1/models", headers: { Authorization: `Bearer ${apiKey}` } }
     };
     const check = checks[provider];
     if (!check) return { valid: false, message: "지원하지 않는 AI 제공자입니다." };
