@@ -1875,11 +1875,16 @@ main {
 .ai-log-detail section h3 { margin: 0 0 7px; font-size: 14px; }
 .ai-log-detail pre { max-height: 360px; overflow: auto; margin: 0; padding: 14px; border-radius: 8px; background: #0f172a; color: #e2e8f0; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .ai-grading-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.ai-grading-edit { width: min(100%, 620px); }
+.confirm-modal-panel.ai-grading-edit { width: min(100%, 1080px); max-height: min(82vh, 760px); padding: 24px 28px; overflow-y: auto; font-family: inherit; }
 .ai-grading-edit .section-title-row { align-items: flex-start; }
 .ai-grading-edit .section-title-row p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.ai-grading-edit-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ai-grading-edit-grid.single { grid-template-columns: 1fr; }
+.ai-grading-edit-column { min-width: 0; }
 .ai-grading-edit label { display: grid; gap: 7px; margin-top: 16px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
-.ai-grading-edit textarea { min-height: 140px; }
+.ai-grading-edit textarea { min-height: 320px; font-family: inherit; font-size: 14px; line-height: 1.6; }
+.ai-grading-edit .ai-grading-result-editor { min-height: 320px; font-family: inherit; font-size: 14px; line-height: 1.6; }
+@media (max-width: 760px) { .confirm-modal-panel.ai-grading-edit { max-height: 90vh; padding: 20px; } .ai-grading-edit-grid { grid-template-columns: 1fr; gap: 0; } .ai-grading-edit textarea { min-height: 180px; } }
 @media (max-width: 640px) { .ai-connection-card, .ai-active-model { align-items: stretch; flex-direction: column; } .ai-connection-card > div:last-child { justify-content: flex-end; } }
 @media (max-width: 640px) { .ai-log-row { grid-template-columns: 1fr; } .ai-log-row > .status-badge { width: fit-content; } .ai-log-detail { max-height: calc(100vh - 20px); padding: 15px; } }
 .exam-policy-workspace { max-width: 640px; }

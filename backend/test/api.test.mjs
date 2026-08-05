@@ -987,7 +987,10 @@ test("uses an organization request and central admin acceptance workflow for AI 
   await new Promise((resolveWait) => setTimeout(resolveWait, 30));
   const edit = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}`, { method: "PATCH", headers: { ...adminHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ adminInstructions: "경계값 처리를 엄격히 평가하세요." }) });
   assert.equal(edit.status, 200);
-  assert.equal((await edit.json()).adminInstructions, "경계값 처리를 엄격히 평가하세요.");
+  const instructed = await edit.json();
+  assert.equal(instructed.adminInstructions, "경계값 처리를 엄격히 평가하세요.");
+  const resultEdit = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}`, { method: "PATCH", headers: { ...adminHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ adminInstructions: instructed.adminInstructions, result: { score: 17 } }) });
+  assert.equal(resultEdit.status, 409);
   const retry = await fetch(`${baseUrl}/api/admin/ai-grading-requests/${pending.id}/retry`, { method: "POST", headers: adminHeaders });
   assert.equal(retry.status, 202);
   const retried = await retry.json();

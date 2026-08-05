@@ -12,6 +12,9 @@ export default function AiGradingQueueTab() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [instructionDraft, setInstructionDraft] = useState('');
+  const [resultDraft, setResultDraft] = useState('');
+  const [editError, setEditError] = useState('');
+  const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -54,16 +57,36 @@ export default function AiGradingQueueTab() {
       setAcceptingId('');
     }
   };
-  const openEdit = (request) => { setEditing(request); setInstructionDraft(request.adminInstructions ?? ''); };
+  const openEdit = (request) => {
+    setEditing(request);
+    setInstructionDraft(request.adminInstructions ?? '');
+    setResultDraft(request.result ? JSON.stringify(request.result, null, 2) : '');
+    setEditError('');
+  };
   const saveInstructions = async () => {
+    let result;
+    if (editing.status === 'COMPLETED') {
+      try {
+        result = JSON.parse(resultDraft);
+        if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error();
+      } catch {
+        setEditError('AI 응답을 올바른 JSON 객체 형식으로 입력해주세요.');
+        return;
+      }
+    }
+    setSaving(true);
+    setEditError('');
     try {
-      const { data } = await api.patch(`/admin/ai-grading-requests/${editing.id}`, { adminInstructions: instructionDraft }, { headers: authHeaders() });
+      const payload = { adminInstructions: instructionDraft, ...(editing.status === 'COMPLETED' ? { result } : {}) };
+      const { data } = await api.patch(`/admin/ai-grading-requests/${editing.id}`, payload, { headers: authHeaders() });
       setRequests((current) => current.map((item) => item.id === editing.id ? data : item));
       setEditing(null);
-      setMessage('채점 보완 지시사항을 저장했습니다. 다음 실행부터 프롬프트에 포함됩니다.');
+      setMessage(editing.status === 'COMPLETED' ? '추가 요청 프롬프트와 수정된 AI 응답을 저장했습니다.' : '추가 요청 프롬프트를 저장했습니다. 다음 채점 실행에 포함됩니다.');
     } catch (error) {
-      setMessage(apiErrorMessage(error, '채점 요청을 수정하지 못했습니다.'));
+      setEditError(apiErrorMessage(error, '채점 요청을 수정하지 못했습니다.'));
+    } finally {
+      setSaving(false);
     }
   };
-  return <section className="workspace-shell"><div className="workspace-heading"><div><span className="workspace-eyebrow">AI 채점 운영</span><h1>AI 채점 요청 대기열</h1><p>조직에서 요청한 채점을 검토하고 중앙 AI 연결로 실행합니다.</p></div><button className="secondary-button" type="button" onClick={load} disabled={loading}><RefreshCw size={16} /> 새로고침</button></div>{message && <div className="workspace-alert">{message}</div>}<div className="data-panel"><div className="panel-heading"><div><h2>채점 요청</h2><p>실행한 요청은 프롬프트·응답 로그에서 전체 내용을 확인할 수 있습니다.</p></div><Cpu size={20} /></div><div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>요청 일시</th><th>대상 응시자 / 시험</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.length === 0 ? <tr><td colSpan="5">{loading ? '요청을 불러오는 중입니다.' : '대기 중인 AI 채점 요청이 없습니다.'}</td></tr> : requests.map((request) => <tr key={request.id}><td>{request.organizationName}</td><td>{formatDate(request.requestedAt)}</td><td><strong>{request.candidateName}</strong><br /><span className="form-hint">{request.examTitle}</span>{request.adminInstructions && <><br /><span className="form-hint">보완 지시: {request.adminInstructions}</span></>}</td><td>{statusLabel[request.status] ?? request.status}{request.retryCount ? ` · 재시도 ${request.retryCount}회` : ''}{request.status === 'FAILED' && request.errorMessage ? <><br /><span className="form-error">{request.errorMessage}</span></> : null}</td><td><div className="ai-grading-row-actions"><button className="secondary-button compact-button" type="button" onClick={() => openEdit(request)} disabled={request.status === 'PROCESSING'}><Pencil size={14} /> 수정</button>{request.status === 'PENDING' && <button className="primary-button compact-button" type="button" onClick={() => acceptAndRun(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />} 채점 실행</button>}{['FAILED', 'COMPLETED'].includes(request.status) && <button className="primary-button compact-button" type="button" onClick={() => retry(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 다시 채점</button>}</div></td></tr>)}</tbody></table></div></div>{editing && <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="grading-edit-title"><button className="confirm-modal-backdrop" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)} /><section className="confirm-modal-panel ai-grading-edit"><div className="section-title-row"><div><h2 id="grading-edit-title">채점 요청 수정</h2><p>{editing.candidateName} · {editing.examTitle}</p></div><button className="icon-button" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)}><X size={18} /></button></div><label>관리자 보완 지시사항 <span className="text-muted">(선택)</span><textarea value={instructionDraft} maxLength="4000" onChange={(event) => setInstructionDraft(event.target.value)} placeholder="예: 시간복잡도와 경계값 처리 여부를 특히 엄격하게 평가하세요." /></label><p className="form-hint">다음 채점 실행 또는 다시 채점할 때 AI 프롬프트에 포함됩니다. {instructionDraft.length}/4000</p><div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>취소</button><button className="primary-button" type="button" onClick={saveInstructions}>저장</button></div></section></div>}</section>;
+  return <section className="workspace-shell"><div className="workspace-heading"><div><span className="workspace-eyebrow">AI 채점 운영</span><h1>AI 채점 요청 대기열</h1><p>조직에서 요청한 채점을 검토하고 중앙 AI 연결로 실행합니다.</p></div><button className="secondary-button" type="button" onClick={load} disabled={loading}><RefreshCw size={16} /> 새로고침</button></div>{message && <div className="workspace-alert">{message}</div>}<div className="data-panel"><div className="panel-heading"><div><h2>채점 요청</h2><p>실행한 요청은 프롬프트·응답 로그에서 전체 내용을 확인할 수 있습니다.</p></div><Cpu size={20} /></div><div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>요청 일시</th><th>대상 응시자 / 시험</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.length === 0 ? <tr><td colSpan="5">{loading ? '요청을 불러오는 중입니다.' : '대기 중인 AI 채점 요청이 없습니다.'}</td></tr> : requests.map((request) => <tr key={request.id}><td>{request.organizationName}</td><td>{formatDate(request.requestedAt)}</td><td><strong>{request.candidateName}</strong><br /><span className="form-hint">{request.examTitle}</span>{request.adminInstructions && <><br /><span className="form-hint">추가 요청: {request.adminInstructions}</span></>}</td><td>{statusLabel[request.status] ?? request.status}{request.retryCount ? ` · 재시도 ${request.retryCount}회` : ''}{request.manuallyEditedAt ? <><br /><span className="form-hint">관리자 응답 수정됨</span></> : null}{request.status === 'FAILED' && request.errorMessage ? <><br /><span className="form-error">{request.errorMessage}</span></> : null}</td><td><div className="ai-grading-row-actions"><button className="secondary-button compact-button" type="button" onClick={() => openEdit(request)} disabled={request.status === 'PROCESSING'}><Pencil size={14} /> 수정</button>{request.status === 'PENDING' && <button className="primary-button compact-button" type="button" onClick={() => acceptAndRun(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />} 채점 실행</button>}{['FAILED', 'COMPLETED'].includes(request.status) && <button className="primary-button compact-button" type="button" onClick={() => retry(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 다시 채점</button>}</div></td></tr>)}</tbody></table></div></div>{editing && <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="grading-edit-title"><button className="confirm-modal-backdrop" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)} /><section className="confirm-modal-panel ai-grading-edit"><div className="section-title-row"><div><h2 id="grading-edit-title">AI 채점 요청 및 응답 수정</h2><p>{editing.candidateName} · {editing.examTitle}</p></div><button className="icon-button" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)}><X size={18} /></button></div>{editError && <div className="workspace-alert error" role="alert">{editError}</div>}<div className={`ai-grading-edit-grid ${editing.status !== 'COMPLETED' ? 'single' : ''}`}><div className="ai-grading-edit-column"><label>추가 요청 프롬프트 <span className="text-muted">(선택)</span><textarea value={instructionDraft} maxLength="4000" onChange={(event) => setInstructionDraft(event.target.value)} placeholder="예: 시간복잡도와 경계값 처리 여부를 특히 엄격하게 평가하세요." /></label><p className="form-hint">다음 채점 실행 또는 다시 채점할 때 AI 프롬프트에 포함됩니다. {instructionDraft.length}/4000</p></div>{editing.status === 'COMPLETED' && <div className="ai-grading-edit-column"><label>AI 응답 직접 수정 <span className="text-muted">(JSON)</span><textarea className="ai-grading-result-editor" value={resultDraft} spellCheck="false" onChange={(event) => setResultDraft(event.target.value)} /></label><p className="form-hint">점수, 피드백, 세부 평가를 수정할 수 있으며 저장 즉시 응시자 리포트에 반영됩니다. AI 원본 응답은 별도로 보존됩니다.</p></div>}</div><div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setEditing(null)} disabled={saving}>취소</button><button className="primary-button" type="button" onClick={saveInstructions} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : null} 저장</button></div></section></div>}</section>;
 }

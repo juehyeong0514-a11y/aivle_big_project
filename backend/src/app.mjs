@@ -744,7 +744,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       });
       const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
       await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "COMPLETED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload, response: grading, durationMs: Date.now() - startedAt, createdAt: result.gradedAt });
-      await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result });
+      await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result, originalAiResult: undefined, manuallyEditedAt: undefined, manuallyEditedBy: undefined });
       const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
       if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
     } catch (error) {
@@ -1673,7 +1673,20 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (gradingRequest.status === "PROCESSING") return response.status(409).json({ message: "채점 실행 중에는 요청을 수정할 수 없습니다." });
       const adminInstructions = typeof request.body.adminInstructions === "string" ? request.body.adminInstructions.trim() : "";
       if (adminInstructions.length > 4_000) return response.status(400).json({ message: "관리자 보완 지시사항은 4,000자 이하로 입력해주세요." });
-      const updated = await store.updateAiGradingRequest(gradingRequest.id, { adminInstructions, updatedAt: new Date().toISOString(), updatedBy: request.user.id });
+      const patch = { adminInstructions, updatedAt: new Date().toISOString(), updatedBy: request.user.id };
+      if (Object.hasOwn(request.body, "result")) {
+        if (gradingRequest.status !== "COMPLETED" || !gradingRequest.result) return response.status(409).json({ message: "완료된 채점의 AI 응답만 수정할 수 있습니다." });
+        const editedResult = request.body.result;
+        if (!editedResult || typeof editedResult !== "object" || Array.isArray(editedResult)) return response.status(400).json({ message: "AI 응답은 JSON 객체 형식이어야 합니다." });
+        if (JSON.stringify(editedResult).length > 100_000) return response.status(400).json({ message: "AI 응답은 100,000자 이하로 입력해주세요." });
+        patch.result = { ...editedResult, manuallyEditedAt: patch.updatedAt, manuallyEditedBy: request.user.id };
+        patch.originalAiResult = gradingRequest.originalAiResult ?? gradingRequest.result;
+        patch.manuallyEditedAt = patch.updatedAt;
+        patch.manuallyEditedBy = request.user.id;
+        const assignment = store.assignments.find((item) => item.examId === gradingRequest.examId && item.candidateId === gradingRequest.candidateId);
+        if (assignment) await store.updateAssignment(assignment.id, { aiGradingResult: patch.result, aiGradedAt: patch.result.gradedAt ?? patch.updatedAt });
+      }
+      const updated = await store.updateAiGradingRequest(gradingRequest.id, patch);
       return response.json(publicAiGradingRequest(updated));
     } catch (error) {
       return next(error);
@@ -1697,7 +1710,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!gradingRequest) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
       if (gradingRequest.status === "PROCESSING") return response.status(409).json({ message: "이미 채점 실행 중입니다." });
       if (!['FAILED', 'COMPLETED'].includes(gradingRequest.status)) return response.status(409).json({ message: "실패하거나 완료된 요청만 다시 채점할 수 있습니다." });
-      const processing = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: new Date().toISOString(), acceptedBy: request.user.id, errorMessage: "", failedAt: undefined, completedAt: undefined, result: undefined, retryCount: (gradingRequest.retryCount ?? 0) + 1 });
+      const processing = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: new Date().toISOString(), acceptedBy: request.user.id, errorMessage: "", failedAt: undefined, completedAt: undefined, result: undefined, originalAiResult: undefined, manuallyEditedAt: undefined, manuallyEditedBy: undefined, retryCount: (gradingRequest.retryCount ?? 0) + 1 });
       void executeAiGrading(processing).catch(async (error) => store.updateAiGradingRequest(processing.id, { status: "FAILED", failedAt: new Date().toISOString(), errorMessage: error.message }));
       return response.status(202).json(publicAiGradingRequest(processing));
     } catch (error) {
