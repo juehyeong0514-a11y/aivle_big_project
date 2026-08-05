@@ -29,6 +29,7 @@ import {
   stepForError,
   validateCodingProblem,
 } from "./codingProblemWorkflow.mjs";
+import ProblemCreationChatbot from "./ProblemCreationChatbot.jsx";
 
 const initialCodingProblem = () => ({
   title: "",
@@ -1818,6 +1819,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form">
     <div className="panel-heading"><div><h2>문제 및 미리보기</h2><p>단계별 완료 상태와 응시자 화면을 한곳에서 확인하세요.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
+    {!editingQuestionId && <ProblemCreationChatbot examId={examId} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form })); setActiveQuestionStep(0); }} onApplyMultipleChoice={(form) => { setQuestionType("MULTIPLE_CHOICE"); setMultipleChoiceForm(form); setActiveQuestionStep(0); }} />}
     <div className="question-type-switch" role="group" aria-label="문제 유형"><button type="button" disabled={Boolean(editingQuestionId)} className={isCoding ? "active" : ""} onClick={() => { setQuestionType("CODING"); setActiveQuestionStep(0); }}>코딩 문제</button><button type="button" disabled={Boolean(editingQuestionId)} className={!isCoding ? "active" : ""} onClick={() => { setQuestionType("MULTIPLE_CHOICE"); setActiveQuestionStep(0); }}>객관식 문제</button>{editingQuestionId && <span className="form-hint">수정 중에는 문제 유형을 변경할 수 없습니다.</span>}</div>
     {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
     <form onSubmit={submitQuestion} noValidate={isCoding}>

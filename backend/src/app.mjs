@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, r
 import { resolve } from "node:path";
 import { createStore, verifyPassword } from "./store.mjs";
 import { createAiProctor } from "./aiProctor.mjs";
+import { ProblemAuthoringAgentError, runProblemAuthoringAgent } from "./problemAuthoringAgent.mjs";
 
 const roles = new Set(["APPLICANT", "MANAGER", "SUPERVISOR", "ADMIN"]);
 const isNonEmptyText = (value) => typeof value === "string" && value.trim().length > 0;
@@ -2263,6 +2264,114 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  app.post("/api/manager/exams/:examId/ai-problem-candidates", authenticate, requireManager, async (request, response, next) => {
+    const startedAt = Date.now();
+    const streaming = request.query?.stream === "1";
+    if (streaming) response.status(200).set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    const emit = (payload) => { if (streaming) response.write(`${JSON.stringify(payload)}\n`); };
+    const finish = (status, payload) => {
+      if (!streaming) return response.status(status).json(payload);
+      emit({ type: status >= 400 ? "error" : "result", ...payload });
+      response.end();
+      return undefined;
+    };
+    try {
+      if (!scopedExam(request, request.params.examId)) return finish(403, { message: "배정된 승인 조직의 시험만 AI 문제를 생성할 수 있습니다." });
+      const requirements = request.body?.requirements && typeof request.body.requirements === "object" ? request.body.requirements : {};
+      const difficulty = typeof requirements.difficulty === "string" ? requirements.difficulty.trim().slice(0, 100) : "";
+      const type = requirements.type === "MULTIPLE_CHOICE" ? "MULTIPLE_CHOICE" : requirements.type === "CODING" ? "CODING" : "";
+      const scope = typeof requirements.scope === "string" ? requirements.scope.trim().slice(0, 2_000) : "";
+      const languages = type === "CODING" && Array.isArray(requirements.languages) ? [...new Set(requirements.languages.filter((language) => codingLanguages.has(language)))] : [];
+      if (!difficulty || !type || scope.length < 2 || (type === "CODING" && !languages.length)) return finish(400, { message: "난이도, 문제 유형, 출제 범위와 사용 언어를 확인해주세요." });
+      const aiConfig = centralAiConfig();
+      if (!aiConfig.apiKey) return finish(503, { message: "등록된 중앙 AI API 키가 없습니다. 관리자 AI 설정에서 연결을 등록해주세요." });
+      const prompt = JSON.stringify({
+        task: "Generate exactly three distinct, complete exam-question candidates in Korean.",
+        requirements: { difficulty, type, scope, languages },
+        outputSchema: type === "CODING" ? {
+          candidates: [{ id: "short ASCII identifier", label: "short Korean style label", summary: "short Korean summary", form: { title: "string", languages, description: "string", inputFormat: "string", outputFormat: "string", constraints: "string", publicExamples: [{ input: "string", expectedOutput: "string", explanation: "string" }], hiddenTestCases: [{ input: "string", expectedOutput: "string" }], judgeMode: "EXACT" } }],
+        } : {
+          candidates: [{ id: "short ASCII identifier", label: "short Korean style label", summary: "short Korean summary", form: { prompt: "string", options: ["string", "string", "string", "string"], answer: "one option exactly" } }],
+        },
+        rules: [
+          "Each candidate must be usable without further AI generation.",
+          "For CODING, include at least one public example and two hidden test cases with concrete, internally consistent inputs and outputs.",
+          "For CODING, title, description, inputFormat, outputFormat, constraints must all be non-empty. Set languages to exactly the requested languages.",
+          "For MULTIPLE_CHOICE, include at least two distinct options and an answer that exactly matches one option.",
+          "Return JSON only. Do not add Markdown fences or explanatory text.",
+        ],
+      });
+      const normalizeCandidates = (generated) => {
+        const rawCandidates = Array.isArray(generated?.candidates) ? generated.candidates.slice(0, 3) : [];
+        return rawCandidates.map((candidate, index) => {
+        const form = candidate?.form && typeof candidate.form === "object" ? candidate.form : {};
+        const id = typeof candidate?.id === "string" && /^[a-z0-9_-]{1,30}$/i.test(candidate.id) ? candidate.id : `candidate-${index + 1}`;
+        const label = typeof candidate?.label === "string" ? candidate.label.trim().slice(0, 100) : "AI 시안";
+        const summary = typeof candidate?.summary === "string" ? candidate.summary.trim().slice(0, 300) : "AI가 생성한 문제 시안";
+        if (type === "MULTIPLE_CHOICE") {
+          const options = Array.isArray(form.options) ? [...new Set(form.options.map((item) => typeof item === "string" ? item.trim().slice(0, 2_000) : "").filter(Boolean))] : [];
+          const answer = typeof form.answer === "string" ? form.answer.trim() : "";
+          if (!isNonEmptyText(form.prompt) || options.length < 2 || !options.includes(answer)) return null;
+          return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages }, revisionNotes: [], form: { prompt: form.prompt.trim().slice(0, 10_000), options, answer } };
+        }
+        const publicExamples = normalizeTestCases(form.publicExamples, true);
+        const hiddenTestCases = normalizeTestCases(form.hiddenTestCases, true);
+        if (![form.title, form.description, form.inputFormat, form.outputFormat, form.constraints].every(isNonEmptyText) || !languages.length || !publicExamples || !hiddenTestCases) return null;
+        return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages }, revisionNotes: [], form: { title: form.title.trim().slice(0, 300), languages, description: form.description.trim().slice(0, 10_000), inputFormat: form.inputFormat.trim().slice(0, 10_000), outputFormat: form.outputFormat.trim().slice(0, 10_000), constraints: form.constraints.trim().slice(0, 10_000), publicExamples, hiddenTestCases, judgeMode: "EXACT" } };
+        }).filter(Boolean);
+      };
+      const agent = await runProblemAuthoringAgent({
+        generate: () => invokeAiGrading({ apiKey: aiConfig.apiKey, provider: aiConfig.provider, model: aiConfig.model, prompt, systemPrompt: "You are the generation tool of an exam-authoring agent. Draft candidates in JSON only, matching the requested outputSchema." }),
+        repair: (draft, issues) => invokeAiGrading({ apiKey: aiConfig.apiKey, provider: aiConfig.provider, model: aiConfig.model, prompt: JSON.stringify({ task: "Repair the generated candidates using the review issues. Return exactly three complete candidates in the original outputSchema.", originalRequest: JSON.parse(prompt), draft, issues }), systemPrompt: "You are the repair tool of an exam-authoring agent. Return JSON only." }),
+        normalizeCandidates,
+        onStep: (step) => emit({ type: "progress", step }),
+      });
+      const candidates = agent.candidates;
+      const agentSteps = agent.trace;
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "PROBLEM_CANDIDATES", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: scope, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: JSON.parse(prompt), response: { candidateCount: candidates.length, agentSteps }, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      return finish(200, { candidates, agentSteps, provider: aiConfig.provider, model: aiConfig.model });
+    } catch (error) {
+      if (error instanceof ProblemAuthoringAgentError) return finish(422, { message: error.message, code: error.code, retryable: error.retryable, agentSteps: error.trace });
+      if (streaming) return finish(500, { message: "AI 에이전트 실행 중 서버 오류가 발생했습니다." });
+      return next(error);
+    }
+  });
+
+  app.post("/api/manager/exams/:examId/ai-problem-candidates/refine", authenticate, requireManager, async (request, response, next) => {
+    try {
+      if (!scopedExam(request, request.params.examId)) return response.status(403).json({ message: "배정된 승인 조직의 시험만 AI 문제를 수정할 수 있습니다." });
+      const candidate = request.body?.candidate && typeof request.body.candidate === "object" ? request.body.candidate : {};
+      const feedback = typeof request.body?.feedback === "string" ? request.body.feedback.trim().slice(0, 2_000) : "";
+      const type = candidate.requirements?.type === "MULTIPLE_CHOICE" ? "MULTIPLE_CHOICE" : candidate.requirements?.type === "CODING" ? "CODING" : "";
+      const currentForm = candidate.form && typeof candidate.form === "object" ? candidate.form : {};
+      if (!type || !feedback) return response.status(400).json({ message: "수정할 문제와 수정 요청을 입력해주세요." });
+      const aiConfig = centralAiConfig();
+      if (!aiConfig.apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다. 관리자 AI 설정에서 연결을 등록해주세요." });
+      const generated = await invokeAiGrading({
+        apiKey: aiConfig.apiKey, provider: aiConfig.provider, model: aiConfig.model,
+        prompt: JSON.stringify({ task: "Revise the selected Korean exam candidate according to the feedback. Return only JSON { candidate: { label, summary, form } }. Preserve the question type and, for coding, preserve exactly the selected languages. The returned form must be complete and internally consistent, including examples and hidden tests.", feedback, candidate }),
+        systemPrompt: "You are the revision tool of an exam-authoring agent. Return JSON only, with one complete revised candidate.",
+      });
+      const revised = generated?.candidate && typeof generated.candidate === "object" ? generated.candidate : {};
+      const form = revised.form && typeof revised.form === "object" ? revised.form : {};
+      const label = typeof revised.label === "string" && revised.label.trim() ? revised.label.trim().slice(0, 100) : (candidate.label ?? "AI 수정 시안");
+      const summary = typeof revised.summary === "string" && revised.summary.trim() ? revised.summary.trim().slice(0, 300) : (candidate.summary ?? "수정된 문제 시안");
+      if (type === "MULTIPLE_CHOICE") {
+        const options = Array.isArray(form.options) ? [...new Set(form.options.map((item) => typeof item === "string" ? item.trim().slice(0, 2_000) : "").filter(Boolean))] : [];
+        const answer = typeof form.answer === "string" ? form.answer.trim() : "";
+        if (!isNonEmptyText(form.prompt) || options.length < 2 || !options.includes(answer)) return response.status(502).json({ message: "AI가 수정 가능한 객관식 문제 형식을 만들지 못했습니다. 요청을 더 구체적으로 입력해주세요." });
+        return response.json({ candidate: { ...candidate, label, summary, revisionNotes: [...(candidate.revisionNotes ?? []), feedback], form: { prompt: form.prompt.trim().slice(0, 10_000), options, answer } } });
+      }
+      const languages = Array.isArray(currentForm.languages) ? [...new Set(currentForm.languages.filter((language) => codingLanguages.has(language)))] : [];
+      const publicExamples = normalizeTestCases(form.publicExamples, true);
+      const hiddenTestCases = normalizeTestCases(form.hiddenTestCases, true);
+      if (![form.title, form.description, form.inputFormat, form.outputFormat, form.constraints].every(isNonEmptyText) || !languages.length || !publicExamples || !hiddenTestCases) return response.status(502).json({ message: "AI가 수정 가능한 코딩 문제 형식을 만들지 못했습니다. 요청을 더 구체적으로 입력해주세요." });
+      return response.json({ candidate: { ...candidate, label, summary, revisionNotes: [...(candidate.revisionNotes ?? []), feedback], form: { title: form.title.trim().slice(0, 300), languages, description: form.description.trim().slice(0, 10_000), inputFormat: form.inputFormat.trim().slice(0, 10_000), outputFormat: form.outputFormat.trim().slice(0, 10_000), constraints: form.constraints.trim().slice(0, 10_000), publicExamples, hiddenTestCases, judgeMode: "EXACT" } } });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.post("/api/manager/exams/:examId/ai-reference-answer", authenticate, requireManager, async (request, response, next) => {
     const startedAt = Date.now();
     let auditContext;
