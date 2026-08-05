@@ -21,7 +21,7 @@ const signupManager = async (baseUrl, email, name = "신규 조직 관리자") =
   const sendPayload = await send.json();
   const confirm = await fetch(`${baseUrl}/api/auth/email-verification/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, verificationId: sendPayload.verificationId, code: sendPayload.previewCode }) });
   const confirmPayload = await confirm.json();
-  return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password", verificationToken: confirmPayload.verificationToken }) });
+  return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password1", verificationToken: confirmPayload.verificationToken }) });
 };
 
 test("updates an exam schedule across invitations and removes the exam graph", async (context) => {
@@ -149,7 +149,7 @@ test("serves public data and protects administration endpoints", async (context)
   const signup = await fetch(`${baseUrl}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "신규 응시자", email: "new-applicant@aivle.com", password: "safe-password", role: "APPLICANT" })
+    body: JSON.stringify({ name: "신규 응시자", email: "new-applicant@aivle.com", password: "safe-password1", role: "APPLICANT" })
   });
   assert.equal(signup.status, 400);
   assert.match((await signup.json()).message, /회원가입/);
@@ -160,7 +160,7 @@ test("serves public data and protects administration endpoints", async (context)
   const privilegedSignup = await fetch(`${baseUrl}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "권한 상승 시도", email: "blocked-admin@aivle.com", password: "safe-password", role: "ADMIN" })
+    body: JSON.stringify({ name: "권한 상승 시도", email: "blocked-admin@aivle.com", password: "safe-password1", role: "ADMIN" })
   });
   assert.equal(privilegedSignup.status, 400);
 
@@ -350,7 +350,7 @@ test("registers managers for ADMIN approval before login", async (context) => {
   context.after(() => server.close());
   const signup = await signupManager(baseUrl, "new-manager@example.com");
   assert.equal(signup.status, 201);
-  const pendingLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "new-manager@example.com", password: "safe-password" }) });
+  const pendingLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "new-manager@example.com", password: "safe-password1" }) });
   assert.equal(pendingLogin.status, 403);
   const adminLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123" }) });
   const admin = await adminLogin.json();
@@ -358,14 +358,14 @@ test("registers managers for ADMIN approval before login", async (context) => {
   const manager = (await users.json()).find((user) => user.email === "new-manager@example.com");
   const approval = await fetch(`${baseUrl}/api/admin/users/${manager.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` }, body: JSON.stringify({ status: "APPROVED" }) });
   assert.equal(approval.status, 200);
-  const approvedLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "new-manager@example.com", password: "safe-password" }) });
+  const approvedLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "new-manager@example.com", password: "safe-password1" }) });
   assert.equal(approvedLogin.status, 200);
 });
 
 test("requires email verification before manager signup and rate-limits invalid codes", async (context) => {
   const { baseUrl, server } = await startServer();
   context.after(() => server.close());
-  const unverified = await fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "미인증 관리자", email: "unverified@example.com", password: "safe-password" }) });
+  const unverified = await fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "미인증 관리자", email: "unverified@example.com", password: "safe-password1" }) });
   assert.equal(unverified.status, 400);
   const send = await fetch(`${baseUrl}/api/auth/email-verification/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "verified@example.com" }) });
   const payload = await send.json();
@@ -390,11 +390,11 @@ test("governs organization approval, manager scope, and invitations reusable bef
   };
   const admin = await login("admin@aivle.com", "ADMIN");
   const adminHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${admin.token}` };
-  const managerCreation = await fetch(`${baseUrl}/api/admin/managers`, { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "신관리자", email: "manager2@aivle.com", password: "safe-password" }) });
+  const managerCreation = await fetch(`${baseUrl}/api/admin/managers`, { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "신관리자", email: "manager2@aivle.com", password: "safe-password1" }) });
   assert.equal(managerCreation.status, 201);
   const managersAfterCreation = await fetch(`${baseUrl}/api/admin/users`, { headers: { Authorization: `Bearer ${admin.token}` } });
   const managerPayload = (await managersAfterCreation.json()).find((user) => user.email === "manager2@aivle.com");
-  const manager = await login("manager2@aivle.com", "MANAGER", "safe-password");
+  const manager = await login("manager2@aivle.com", "MANAGER", "safe-password1");
   const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
   const requestOrganization = await fetch(`${baseUrl}/api/manager/organizations`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ name: "C대학교 AI학과", code: "C-AI" }) });
   const organization = await requestOrganization.json();
@@ -700,16 +700,16 @@ test("allows organization-code join approval and scopes monitoring by exam", asy
   };
   const admin = await login("admin@aivle.com", "ADMIN");
   const adminHeaders = { "Content-Type": "application/json", Authorization: "Bearer " + admin.token };
-  const managerAResponse = await fetch(baseUrl + "/api/admin/managers", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "조직 관리자 A", email: "join-manager-a@example.com", password: "safe-password" }) });
+  const managerAResponse = await fetch(baseUrl + "/api/admin/managers", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "조직 관리자 A", email: "join-manager-a@example.com", password: "safe-password1" }) });
   const managerA = (await managerAResponse.json()).user;
-  const managerBResponse = await fetch(baseUrl + "/api/admin/managers", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "조직 관리자 B", email: "join-manager-b@example.com", password: "safe-password" }) });
+  const managerBResponse = await fetch(baseUrl + "/api/admin/managers", { method: "POST", headers: adminHeaders, body: JSON.stringify({ name: "조직 관리자 B", email: "join-manager-b@example.com", password: "safe-password1" }) });
   const managerB = (await managerBResponse.json()).user;
-  const managerALogin = await login("join-manager-a@example.com", "MANAGER", "safe-password");
+  const managerALogin = await login("join-manager-a@example.com", "MANAGER", "safe-password1");
   const createOrganization = await fetch(baseUrl + "/api/manager/organizations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + managerALogin.token }, body: JSON.stringify({ name: "참여 테스트 조직", code: "JOIN-ORG" }) });
   const organization = await createOrganization.json();
   await fetch(baseUrl + "/api/admin/organizations/" + organization.id + "/approve", { method: "POST", headers: adminHeaders });
   await fetch(baseUrl + "/api/admin/organizations/" + organization.id + "/assign-manager", { method: "POST", headers: adminHeaders, body: JSON.stringify({ managerId: managerA.id }) });
-  const managerBLogin = await login("join-manager-b@example.com", "MANAGER", "safe-password");
+  const managerBLogin = await login("join-manager-b@example.com", "MANAGER", "safe-password1");
   const managerBHeaders = { "Content-Type": "application/json", Authorization: "Bearer " + managerBLogin.token };
   const join = await fetch(baseUrl + "/api/manager/organizations/join", { method: "POST", headers: managerBHeaders, body: JSON.stringify({ code: "join-org" }) });
   assert.equal(join.status, 201);

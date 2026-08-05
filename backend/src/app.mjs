@@ -54,6 +54,11 @@ const maxVerificationAttempts = 5;
 const loginLockoutMs = 15 * 60 * 1000;
 const loginFailureLimit = 5;
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const passwordPolicyMessage = "비밀번호는 8자 이상이며 영문, 숫자, 특수문자를 모두 포함해야 합니다.";
+const isValidPassword = (value) => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length >= 8 && /[A-Za-z]/.test(trimmed) && /\d/.test(trimmed) && /[^A-Za-z0-9]/.test(trimmed);
+};
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]);
 const sendSendGridEmail = async ({ to, subject, html, text }) => {
   const apiKey = process.env.SENDGRID_API_KEY;
@@ -926,7 +931,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!isNonEmptyText(name) || !isValidEmail(email) || !isNonEmptyText(password) || !verification || new Date(verification.expiresAt) <= new Date() || (role && role !== "MANAGER")) {
         return response.status(400).json({ message: "회원가입 정보를 다시 확인해주세요." });
       }
-      if (password.trim().length < 8) return response.status(400).json({ message: "비밀번호는 8자 이상 입력해주세요." });
+      if (!isValidPassword(password)) return response.status(400).json({ message: passwordPolicyMessage });
       if (store.users.some((user) => user.email === email)) return response.status(409).json({ message: "이미 등록된 이메일입니다." });
       const user = { id: randomUUID(), name: name.trim(), email, password, role: "MANAGER", approvalStatus: "PENDING", organizationIds: [] };
       await store.addUser(user);
@@ -1759,7 +1764,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       const { name, email, password } = request.body;
       if (![name, email, password].every(isNonEmptyText)) return response.status(400).json({ message: "관리자 이름, 이메일, 비밀번호를 입력해주세요." });
-      if (password.trim().length < 8) return response.status(400).json({ message: "비밀번호는 8자 이상 입력해주세요." });
+      if (!isValidPassword(password)) return response.status(400).json({ message: passwordPolicyMessage });
       const normalizedEmail = email.trim().toLowerCase();
       if (store.users.some((user) => user.email === normalizedEmail)) return response.status(409).json({ message: "이미 등록된 이메일입니다." });
       const user = { id: randomUUID(), name: name.trim(), email: normalizedEmail, password, role: "MANAGER", approvalStatus: "APPROVED", organizationIds: [] };
