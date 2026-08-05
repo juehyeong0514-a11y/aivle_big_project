@@ -579,7 +579,7 @@ test("runs Python, Java, and C through the configured code execution server", as
   const aiCalls = [];
   const aiProviderInvoker = async (request) => {
     aiCalls.push(request);
-    return { score: 30, maxScore: 30, feedback: "좋습니다.", rubricBreakdown: [] };
+    return { task: "Grade every candidate coding answer once", output: { score: 30, maxScore: 30, feedback: "좋습니다.", rubricBreakdown: [] } };
   };
   const executionSubmissions = new Map();
   const executionServer = createServer(async (request, response) => {
@@ -660,6 +660,10 @@ test("runs Python, Java, and C through the configured code execution server", as
   assert.equal(gradingPrompt.questions[0].candidateSubmission.sourceCode, candidateSource);
   assert.equal(gradingPrompt.questions[0].candidateSubmission.judge0RunResult.stdout, "echo:2 3");
   assert.equal(gradingPrompt.questions[0].candidateSubmission.judge0RunResult.statusId, 3);
+  const completedQueue = await (await fetch(`${baseUrl}/api/manager/ai-grading-requests?organizationId=${organization.id}&examId=${exam.id}`, { headers: managerHeaders })).json();
+  assert.equal(completedQueue[0].result.score, 30);
+  assert.equal(completedQueue[0].result.feedback, "좋습니다.");
+  assert.equal(completedQueue[0].result.output, undefined);
 });
 
 test("allows ADMIN to view the full exam directory without exam creation access", async (context) => {

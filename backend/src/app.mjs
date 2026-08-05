@@ -619,6 +619,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     error.rawResponse = rawText.slice(0, 200_000);
     throw error;
   };
+  const normalizeAiGradingResult = (grading) => {
+    if (!grading || typeof grading !== "object" || Array.isArray(grading)) return grading;
+    const nestedOutput = grading.output;
+    if (nestedOutput && typeof nestedOutput === "object" && !Array.isArray(nestedOutput)
+      && (nestedOutput.score != null || nestedOutput.feedback || Array.isArray(nestedOutput.rubricBreakdown))) {
+      return nestedOutput;
+    }
+    return grading;
+  };
   const invokeAiGrading = aiProviderInvoker ?? (async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
     const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
     let response;
@@ -735,15 +744,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         ],
         questions
       };
-      const grading = await invokeAiGrading({
+      const rawGrading = await invokeAiGrading({
         apiKey,
         provider: aiConfig.provider,
         model: aiConfig.model,
         prompt: JSON.stringify(promptPayload),
         systemPrompt: "You are a strict coding assessment agent. Evaluate candidate code using the supplied problem, rubric, reference information, and recorded Judge0 evidence. Return valid JSON only."
       });
+      const grading = normalizeAiGradingResult(rawGrading);
       const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
-      await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "COMPLETED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload, response: grading, durationMs: Date.now() - startedAt, createdAt: result.gradedAt });
+      await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "COMPLETED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload, response: rawGrading, durationMs: Date.now() - startedAt, createdAt: result.gradedAt });
       await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result, originalAiResult: undefined, manuallyEditedAt: undefined, manuallyEditedBy: undefined });
       const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
       if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });

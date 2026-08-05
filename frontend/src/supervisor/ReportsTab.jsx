@@ -232,10 +232,11 @@ function ResultMetric({ label, value }) {
 }
 
 function AiAnalysisResult({ result = {} }) {
-  const breakdown = Array.isArray(result.rubricBreakdown) ? result.rubricBreakdown : [];
-  const maxScore = result.maxScore ?? breakdown[0]?.maxScore ?? 30;
+  const analysisResult = result.output && typeof result.output === 'object' && !Array.isArray(result.output) ? result.output : result;
+  const breakdown = Array.isArray(analysisResult.rubricBreakdown) ? analysisResult.rubricBreakdown : [];
+  const maxScore = analysisResult.maxScore ?? breakdown[0]?.maxScore ?? 30;
   return <section className="ai-analysis-result" aria-labelledby="ai-analysis-result-title">
-    <div className="ai-analysis-summary"><div><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{result.feedback || '분석이 완료되었습니다.'}</p></div><strong>{result.score ?? '-'} / {maxScore}점</strong></div>
+    <div className="ai-analysis-summary"><div><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{analysisResult.feedback || '분석이 완료되었습니다.'}</p></div><strong>{analysisResult.score ?? '-'} / {maxScore}점</strong></div>
     {breakdown.length ? <div className="ai-analysis-question-list">{breakdown.map((item, index) => <article key={item.questionId ?? index}>
       <div className="ai-analysis-question-heading"><strong>{item.title || `문제 ${index + 1}`}</strong><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
       {(item.algorithmScore != null || item.codeQualityScore != null) && <div className="ai-analysis-score-grid">
