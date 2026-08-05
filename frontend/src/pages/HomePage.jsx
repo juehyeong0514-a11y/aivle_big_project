@@ -3,7 +3,6 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 
 // 🌟 관리자 전용 탭 컴포넌트 임포트
 const AdminGovernanceTab = lazy(() => import('../admin/AdminGovernanceTab'));
-const UserMgmtTab = lazy(() => import('../admin/UserMgmtTab'));
 const AiConfigTab = lazy(() => import('../admin/AiConfigTab'));
 const AiInvocationLogsTab = lazy(() => import('../admin/AiInvocationLogsTab'));
 const AiGradingQueueTab = lazy(() => import('../admin/AiGradingQueueTab'));
@@ -67,8 +66,7 @@ export default function HomePage() {
             ========================================================================= */}
         {isAdmin && !showHome && (
           <div>
-            {activeTab === 'GOVERNANCE' && <AdminGovernanceTab />} 
-            {activeTab === 'USER_MGMT' && <UserMgmtTab />} 
+            {activeTab === 'GOVERNANCE' && <AdminGovernanceTab />}
             {activeTab === 'AI_CONFIG' && <AiConfigTab />}
             {activeTab === 'AI_LOGS' && <AiInvocationLogsTab />}
             {activeTab === 'AI_GRADING_QUEUE' && <AiGradingQueueTab />}

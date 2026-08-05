@@ -21,7 +21,6 @@ const ADMIN_GROUPS = [
     label: '조직·관리자', icon: Building2,
     items: [
       { key: 'GOVERNANCE', label: '조직 승인 및 관리자 관리', icon: ShieldCheck },
-      { key: 'USER_MGMT', label: '응시자·결과 조회', icon: Users },
       { key: 'COMMUNITY', label: '조직 커뮤니티', icon: MessageSquare }
     ]
   },
