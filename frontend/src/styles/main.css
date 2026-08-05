@@ -1374,6 +1374,12 @@ main {
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; color: var(--accent-primary); }
 .panel-heading h2 { margin: 0 0 4px; color: var(--text-primary); font-size: 18px; }
 .panel-heading p { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.workspace-tab-panel { display: flex; flex-direction: column; }
+.workspace-tabs { display: flex; gap: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border-default); }
+.workspace-tab-btn { display: inline-flex; align-items: center; gap: 6px; margin-bottom: -1px; padding: 0 0 11px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; }
+.workspace-tab-btn:hover { color: var(--text-primary); }
+.workspace-tab-btn[aria-selected="true"] { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+.workspace-tab-dot { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--status-error); color: #ffffff; font-size: 10px; font-weight: 800; }
 .organization-list, .candidate-check-list, .exam-invite-list { display: flex; flex-direction: column; }
 .workspace-subsection { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-default); }
 .workspace-subsection > strong { color: var(--text-secondary); font-size: 13px; }
