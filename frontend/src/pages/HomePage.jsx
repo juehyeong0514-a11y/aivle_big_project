@@ -41,7 +41,15 @@ export default function HomePage() {
   const defaultTab = getDefaultTab();
   const requestedTab = location.pathname === '/' ? defaultTab : (searchParams.get('tab') || defaultTab);
   const protectedGuestTabs = new Set(['EXAM', 'CHECK', 'PRACTICE']);
-  const normalizedTab = requestedTab === 'EXAM_POLICY' ? 'EXAMS' : requestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : requestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : requestedTab;
+  const tabAliases = {
+    EXAM_POLICY: 'EXAMS',
+    MANAGER_WORKSPACE: 'ORGANIZATIONS',
+    EXAM_PROHIBITIONS: 'EXAM_DETECTION_SETTINGS',
+    AI_REPORTS: 'EXAM_RESULTS',
+    EXAM_STATUS: 'EXAM_RESULTS',
+    CHEAT_LOGS: 'LIVE_MONITORING',
+  };
+  const normalizedTab = tabAliases[requestedTab] || requestedTab;
   const activeTab = userRole === 'GUEST' && protectedGuestTabs.has(normalizedTab)
     ? defaultTab
     : normalizedTab === 'RESULT' ? defaultTab : normalizedTab === 'EXAM_CREATE' ? 'EXAMS' : normalizedTab;
@@ -82,14 +90,14 @@ export default function HomePage() {
             ========================================================================= */}
         {isSupervisor && !showHome && (
           <div>
-            {activeTab === 'MANAGER_WORKSPACE' && <ManagerWorkspaceTab />} 
+            {activeTab === 'ORGANIZATIONS' && <ManagerWorkspaceTab />}
             {activeTab === 'EXAMS' && <SupervisorExamDashboard />}
             {activeTab === 'NOTICE' && <NoticeTab />}
             {activeTab === 'NOTICE_MANAGEMENT' && <NoticeManagementTab />}
             {activeTab === 'COMMUNITY' && <CommunityTab />}
             {activeTab === 'LIVE_MONITORING' && <LiveMonitoringTab />}
-            {activeTab === 'AI_REPORTS' && <SupervisorReportsTab />}
-            {activeTab === 'EXAM_PROHIBITIONS' && <ExamPolicyTab />}
+            {activeTab === 'EXAM_RESULTS' && <SupervisorReportsTab />}
+            {activeTab === 'EXAM_DETECTION_SETTINGS' && <ExamPolicyTab />}
           </div>
         )}
         </Suspense>

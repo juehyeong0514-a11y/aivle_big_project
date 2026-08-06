@@ -68,7 +68,7 @@ export default function NoticeTab() {
   return (
     <section className="workspace-shell notice-page">
       <div className="workspace-heading">
-        <div><span className="workspace-eyebrow">NOTICE CENTER</span><h1>공지사항</h1><p>시험 일정, 시스템 점검과 중요한 운영 안내를 확인하세요.</p></div>
+        <div><span className="workspace-eyebrow">NOTICE</span><h1>공지사항</h1><p>시험 일정, 시스템 점검과 중요한 운영 안내를 확인하세요.</p></div>
         <div className="workspace-role-mark manager"><Megaphone size={18} /> 중요 공지 {pinnedCount}건</div>
       </div>
 

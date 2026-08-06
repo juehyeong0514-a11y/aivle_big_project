@@ -130,7 +130,7 @@ export default function SupervisorExamDashboard() {
 
   return <section className="workspace-shell supervisor-exam-dashboard">
     <div className="workspace-heading">
-      <div><span className="workspace-eyebrow">SUPERVISOR EXAMS</span><h1>시험 총괄 대시보드</h1><p>담당 조직의 시험 운영 현황을 한곳에서 조회하고 관리합니다.</p></div>
+      <div><span className="workspace-eyebrow">EXAM MANAGEMENT</span><h1>시험 관리</h1><p>담당 조직의 시험을 조회하고 생성하며 운영 정보를 관리합니다.</p></div>
       <button className="primary-button" type="button" onClick={() => navigate('/manager/exams/new')}><Plus size={17} /> 시험 생성</button>
     </div>
     {message && <div className="workspace-alert">{message}</div>}

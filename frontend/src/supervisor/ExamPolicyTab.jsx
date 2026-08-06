@@ -128,8 +128,8 @@ export default function ExamPolicyTab() {
     <section className="workspace-shell exam-policy-workspace">
       <div className="workspace-heading">
         <div>
-          <span className="workspace-eyebrow">AI PROCTORING</span>
-          <h1>시험 AI 감지 설정</h1>
+          <span className="workspace-eyebrow">EXAM DETECTION SETTINGS</span>
+          <h1>시험 감지 설정</h1>
           <p>시험 중 감지할 의심 상황과 자동 경고 기록 여부를 설정합니다.</p>
         </div>
         <div className="exam-policy-save-state" data-dirty={hasChanges}>

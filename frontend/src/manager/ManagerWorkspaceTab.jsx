@@ -67,8 +67,8 @@ export default function ManagerWorkspaceTab() {
     <section className="workspace-shell">
       <div className="workspace-heading">
         <div>
-          <span className="workspace-eyebrow">MANAGER WORKSPACE</span>
-          <h1>조직 운영</h1>
+          <span className="workspace-eyebrow">ORGANIZATION MANAGEMENT</span>
+          <h1>조직 관리</h1>
           <p>조직 신청과 관리자 승인 상태, 배정된 조직 정보를 확인합니다.</p>
         </div>
         <div className="workspace-role-mark manager"><Users size={20} /> 조직 관리자</div>

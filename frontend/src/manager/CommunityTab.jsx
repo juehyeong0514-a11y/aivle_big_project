@@ -136,7 +136,7 @@ export default function CommunityTab() {
 
   return <section className="workspace-shell community-shell">
     <div className="workspace-heading">
-      <div><span className="workspace-eyebrow">COMMUNITY</span><h1>조직 커뮤니티</h1><p>{isAdmin ? '전체 조직의 게시글을 확인하고 운영 정책에 따라 관리합니다.' : '배정된 조직 구성원과 질문, 자료, 건의사항을 공유합니다.'}</p></div>
+      <div><span className="workspace-eyebrow">ORGANIZATION COMMUNITY</span><h1>조직 커뮤니티</h1><p>{isAdmin ? '전체 조직의 게시글을 확인하고 운영 정책에 따라 관리합니다.' : '배정된 조직 구성원과 질문, 자료, 건의사항을 공유합니다.'}</p></div>
       <div className={`workspace-role-mark ${isAdmin ? 'admin' : ''}`}><MessageSquare size={17} /> {isAdmin ? '전체 운영' : '조직 운영'}</div>
     </div>
     {message && <div className="workspace-alert">{message}</div>}

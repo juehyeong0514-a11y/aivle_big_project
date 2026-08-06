@@ -181,7 +181,7 @@ export default function ReportsTab() {
   return (
     <section className="workspace-shell">
       <div className="workspace-heading">
-        <div><span className="workspace-eyebrow">EXAMINEE MANAGEMENT</span><h1>응시 현황 및 결과 관리</h1><p>접속 현황부터 제출 결과, 감독 기록과 AI 분석 요청까지 한곳에서 관리합니다.</p></div>
+        <div><span className="workspace-eyebrow">EXAM RESULTS</span><h1>응시 결과 관리</h1><p>응시 현황부터 제출 결과, 감독 기록과 AI 분석 요청까지 한곳에서 관리합니다.</p></div>
         <div className="workspace-role-mark manager"><BarChart3 size={20} /> 통합 응시자 관리</div>
       </div>
       {error && <div className="workspace-alert error">{error}</div>}

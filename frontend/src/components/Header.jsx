@@ -43,7 +43,7 @@ const SUPERVISOR_GROUPS = [
     icon: Building2,
     items: [
       {
-        key: 'MANAGER_WORKSPACE',
+        key: 'ORGANIZATIONS',
         label: '조직 관리',
         icon: Users
       },
@@ -59,7 +59,7 @@ const SUPERVISOR_GROUPS = [
       },
       {
         key: 'COMMUNITY',
-        label: '커뮤니티 관리',
+        label: '조직 커뮤니티',
         icon: MessageSquare
       }
     ]
@@ -70,12 +70,12 @@ const SUPERVISOR_GROUPS = [
     items: [
       {
         key: 'EXAMS',
-        label: '시험 총괄 대시보드',
+        label: '시험 관리',
         icon: ClipboardList
       },
       {
-        key: 'EXAM_PROHIBITIONS',
-        label: '시험 금지사항 관리',
+        key: 'EXAM_DETECTION_SETTINGS',
+        label: '시험 감지 설정',
         icon: ShieldAlert
       }
     ]
@@ -86,12 +86,12 @@ const SUPERVISOR_GROUPS = [
     items: [
       {
         key: 'LIVE_MONITORING',
-        label: '화상 모니터링',
+        label: '실시간 모니터링',
         icon: Monitor
       },
       {
-        key: 'AI_REPORTS',
-        label: '응시자 관리',
+        key: 'EXAM_RESULTS',
+        label: '응시 결과 관리',
         icon: BarChart3
       }
     ]
@@ -157,7 +157,15 @@ export default function Header() {
 
   const defaultTab = getDefaultTab();
   const requestedTab = searchParams.get('tab') || defaultTab;
-  const normalizedRequestedTab = requestedTab === 'EXAM_POLICY' ? 'EXAMS' : requestedTab;
+  const tabAliases = {
+    EXAM_POLICY: 'EXAMS',
+    MANAGER_WORKSPACE: 'ORGANIZATIONS',
+    EXAM_PROHIBITIONS: 'EXAM_DETECTION_SETTINGS',
+    AI_REPORTS: 'EXAM_RESULTS',
+    EXAM_STATUS: 'EXAM_RESULTS',
+    CHEAT_LOGS: 'LIVE_MONITORING',
+  };
+  const normalizedRequestedTab = tabAliases[requestedTab] || requestedTab;
   const invitationToken = getInvitationContextToken(
     location.pathname,
     searchParams.get('token'),
@@ -165,7 +173,7 @@ export default function Header() {
     sessionStorage.getItem('candidateInvitationToken'),
     Boolean(localStorage.getItem('candidateAccessToken'))
   );
-  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : (normalizedRequestedTab === 'EXAM_STATUS' ? 'AI_REPORTS' : normalizedRequestedTab === 'CHEAT_LOGS' ? 'LIVE_MONITORING' : normalizedRequestedTab);
+  const currentTab = location.pathname.startsWith('/manager/exams') ? 'EXAMS' : location.pathname === '/' ? defaultTab : normalizedRequestedTab;
   const isCandidateInvitation = Boolean(invitationToken && candidateName);
 
   useEffect(() => {
