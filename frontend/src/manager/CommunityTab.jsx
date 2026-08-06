@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Edit3, MessageCircle, MessageSquare, Plus, Search, Trash2, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
@@ -24,7 +24,7 @@ export default function CommunityTab() {
   const composerReturnFocusRef = useRef(null);
   const composerReturnPostRef = useRef(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (isAdmin) {
       const { data } = await api.get('/admin/community', { headers: authHeaders() });
       setPosts(data);
@@ -41,11 +41,11 @@ export default function CommunityTab() {
     setExams(examResult.data);
     setForm((current) => ({ ...current, organizationId: current.organizationId || manageable[0]?.id || '' }));
     setListOrganizationId((current) => current || manageable[0]?.id || '');
-  };
+  }, [isAdmin]);
 
   useEffect(() => {
     load().catch((reason) => setError(apiErrorMessage(reason, '커뮤니티를 불러오지 못했습니다.')));
-  }, []);
+  }, [load]);
 
   const filteredPosts = useMemo(() => posts.filter((post) =>
     (isAdmin || !listOrganizationId || post.organizationId === listOrganizationId)

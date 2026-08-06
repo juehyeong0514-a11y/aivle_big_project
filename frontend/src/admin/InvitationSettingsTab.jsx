@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clock3, FileWarning, LockKeyhole, RefreshCw, Save, Send, ShieldCheck } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
@@ -23,7 +23,7 @@ export default function InvitationSettingsTab() {
   const [busy, setBusy] = useState(false);
   const headers = useMemo(() => ({ headers: authHeaders() }), []);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (filters.status) params.set('status', filters.status);
     if (filters.query.trim()) params.set('query', filters.query.trim());
@@ -40,9 +40,9 @@ export default function InvitationSettingsTab() {
     setOverview(overviewResponse.data);
     setInvitations(invitationResponse.data);
     setAudits(auditResponse.data);
-  };
+  }, [headers, filters.status, filters.query, filters.organizationId, filters.examId, filters.sentFrom, filters.sentTo, filters.expiringSoon]);
 
-  useEffect(() => { load().catch((error) => setMessage(apiErrorMessage(error, '초대 링크 운영 정보를 불러오지 못했습니다.'))); }, [filters.status, filters.query, filters.organizationId, filters.examId, filters.sentFrom, filters.sentTo, filters.expiringSoon]);
+  useEffect(() => { load().catch((error) => setMessage(apiErrorMessage(error, '초대 링크 운영 정보를 불러오지 못했습니다.'))); }, [load]);
 
   const save = async () => {
     setBusy(true);

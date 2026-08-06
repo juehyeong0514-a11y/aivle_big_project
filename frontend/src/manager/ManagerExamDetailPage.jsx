@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -263,11 +263,11 @@ export default function ManagerExamDetailPage() {
   const [candidateToDelete, setCandidateToDelete] = useState(null);
   const [questionToDelete, setQuestionToDelete] = useState(null);
   const [messageType, setMessageType] = useState("info");
-  const headers = { headers: authHeaders() };
+  const headers = useMemo(() => ({ headers: authHeaders() }), []);
   const uploadableCandidateCount = candidateUploadPreview.filter((candidate) => !candidate.uploadError).length;
   const uploadErrorCount = candidateUploadPreview.length - uploadableCandidateCount;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse] =
       await Promise.all([
         api.get("/manager/exams", headers),
@@ -304,7 +304,7 @@ export default function ManagerExamDetailPage() {
         ),
       ),
     );
-  };
+  }, [examId, headers]);
 
   const showMessage = (text, type = "info") => {
     setMessage(text);
@@ -317,7 +317,7 @@ export default function ManagerExamDetailPage() {
         apiErrorMessage(reason, "시험 상세 정보를 불러오지 못했습니다."),
       ),
     );
-  }, [examId]);
+  }, [load]);
 
   const examCandidateScope = useMemo(
     () => getExamCandidateScope({

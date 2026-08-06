@@ -85,6 +85,7 @@ export default function MobileProctoringPage() {
           audio: false
         });
       } catch (firstErr) {
+        console.warn('전면 카메라(facingMode: user) 접근 실패, 기본 비디오로 재시도합니다.', firstErr);
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false

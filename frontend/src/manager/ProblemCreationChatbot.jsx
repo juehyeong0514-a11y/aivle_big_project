@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Bot, Check, RefreshCw, Sparkles } from "lucide-react";
-import { CODING_LANGUAGE_OPTIONS, REQUIREMENT_OPTIONS, candidateToProblem, generateCandidates, refineCandidate, validateRequirements } from "./problemChatbotWorkflow.mjs";
+import { CODING_LANGUAGE_OPTIONS, REQUIREMENT_OPTIONS, candidateToProblem, validateRequirements } from "./problemChatbotWorkflow.mjs";
 import { api, apiErrorMessage, authHeaders } from "../api/client";
 
 const empty = { difficulty: "", type: "", scope: "", languages: [] };

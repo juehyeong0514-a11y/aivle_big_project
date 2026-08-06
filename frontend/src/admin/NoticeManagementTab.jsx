@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Edit3, Megaphone, Pin, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
@@ -42,7 +42,7 @@ export default function NoticeManagementTab() {
   const composerTriggerRef = useRef(null);
   const composerReturnFocusRef = useRef(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const requests = [api.get(apiBase, { headers: authHeaders() })];
     if (!isAdmin) {
       requests.push(api.get('/manager/organizations', { headers: authHeaders() }));
@@ -60,11 +60,11 @@ export default function NoticeManagementTab() {
       }));
       setListOrganizationId((current) => current || manageable[0]?.id || '');
     }
-  };
+  }, [apiBase, isAdmin]);
 
   useEffect(() => {
     load().catch((reason) => setError(apiErrorMessage(reason, '공지 목록을 불러오지 못했습니다.')));
-  }, []);
+  }, [load]);
 
   const reset = () => {
     setEditingId('');
