@@ -605,6 +605,65 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((exam) => exam.id === item.examId);
     return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
   };
+  const formatComplexity = (value) => {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    const estimated = value.estimated ?? "";
+    const expected = value.expected ?? "";
+    const analysis = value.analysis ?? "";
+    return [estimated, expected ? `(기준 ${expected})` : "", analysis].filter(Boolean).join(" ");
+  };
+  const buildAiResultEmailContent = ({ candidate, exam, result }) => {
+    const analysisResult = result?.output && typeof result.output === "object" && !Array.isArray(result.output) ? result.output : result ?? {};
+    const breakdown = Array.isArray(analysisResult.rubricBreakdown) ? analysisResult.rubricBreakdown : [];
+    const maxScore = analysisResult.maxScore ?? breakdown[0]?.maxScore ?? 30;
+    const candidateName = candidate?.name ?? "응시자";
+    const examTitle = exam?.title ?? "시험";
+    const feedback = isNonEmptyText(analysisResult.feedback) ? analysisResult.feedback : "분석이 완료되었습니다.";
+    const questionBlocksHtml = breakdown.map((item, index) => {
+      const title = item.title || `문제 ${index + 1}`;
+      const hasSubScores = item.algorithmScore != null || item.codeQualityScore != null;
+      const subScoresHtml = hasSubScores ? `<p style="margin:4px 0;font-size:13px;color:#555;">알고리즘 ${escapeHtml(String(item.algorithmScore ?? "-"))} / 20 · 코드품질 ${escapeHtml(String(item.codeQualityScore ?? "-"))} / 10</p>` : "";
+      const timeText = formatComplexity(item.timeComplexity);
+      const spaceText = formatComplexity(item.spaceComplexity);
+      const complexityHtml = (timeText || spaceText) ? `<p style="margin:4px 0;font-size:13px;color:#555;">${timeText ? `시간복잡도: ${escapeHtml(timeText)}` : ""}${timeText && spaceText ? " · " : ""}${spaceText ? `공간복잡도: ${escapeHtml(spaceText)}` : ""}</p>` : "";
+      const deductions = Array.isArray(item.deductions) ? item.deductions : [];
+      const deductionsHtml = deductions.length ? `<ul style="margin:4px 0;padding-left:18px;font-size:13px;color:#b42318;">${deductions.map((deduction) => `<li>-${escapeHtml(String(deduction.points ?? 0))}점 ${escapeHtml(deduction.reason || deduction.category || "")}</li>`).join("")}</ul>` : "";
+      const questionFeedbackHtml = isNonEmptyText(item.feedback) ? `<p style="margin:4px 0;font-size:13px;">${escapeHtml(item.feedback)}</p>` : "";
+      return `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #d8e1ee;border-radius:8px;"><p style="margin:0 0 4px;font-weight:700;">${escapeHtml(title)} — ${escapeHtml(String(item.score ?? "-"))} / ${escapeHtml(String(item.maxScore ?? 30))}점</p>${subScoresHtml}${complexityHtml}${deductionsHtml}${questionFeedbackHtml}</div>`;
+    }).join("");
+    const questionBlocksText = breakdown.map((item, index) => {
+      const title = item.title || `문제 ${index + 1}`;
+      const lines = [`- ${title}: ${item.score ?? "-"} / ${item.maxScore ?? 30}점`];
+      if (item.algorithmScore != null || item.codeQualityScore != null) lines.push(`  알고리즘 ${item.algorithmScore ?? "-"} / 20 · 코드품질 ${item.codeQualityScore ?? "-"} / 10`);
+      const timeText = formatComplexity(item.timeComplexity);
+      const spaceText = formatComplexity(item.spaceComplexity);
+      if (timeText) lines.push(`  시간복잡도: ${timeText}`);
+      if (spaceText) lines.push(`  공간복잡도: ${spaceText}`);
+      const deductions = Array.isArray(item.deductions) ? item.deductions : [];
+      deductions.forEach((deduction) => lines.push(`  -${deduction.points ?? 0}점 ${deduction.reason || deduction.category || ""}`));
+      if (isNonEmptyText(item.feedback)) lines.push(`  ${item.feedback}`);
+      return lines.join("\n");
+    }).join("\n\n");
+    const subject = `[Aivle] ${examTitle} AI 분석 결과 안내`;
+    const html = [
+      `<p>${escapeHtml(candidateName)}님, 안녕하세요.</p>`,
+      `<p>응시하신 <strong>${escapeHtml(examTitle)}</strong>의 AI 분석 결과를 안내드립니다.</p>`,
+      `<p><strong>총점: ${escapeHtml(String(analysisResult.score ?? "-"))} / ${escapeHtml(String(maxScore))}점</strong></p>`,
+      `<p>${escapeHtml(feedback)}</p>`,
+      breakdown.length ? `<div style="margin:12px 0;">${questionBlocksHtml}</div>` : "",
+      `<p style="color:#777;font-size:12px;">본 메일은 Aivle 코딩테스트 플랫폼에서 자동 발송되었습니다.</p>`
+    ].join("");
+    const text = [
+      `${candidateName}님, 안녕하세요.`,
+      `응시하신 ${examTitle}의 AI 분석 결과를 안내드립니다.`,
+      `총점: ${analysisResult.score ?? "-"} / ${maxScore}점`,
+      feedback,
+      breakdown.length ? `문제별 상세:\n${questionBlocksText}` : "",
+      "본 메일은 Aivle 코딩테스트 플랫폼에서 자동 발송되었습니다."
+    ].filter(Boolean).join("\n\n");
+    return { subject, html, text };
+  };
   const parseAiJsonResponse = (rawValue) => {
     const rawText = typeof rawValue === "string" ? rawValue.trim() : "";
     const withoutFence = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
@@ -1900,6 +1959,29 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const gradingRequest = { id: randomUUID(), organizationId: exam.organizationId, examId, candidateId, requestedBy: request.user.id, requestedAt: new Date().toISOString(), status: "PENDING" };
       await store.addAiGradingRequest(gradingRequest);
       return response.status(201).json(publicAiGradingRequest(gradingRequest));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  // Managers can email the completed AI analysis result to the candidate; resending is allowed and tracked via resultEmailedAt/resultEmailCount.
+  app.post("/api/manager/ai-grading-requests/:id/send-result-email", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
+      if (!gradingRequest || !managerOrganizationIds(request.user, store.organizations).includes(gradingRequest.organizationId)) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
+      if (gradingRequest.status !== "COMPLETED") return response.status(409).json({ message: "AI 분석이 완료된 요청만 결과를 발송할 수 있습니다." });
+      const candidate = store.candidates.find((item) => item.id === gradingRequest.candidateId);
+      const exam = store.exams.find((item) => item.id === gradingRequest.examId);
+      if (!candidate || !isValidEmail(candidate.email)) return response.status(400).json({ message: "응시자의 이메일 주소가 유효하지 않습니다." });
+      const { subject, html, text } = buildAiResultEmailContent({ candidate, exam, result: gradingRequest.result });
+      let deliveryStatus;
+      try {
+        deliveryStatus = await sendSendGridEmail({ to: candidate.email, subject, html, text }) ? "SENT" : "PREVIEW";
+      } catch {
+        return response.status(502).json({ message: "결과 메일 전송에 실패했습니다." });
+      }
+      if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.SENDGRID_API_KEY || process.env.SENDGRID_FROM_EMAIL)) return response.status(503).json({ message: "SendGrid 이메일 서비스가 아직 설정되지 않았습니다." });
+      const updated = await store.updateAiGradingRequest(gradingRequest.id, { resultEmailedAt: new Date().toISOString(), resultEmailCount: (gradingRequest.resultEmailCount ?? 0) + 1 });
+      return response.json(publicAiGradingRequest(updated));
     } catch (error) {
       return next(error);
     }

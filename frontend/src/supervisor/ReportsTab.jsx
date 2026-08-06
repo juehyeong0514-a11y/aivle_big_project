@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Building2, Cpu, FileText, LoaderCircle, Save, TerminalSquare, UserRound, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Building2, Cpu, FileText, LoaderCircle, Mail, MailCheck, Save, TerminalSquare, UserRound, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 const reviewStatusLabels = { NOT_REVIEWED: '미검토', NORMAL: '정상', REVIEW_REQUIRED: '재검토 필요', SUSPICIOUS: '부정행위 의심' };
@@ -23,6 +23,7 @@ export default function ReportsTab() {
   const [review, setReview] = useState({ reviewStatus: 'NOT_REVIEWED', reviewNote: '' });
   const [savingReview, setSavingReview] = useState(false);
   const [requestingCandidateId, setRequestingCandidateId] = useState('');
+  const [sendingEmailRequestId, setSendingEmailRequestId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -136,6 +137,21 @@ export default function ReportsTab() {
     }
   };
 
+  const sendResultEmail = async (aiRequest) => {
+    setSendingEmailRequestId(aiRequest.id);
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.post(`/manager/ai-grading-requests/${encodeURIComponent(aiRequest.id)}/send-result-email`, {}, { headers: authHeaders() });
+      setAiRequests((current) => current.map((item) => item.id === data.id ? data : item));
+      setMessage('AI 분석 결과 메일을 응시자에게 발송했습니다.');
+    } catch (reason) {
+      setError(apiErrorMessage(reason, 'AI 분석 결과 메일을 발송하지 못했습니다.'));
+    } finally {
+      setSendingEmailRequestId('');
+    }
+  };
+
   const saveReview = async () => {
     if (!detail) return;
     setSavingReview(true);
@@ -185,7 +201,7 @@ export default function ReportsTab() {
             const examinee = examinees.find((item) => item.candidateId === result.candidateId);
             const aiRequest = latestAiRequestFor(aiRequests, result.candidateId);
             const isSubmitted = Boolean(result.submittedAt) || result.status === 'SUBMITTED';
-            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{aiRequest?.status === 'COMPLETED' ? <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button> : aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}</td></tr>;
+            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{<div className="ai-result-actions">{aiRequest?.status === 'COMPLETED' ? <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button> : aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}<button className="ai-email-send-button" type="button" disabled={aiRequest?.status !== 'COMPLETED' || sendingEmailRequestId === aiRequest?.id} title={aiRequest?.status !== 'COMPLETED' ? 'AI 분석이 완료되면 메일을 발송할 수 있습니다.' : aiRequest.resultEmailedAt ? `최근 발송: ${new Date(aiRequest.resultEmailedAt).toLocaleString('ko-KR')}` : '응시자에게 AI 분석 결과 메일을 발송합니다.'} onClick={() => aiRequest?.status === 'COMPLETED' && sendResultEmail(aiRequest)}>{sendingEmailRequestId === aiRequest?.id ? <LoaderCircle className="spin" size={14} /> : aiRequest?.resultEmailedAt ? <MailCheck size={14} /> : <Mail size={14} />} {sendingEmailRequestId === aiRequest?.id ? '발송 중...' : aiRequest?.resultEmailedAt ? '재발송' : '메일 발송'}</button></div>}</td></tr>;
           })}
         </tbody></table>
         {!organizationId && <p className="empty-state">결과를 조회할 조직을 선택해주세요.</p>}

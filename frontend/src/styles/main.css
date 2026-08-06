@@ -1756,6 +1756,10 @@ main {
 .ai-request-status.failed { background: #fef2f2; color: #dc2626; }
 .ai-analysis-open-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #a7f3d0; border-radius: 7px; padding: 6px 9px; background: #ecfdf5; color: #047857; cursor: pointer; font: inherit; font-size: 12px; font-weight: 750; }
 .ai-analysis-open-button:hover { border-color: #6ee7b7; background: #d1fae5; }
+.ai-result-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ai-email-send-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #bfdbfe; border-radius: 7px; padding: 6px 9px; background: #eff6ff; color: var(--accent-primary); cursor: pointer; font: inherit; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.ai-email-send-button:hover { border-color: #93c5fd; background: #dbeafe; }
+.ai-email-send-button:disabled { cursor: not-allowed; opacity: .55; }
 .ai-analysis-result { display: grid; gap: 10px; margin: 18px 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-soft); }
 .result-analysis-section { width: 100%; margin-top: 18px; }
 .result-analysis-section .ai-analysis-result { margin: 0; padding: 20px; }
