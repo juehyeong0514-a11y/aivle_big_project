@@ -16,8 +16,15 @@ function Find-PythonLauncher {
   if (Get-Command py -ErrorAction SilentlyContinue) {
     return @{ Command = 'py'; Arguments = @() }
   }
-  if (Get-Command python -ErrorAction SilentlyContinue) {
+  $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+  if ($pythonCommand -and $pythonCommand.Source -notlike "*\Microsoft\WindowsApps\python.exe") {
     return @{ Command = 'python'; Arguments = @() }
+  }
+  $installedPython = Get-ChildItem -Path (Join-Path $env:LocalAppData "Programs\\Python") -Filter "python.exe" -File -Recurse -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1
+  if ($installedPython) {
+    return @{ Command = $installedPython.FullName; Arguments = @() }
   }
   throw "Python was not found. Install Python 3.11 or newer and try again."
 }
