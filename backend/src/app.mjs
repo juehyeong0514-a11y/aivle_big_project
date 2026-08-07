@@ -457,6 +457,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const liveSessions = new Map();
   const auxiliaryDevices = new Map(store.auxiliaryDevices.map((device) => [device.token, device]));
   const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
+  // A supervisor can reopen the detail modal before the applicant has answered
+  // the first offer. Keep only the newest pending offer for each media source;
+  // otherwise the applicant polls and answers the stale offer while the modal
+  // waits for the newer one.
+  const replacePendingLiveSession = ({ source, examId, candidateId, offer }) => {
+    for (const [id, session] of liveSessions) {
+      if (session.source === source && session.examId === examId && session.candidateId === candidateId && !session.answer) liveSessions.delete(id);
+    }
+    const id = randomUUID();
+    liveSessions.set(id, { id, source, examId, candidateId, offer, createdAt: Date.now() });
+    return id;
+  };
   const app = express();
   const aiProctor = createAiProctor({
     ...aiProctorOptions,
@@ -2884,8 +2896,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
     if (!examinee || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "라이브 연결 대상을 확인해주세요." });
-    const id = randomUUID();
-    liveSessions.set(id, { id, source: "candidate", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    const id = replacePendingLiveSession({ source: "candidate", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer });
     return response.status(201).json({ id });
   });
   app.post("/api/supervisor/examinees/:id/auxiliary-live-offers", authenticate, requireManager, (request, response) => {
@@ -2893,8 +2904,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId));
     const device = examinee && [...auxiliaryDevices.values()].find((item) => item.examId === examinee.examId && item.candidateId === examinee.candidateId && item.deviceToken && item.expiresAt > Date.now());
     if (!examinee || !device || typeof request.body.offer?.sdp !== "string") return response.status(400).json({ message: "연결된 보조 카메라를 확인해주세요." });
-    const id = randomUUID();
-    liveSessions.set(id, { id, source: "auxiliary", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer, createdAt: Date.now() });
+    const id = replacePendingLiveSession({ source: "auxiliary", examId: examinee.examId, candidateId: examinee.candidateId, offer: request.body.offer });
     return response.status(201).json({ id });
   });
   app.get("/api/supervisor/live-offers/:id", authenticate, requireManager, (request, response) => {

@@ -41,6 +41,7 @@ export default function LiveMonitoringTab() {
   const auxiliaryPeerRef = useRef(null);
   const livePollTimerRef = useRef(null);
   const auxiliaryPollTimerRef = useRef(null);
+  const liveRequestIdRef = useRef(0);
   const monitoringRefreshGateRef = useRef(createMonitoringRefreshGate());
 
   const applyMonitoringSnapshot = (snapshot) => {
@@ -241,6 +242,7 @@ export default function LiveMonitoringTab() {
   const closeWarningLog = () => setWarningLogExaminee(null);
 
   const closeLive = () => {
+    liveRequestIdRef.current += 1;
     if (livePollTimerRef.current) window.clearInterval(livePollTimerRef.current);
     if (auxiliaryPollTimerRef.current) window.clearInterval(auxiliaryPollTimerRef.current);
     livePollTimerRef.current = null;
@@ -288,7 +290,7 @@ export default function LiveMonitoringTab() {
     }
   };
 
-  const startAuxiliaryLive = async (examinee) => {
+  const startAuxiliaryLive = async (examinee, requestId) => {
     try {
       const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
       auxiliaryPeerRef.current = peer;
@@ -317,8 +319,17 @@ export default function LiveMonitoringTab() {
           }
         }, { once: true });
       });
+      if (liveRequestIdRef.current !== requestId) {
+        peer.close();
+        return;
+      }
       const { data } = await api.post('/supervisor/examinees/' + examinee.id + '/auxiliary-live-offers', { offer: peer.localDescription }, { headers: authHeaders() });
+      if (liveRequestIdRef.current !== requestId) {
+        peer.close();
+        return;
+      }
       const timer = window.setInterval(async () => {
+        if (liveRequestIdRef.current !== requestId) return window.clearInterval(timer);
         try {
           const response = await api.get('/supervisor/live-offers/' + data.id, { headers: authHeaders() });
           if (response.data.answer) {
@@ -339,8 +350,9 @@ export default function LiveMonitoringTab() {
 
   const openLive = async (examinee) => {
     closeLive();
+    const requestId = liveRequestIdRef.current;
     setLiveExaminee(examinee);
-    void startAuxiliaryLive(examinee);
+    void startAuxiliaryLive(examinee, requestId);
     try {
       const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
       livePeerRef.current = peer;
@@ -409,9 +421,18 @@ export default function LiveMonitoringTab() {
           }
         }, { once: true });
       });
+      if (liveRequestIdRef.current !== requestId) {
+        peer.close();
+        return;
+      }
       const { data } = await api.post('/supervisor/examinees/' + examinee.id + '/live-offers', { offer: peer.localDescription }, { headers: authHeaders() });
+      if (liveRequestIdRef.current !== requestId) {
+        peer.close();
+        return;
+      }
       const startedAt = Date.now();
       const timer = window.setInterval(async () => {
+        if (liveRequestIdRef.current !== requestId) return window.clearInterval(timer);
         try {
           const response = await api.get('/supervisor/live-offers/' + data.id, { headers: authHeaders() });
           if (response.data.answer) {
