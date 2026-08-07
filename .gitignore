@@ -7,3 +7,9 @@ __pycache__/
 ai-proctor-service/models/*.pt
 ai-proctor-service/models/*.onnx
 
+# Environment variables (secrets) — never commit
+.env
+.env.*
+!.env.example
+!*/.env.example
+
