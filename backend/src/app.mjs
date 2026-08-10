@@ -2008,7 +2008,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const { name, email, birthDate } = candidateInput;
     if (![name, email, birthDate].every(isNonEmptyText) || !isValidBirthDate(birthDate)) return { error: { status: 400, message: "응시자 이름, 이메일, 올바른 생년월일을 입력해주세요." } };
     const normalizedEmail = email.trim().toLowerCase();
-    if (store.candidates.some((candidate) => candidate.organizationId === organizationId && candidate.email === normalizedEmail)) return { error: { status: 409, message: "해당 조직에 이미 등록된 이메일입니다." } };
+    // 응시자 정보는 시험 단위로 관리합니다. 같은 조직에 같은 이메일이 있어도 시험이 다르면 별도 응시자로 등록하고,
+    // 같은 시험 안에서의 중복은 배정(assign) 단계에서 막습니다.
     const candidate = { id: randomUUID(), name: name.trim(), email: normalizedEmail, birthDate, organizationId, candidateNumber: `AIVLE-${1000 + store.candidates.length + 1}`, status: "REGISTERED", createdAt: new Date().toISOString() };
     await store.addCandidate(candidate);
     return { candidate };
@@ -2029,7 +2030,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!scopedOrganization(request, organizationId)) return response.status(403).json({ message: "배정된 승인 조직만 관리할 수 있습니다." });
       if (candidates.some((candidate) => !isNonEmptyText(candidate?.name) || !isNonEmptyText(candidate?.email) || !isValidBirthDate(candidate?.birthDate))) return response.status(400).json({ message: "모든 행에 이름, 이메일, 올바른 생년월일을 입력해주세요." });
       const emails = candidates.map((candidate) => candidate.email.trim().toLowerCase());
-      if (new Set(emails).size !== emails.length || emails.some((email) => store.candidates.some((candidate) => candidate.organizationId === organizationId && candidate.email === email))) return response.status(409).json({ message: "중복된 응시자 이메일이 포함되어 있습니다." });
+      // 파일 안에서의 중복만 막습니다. 다른 시험에 같은 이메일이 있어도 별도 응시자로 등록합니다.
+      if (new Set(emails).size !== emails.length) return response.status(409).json({ message: "중복된 응시자 이메일이 포함되어 있습니다." });
       const created = [];
       for (const candidateInput of candidates) {
         const result = await createCandidate(request, organizationId, candidateInput);
@@ -2073,7 +2075,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const { name, email, birthDate } = request.body;
       if (![name, email, birthDate].every(isNonEmptyText) || !isValidBirthDate(birthDate)) return response.status(400).json({ message: "응시자 이름, 이메일, 올바른 생년월일을 입력해주세요." });
       const normalizedEmail = email.trim().toLowerCase();
-      if (store.candidates.some((item) => item.id !== candidate.id && item.organizationId === candidate.organizationId && item.email === normalizedEmail)) return response.status(409).json({ message: "해당 조직에 이미 등록된 이메일입니다." });
+      // 같은 시험에 배정된 다른 응시자와 이메일이 겹치는 경우만 막습니다.
+      const candidateExamIds = new Set(store.assignments.filter((assignment) => assignment.candidateId === candidate.id).map((assignment) => assignment.examId));
+      const sameExamCandidateIds = new Set(store.assignments.filter((assignment) => candidateExamIds.has(assignment.examId)).map((assignment) => assignment.candidateId));
+      if (store.candidates.some((item) => item.id !== candidate.id && sameExamCandidateIds.has(item.id) && item.email === normalizedEmail)) return response.status(409).json({ message: "같은 시험에 이미 등록된 이메일입니다." });
       return response.json(await store.updateCandidate(candidate.id, { name: name.trim(), email: normalizedEmail, birthDate }));
     } catch (error) {
       return next(error);
@@ -2708,6 +2713,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const requestedCandidates = store.candidates.filter((candidate) => candidateIds.includes(candidate.id));
       if (requestedCandidates.length !== candidateIds.length) return response.status(404).json({ message: "선택한 응시자 중 삭제되었거나 존재하지 않는 정보가 있습니다. 목록을 새로고침한 뒤 다시 선택해주세요." });
       if (requestedCandidates.some((candidate) => candidate.organizationId !== exam.organizationId)) return response.status(403).json({ message: "현재 시험과 같은 조직에 등록된 응시자만 배정할 수 있습니다." });
+      // 같은 시험 안에서는 이메일 중복을 허용하지 않습니다.
+      const alreadyAssignedIds = new Set(store.assignments.filter((assignment) => assignment.examId === exam.id).map((assignment) => assignment.candidateId));
+      const takenEmails = new Set(store.candidates.filter((candidate) => alreadyAssignedIds.has(candidate.id)).map((candidate) => candidate.email));
+      const incomingEmails = new Set();
+      for (const candidate of requestedCandidates) {
+        if (alreadyAssignedIds.has(candidate.id)) continue;
+        if (takenEmails.has(candidate.email) || incomingEmails.has(candidate.email)) return response.status(409).json({ message: `이 시험에 이미 등록된 이메일입니다: ${candidate.email}` });
+        incomingEmails.add(candidate.email);
+      }
       const candidates = requestedCandidates;
       const created = [];
       for (const candidate of candidates) {
