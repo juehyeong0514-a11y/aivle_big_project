@@ -12,9 +12,13 @@ import {
 import { QRCodeCanvas } from 'qrcode.react';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { registerLiveStream } from '../applicant/liveMonitoring';
+import useTestShortcuts from '../applicant/useTestShortcuts';
 
 export default function ExamCheckPage() {
   const navigate = useNavigate();
+
+  // Ctrl(Cmd) + Shift + T 로만 열리는 임시 인증 버튼
+  const testShortcutsEnabled = useTestShortcuts();
 
   const idVideoRef = useRef(null);
 
@@ -242,6 +246,17 @@ export default function ExamCheckPage() {
 
   return (
     <div className="container">
+      {testShortcutsEnabled && (
+        <div
+          style={{
+            position: 'fixed', top: '12px', right: '12px', zIndex: 1000,
+            padding: '6px 12px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600,
+            background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
+          }}
+        >
+          임시 인증 버튼 표시 중 (Ctrl+Shift+T)
+        </div>
+      )}
       <h1 className="main-title" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>
         시험 사전 환경 점검
       </h1>
@@ -300,13 +315,13 @@ export default function ExamCheckPage() {
             <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
               <RefreshCw size={18} /> 신분증 다시 촬영
             </button>
-          ) : (
+          ) : testShortcutsEnabled ? (
             <div className="identity-action-row" style={{ gridTemplateColumns: '1fr', marginTop: '0.75rem' }}>
               <button type="button" onClick={markIdCardVerifiedForTest} className="secondary-button compact-button" style={{ justifyContent: 'center', minHeight: '44px' }}>
                 [임시] 신분증 인증 완료
               </button>
             </div>
-          )}
+          ) : null}
           {idCardVerification.message && idCardVerification.status !== 'VERIFIED' && <p className="form-hint text-danger" style={{ marginTop: '0.75rem' }}>{idCardVerification.message}</p>}
         </div>
 
@@ -390,15 +405,17 @@ export default function ExamCheckPage() {
           >
             {qrConnected ? '모바일 보조 카메라 연결 완료' : '휴대폰으로 QR을 스캔해 카메라를 연결해주세요.'}
           </div>
-          <button
-            type="button"
-            className="btn-secondary identity-full-button"
-            onClick={markAuxiliaryCameraForTest}
-            disabled={qrConnected}
-            style={{ marginTop: '10px' }}
-          >
-            {qrConnected ? '테스트 인증 완료' : '[임시] 보조 카메라 인증 완료'}
-          </button>
+          {testShortcutsEnabled && (
+            <button
+              type="button"
+              className="btn-secondary identity-full-button"
+              onClick={markAuxiliaryCameraForTest}
+              disabled={qrConnected}
+              style={{ marginTop: '10px' }}
+            >
+              {qrConnected ? '테스트 인증 완료' : '[임시] 보조 카메라 인증 완료'}
+            </button>
+          )}
         </div>
       </div>
 
