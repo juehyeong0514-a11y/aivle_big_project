@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Callable
 
+import cv2
+import numpy as np
 from fastapi import FastAPI, Header, HTTPException, status
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
@@ -17,12 +19,20 @@ from pydantic import BaseModel, Field
 MAX_IMAGE_BYTES = 2_000_000
 MAX_IMAGE_PIXELS = 4_000_000
 SUPPORTED_MIME_TYPES = {"image/jpeg", "image/png"}
+YOLO_INPUT_SIZE = 320
+MAX_DETECTIONS = 20
+NMS_IOU_THRESHOLD = 0.45
+# COCO 클래스 인덱스: person, cell phone, book
+TARGET_CLASS_LABELS = {0: "person", 67: "cell phone", 73: "book"}
 EVENT_MESSAGES = {
     "NO_PERSON": "화면에서 응시자가 감지되지 않았습니다.",
     "MULTIPLE_PEOPLE": "화면에서 여러 사람이 감지되었습니다.",
     "CELL_PHONE_DETECTED": "화면에서 휴대전화가 감지되었습니다.",
     "BOOK_DETECTED": "화면에서 책으로 추정되는 물체가 감지되었습니다.",
 }
+
+# 512MB 인스턴스에서 스레드별 작업 버퍼가 메모리를 밀어내지 않도록 단일 스레드로 고정합니다.
+cv2.setNumThreads(1)
 
 
 class DetectionRequest(BaseModel):
@@ -83,33 +93,98 @@ def decode_image(data_url: str) -> Image.Image:
     return image
 
 
-class YoloDetector:
+def letterbox(image: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
+    """비율을 유지한 채 정사각형으로 패딩합니다. ultralytics 전처리와 동일한 방식입니다."""
+    height, width = image.shape[:2]
+    scale = min(size / width, size / height)
+    resized_width = max(1, min(size, round(width * scale)))
+    resized_height = max(1, min(size, round(height * scale)))
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+    pad_x = (size - resized_width) // 2
+    pad_y = (size - resized_height) // 2
+    canvas = np.full((size, size, 3), 114, dtype=np.uint8)
+    canvas[pad_y:pad_y + resized_height, pad_x:pad_x + resized_width] = resized
+    return canvas, scale, pad_x, pad_y
+
+
+class OnnxDetector:
+    """ultralytics/torch 없이 OpenCV DNN만으로 YOLO ONNX 모델을 실행합니다."""
+
     def __init__(self, model_path: str):
-        from ultralytics import YOLO
-        self.model_path = model_path
-        self.model_name = Path(model_path).name
-        self.model = YOLO(model_path)
+        resolved = Path(model_path)
+        if resolved.suffix.lower() == ".pt":
+            resolved = resolved.with_suffix(".onnx")
+        if not resolved.is_file():
+            raise RuntimeError(f"ONNX 모델 파일을 찾을 수 없습니다: {resolved}")
+        self.model_path = str(resolved)
+        self.model_name = resolved.name
+        self.net = cv2.dnn.readNetFromONNX(self.model_path)
+        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
     def predict(self, image: Image.Image, confidence: float) -> list[dict]:
-        result = self.model.predict(
-            source=image,
-            conf=confidence,
-            imgsz=320,
-            classes=[0, 67, 73],  # COCO: person, cell phone, book
-            max_det=20,
-            device="cpu",
-            verbose=False,
-        )[0]
-        names = result.names
-        width, height = image.size
-        detections = []
-        for box in result.boxes:
-            label = str(names[int(box.cls.item())]).strip().lower()
-            if label not in {"person", "cell phone", "book"}:
+        source = np.asarray(image, dtype=np.uint8)
+        height, width = source.shape[:2]
+        if height == 0 or width == 0:
+            return []
+
+        padded, scale, pad_x, pad_y = letterbox(source, YOLO_INPUT_SIZE)
+        # PIL이 이미 RGB이므로 채널 교환은 하지 않습니다.
+        blob = cv2.dnn.blobFromImage(padded, scalefactor=1 / 255, size=(YOLO_INPUT_SIZE, YOLO_INPUT_SIZE), swapRB=False, crop=False)
+        self.net.setInput(blob)
+        raw_output = np.squeeze(self.net.forward())
+        if raw_output.ndim != 2:
+            return []
+
+        # YOLO11 출력은 (4 + 클래스 수, 앵커 수)이므로 (앵커 수, 4 + 클래스 수)로 전치합니다.
+        predictions = raw_output.T if raw_output.shape[0] < raw_output.shape[1] else raw_output
+        class_scores = predictions[:, 4:]
+        if class_scores.shape[1] == 0:
+            return []
+
+        class_ids = class_scores.argmax(axis=1)
+        confidences = class_scores[np.arange(class_scores.shape[0]), class_ids]
+        keep = (confidences >= confidence) & np.isin(class_ids, list(TARGET_CLASS_LABELS))
+        if not keep.any():
+            return []
+
+        boxes_xywh = predictions[keep, :4]
+        class_ids = class_ids[keep]
+        confidences = confidences[keep]
+
+        # 레터박스 좌표를 원본 이미지 좌표로 되돌립니다.
+        center_x = (boxes_xywh[:, 0] - pad_x) / scale
+        center_y = (boxes_xywh[:, 1] - pad_y) / scale
+        box_width = boxes_xywh[:, 2] / scale
+        box_height = boxes_xywh[:, 3] / scale
+        x1 = center_x - box_width / 2
+        y1 = center_y - box_height / 2
+
+        nms_boxes = np.stack([x1, y1, box_width, box_height], axis=1).tolist()
+        nms_scores = confidences.astype(float).tolist()
+
+        detections: list[dict] = []
+        for class_id in np.unique(class_ids):
+            indices = np.flatnonzero(class_ids == class_id)
+            selected = cv2.dnn.NMSBoxes([nms_boxes[i] for i in indices], [nms_scores[i] for i in indices], float(confidence), NMS_IOU_THRESHOLD)
+            if len(selected) == 0:
                 continue
-            x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
-            detections.append({"label": label, "confidence": float(box.conf.item()), "bbox": [max(0, min(1, x1 / width)), max(0, min(1, y1 / height)), max(0, min(1, x2 / width)), max(0, min(1, y2 / height))]})
-        return detections
+            for offset in np.array(selected).flatten():
+                index = int(indices[int(offset)])
+                left, top, box_w, box_h = nms_boxes[index]
+                detections.append({
+                    "label": TARGET_CLASS_LABELS[int(class_id)],
+                    "confidence": float(nms_scores[index]),
+                    "bbox": [
+                        max(0.0, min(1.0, left / width)),
+                        max(0.0, min(1.0, top / height)),
+                        max(0.0, min(1.0, (left + box_w) / width)),
+                        max(0.0, min(1.0, (top + box_h) / height)),
+                    ],
+                })
+
+        detections.sort(key=lambda item: item["confidence"], reverse=True)
+        return detections[:MAX_DETECTIONS]
 
 
 detector = None
@@ -118,19 +193,19 @@ detector_warming = False
 detector_lock = Lock()
 inference_lock = Lock()
 logger = logging.getLogger("aivle-ai-proctor")
-detector_factory: Callable[[str], object] = YoloDetector
-app = FastAPI(title="Aivle AI Proctor", version="0.1.0")
+detector_factory: Callable[[str], object] = OnnxDetector
+app = FastAPI(title="Aivle AI Proctor", version="0.2.0")
 
 
 def model_path() -> str:
-    return os.environ.get("AI_PROCTOR_MODEL_PATH", "models/yolo-model.pt")
+    return os.environ.get("AI_PROCTOR_MODEL_PATH", "yolo11n.onnx")
 
 
 def warm_detector() -> None:
     global detector, detector_error, detector_warming
     try:
         initialized = detector_factory(model_path())
-    except (ImportError, OSError, RuntimeError, ValueError) as error:
+    except (ImportError, OSError, RuntimeError, ValueError, cv2.error) as error:
         logger.exception("AI 감독 모델 준비에 실패했습니다.")
         with detector_lock:
             detector_error = str(error)
@@ -214,4 +289,3 @@ def detect(payload: DetectionRequest, authorization: str | None = Header(default
     detections = [Detection(**item) for item in raw_detections[:50]]
     person_count, events = make_events(raw_detections, os.environ.get("AI_PROCTOR_BOOK_DETECTION_ENABLED", "false").lower() == "true")
     return DetectionResponse(model=getattr(initialized, "model_name", "configured-model"), latencyMs=round((time.perf_counter() - started) * 1000), personCount=person_count, detections=detections, events=events)
-

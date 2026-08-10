@@ -17,14 +17,19 @@ if (-not (Test-Path -LiteralPath (Join-Path $backend "node_modules"))) {
 if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules"))) {
   throw "Frontend packages are missing. Run .\setup-local.ps1 first."
 }
+if (-not (Test-Path -LiteralPath (Join-Path $aiService "yolo11n.onnx"))) {
+  throw "yolo11n.onnx is missing. Run: ai-proctor-service\.venv\Scripts\python.exe ai-proctor-service\export_onnx.py"
+}
 
 $aiCommand = @"
 `$Host.UI.RawUI.WindowTitle = 'Aivle AI Proctor'
 Set-Location -LiteralPath '$aiService'
-`$env:AI_PROCTOR_MODEL_PATH = 'yolo11n.pt'
+`$env:AI_PROCTOR_MODEL_PATH = 'yolo11n.onnx'
 `$env:AI_PROCTOR_API_KEY = 'local-ai-secret'
 `$env:AI_PROCTOR_CONFIDENCE = '0.55'
 `$env:AI_PROCTOR_BOOK_DETECTION_ENABLED = 'false'
+`$env:OMP_NUM_THREADS = '1'
+`$env:OPENBLAS_NUM_THREADS = '1'
 & '$venvPython' -m uvicorn main:app --host 127.0.0.1 --port 8001
 "@
 

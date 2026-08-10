@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1
 ## 시험용 AI 감독 MVP
 
 - 응시자 웹캠 정지 화면을 2초 주기로 FastAPI 서비스에서 분석
-- 범용 YOLO 모델 사용
+- 범용 YOLO 모델을 ONNX로 변환해 OpenCV DNN으로 실행(`ultralytics`·`torch` 미사용, 512MB 인스턴스 대응)
 - 감독 화면의 최신 분석 결과를 2초 주기로 갱신
 - 사람 미감지, 여러 사람, 휴대전화, 선택적 책 감지 지원
 - Node 백엔드에서 연속 감지와 경고 대기 시간 관리
@@ -130,11 +130,13 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1
 | `AI_PROCTOR_CONSECUTIVE_HITS` | `2` | 경고 전 연속 감지 횟수 |
 | `AI_PROCTOR_WARNING_COOLDOWN_SECONDS` | `60` | 동일 유형 경고 대기 시간 |
 | `AI_PROCTOR_BOOK_DETECTION_ENABLED` | `false` | 책 이벤트 활성화 여부 |
+| `AI_PROCTOR_MODEL_PATH` | `yolo11n.onnx` | ONNX 가중치 경로(`.pt` 지정 시 같은 이름의 `.onnx` 사용) |
+| `OMP_NUM_THREADS` | 없음 | `1` 권장, 저사양 인스턴스의 스레드별 버퍼 메모리 절감 |
 
 - `AI_PROCTOR_URL` 미설정 또는 서비스 중단 시 AI 분석만 생략
 - 시험, 스냅샷, WebRTC 기능은 계속 동작
 - [ai-proctor-service/README.md](ai-proctor-service/README.md)를 참고한 별도 프로세스 또는 웹 서비스 배포
-- `.pt`·`.onnx` 가중치를 비밀 파일 또는 영구 볼륨으로 공급
+- 배포 전 `python export_onnx.py`로 `yolo11n.onnx` 생성 필요
 - 입력 이미지와 Base64 데이터 미저장 및 로그 미출력
 - MVP 상태를 Express 프로세스 메모리에서 관리
   - 감지 횟수
