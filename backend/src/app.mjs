@@ -623,7 +623,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const estimated = value.estimated ?? "";
     const expected = value.expected ?? "";
     const analysis = value.analysis ?? "";
-    return [estimated, expected ? `(기준 ${expected})` : "", analysis].filter(Boolean).join(" ");
+    return [estimated, expected && expected !== estimated ? `(기준 ${expected})` : "", analysis].filter(Boolean).join(" ");
   };
   const buildAiResultEmailContent = ({ candidate, exam, result }) => {
     const analysisResult = result?.output && typeof result.output === "object" && !Array.isArray(result.output) ? result.output : result ?? {};
@@ -635,43 +635,44 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const questionBlocksHtml = breakdown.map((item, index) => {
       const title = item.title || `문제 ${index + 1}`;
       const hasSubScores = item.algorithmScore != null || item.codeQualityScore != null;
-      const subScoresHtml = hasSubScores ? `<p style="margin:4px 0;font-size:13px;color:#555;">알고리즘 ${escapeHtml(String(item.algorithmScore ?? "-"))} / 20 · 코드품질 ${escapeHtml(String(item.codeQualityScore ?? "-"))} / 10</p>` : "";
+      const subScoresHtml = hasSubScores ? `<p style="margin:0 0 8px;font-size:13px;color:#555;">알고리즘 ${escapeHtml(String(item.algorithmScore ?? "-"))} / 20 · 코드품질 ${escapeHtml(String(item.codeQualityScore ?? "-"))} / 10</p>` : "";
       const timeText = formatComplexity(item.timeComplexity);
       const spaceText = formatComplexity(item.spaceComplexity);
-      const complexityHtml = (timeText || spaceText) ? `<p style="margin:4px 0;font-size:13px;color:#555;">${timeText ? `시간복잡도: ${escapeHtml(timeText)}` : ""}${timeText && spaceText ? " · " : ""}${spaceText ? `공간복잡도: ${escapeHtml(spaceText)}` : ""}</p>` : "";
+      const timeHtml = timeText ? `<p style="margin:0 0 8px;font-size:13px;color:#555;">시간복잡도: ${escapeHtml(timeText)}</p>` : "";
+      const spaceHtml = spaceText ? `<p style="margin:0 0 8px;font-size:13px;color:#555;">공간복잡도: ${escapeHtml(spaceText)}</p>` : "";
       const deductions = Array.isArray(item.deductions) ? item.deductions : [];
-      const deductionsHtml = deductions.length ? `<ul style="margin:4px 0;padding-left:18px;font-size:13px;color:#b42318;">${deductions.map((deduction) => `<li>-${escapeHtml(String(deduction.points ?? 0))}점 ${escapeHtml(deduction.reason || deduction.category || "")}</li>`).join("")}</ul>` : "";
-      const questionFeedbackHtml = isNonEmptyText(item.feedback) ? `<p style="margin:4px 0;font-size:13px;">${escapeHtml(item.feedback)}</p>` : "";
-      return `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #d8e1ee;border-radius:8px;"><p style="margin:0 0 4px;font-weight:700;">${escapeHtml(title)} — ${escapeHtml(String(item.score ?? "-"))} / ${escapeHtml(String(item.maxScore ?? 30))}점</p>${subScoresHtml}${complexityHtml}${deductionsHtml}${questionFeedbackHtml}</div>`;
+      const deductionsHtml = deductions.length ? `<ul style="margin:0 0 8px;padding-left:18px;font-size:13px;color:#b42318;">${deductions.map((deduction) => `<li>-${escapeHtml(String(deduction.points ?? 0))}점 ${escapeHtml(deduction.reason || deduction.category || "")}</li>`).join("")}</ul>` : "";
+      const questionFeedbackHtml = isNonEmptyText(item.feedback) ? `<p style="margin:0;font-size:13px;">${escapeHtml(item.feedback)}</p>` : "";
+      return `<div style="margin:0 0 16px;padding:12px 14px;border:1px solid #d8e1ee;border-radius:8px;"><p style="margin:0 0 10px;font-weight:700;">${escapeHtml(title)} — ${escapeHtml(String(item.score ?? "-"))} / ${escapeHtml(String(item.maxScore ?? 30))}점</p>${subScoresHtml}${timeHtml}${spaceHtml}${deductionsHtml}${questionFeedbackHtml}</div>`;
     }).join("");
     const questionBlocksText = breakdown.map((item, index) => {
       const title = item.title || `문제 ${index + 1}`;
-      const lines = [`- ${title}: ${item.score ?? "-"} / ${item.maxScore ?? 30}점`];
-      if (item.algorithmScore != null || item.codeQualityScore != null) lines.push(`  알고리즘 ${item.algorithmScore ?? "-"} / 20 · 코드품질 ${item.codeQualityScore ?? "-"} / 10`);
+      const lines = [`${title} — ${item.score ?? "-"} / ${item.maxScore ?? 30}점`];
+      if (item.algorithmScore != null || item.codeQualityScore != null) lines.push(`알고리즘 ${item.algorithmScore ?? "-"} / 20 · 코드품질 ${item.codeQualityScore ?? "-"} / 10`);
       const timeText = formatComplexity(item.timeComplexity);
       const spaceText = formatComplexity(item.spaceComplexity);
-      if (timeText) lines.push(`  시간복잡도: ${timeText}`);
-      if (spaceText) lines.push(`  공간복잡도: ${spaceText}`);
+      if (timeText) lines.push(`시간복잡도: ${timeText}`);
+      if (spaceText) lines.push(`공간복잡도: ${spaceText}`);
       const deductions = Array.isArray(item.deductions) ? item.deductions : [];
-      deductions.forEach((deduction) => lines.push(`  -${deduction.points ?? 0}점 ${deduction.reason || deduction.category || ""}`));
-      if (isNonEmptyText(item.feedback)) lines.push(`  ${item.feedback}`);
-      return lines.join("\n");
-    }).join("\n\n");
+      deductions.forEach((deduction) => lines.push(`-${deduction.points ?? 0}점 ${deduction.reason || deduction.category || ""}`));
+      if (isNonEmptyText(item.feedback)) lines.push(item.feedback);
+      return lines.join("\n\n");
+    }).join("\n\n---\n\n");
     const subject = `[Aivle] ${examTitle} AI 분석 결과 안내`;
     const html = [
-      `<p>${escapeHtml(candidateName)}님, 안녕하세요.</p>`,
-      `<p>응시하신 <strong>${escapeHtml(examTitle)}</strong>의 AI 분석 결과를 안내드립니다.</p>`,
-      `<p><strong>총점: ${escapeHtml(String(analysisResult.score ?? "-"))} / ${escapeHtml(String(maxScore))}점</strong></p>`,
-      `<p>${escapeHtml(feedback)}</p>`,
-      breakdown.length ? `<div style="margin:12px 0;">${questionBlocksHtml}</div>` : "",
-      `<p style="color:#777;font-size:12px;">본 메일은 Aivle 코딩테스트 플랫폼에서 자동 발송되었습니다.</p>`
+      `<p style="margin:0 0 14px;">${escapeHtml(candidateName)}님, 안녕하세요.</p>`,
+      `<p style="margin:0 0 14px;">응시하신 <strong>${escapeHtml(examTitle)}</strong>의 AI 분석 결과를 안내드립니다.</p>`,
+      `<p style="margin:0 0 14px;"><strong>총점: ${escapeHtml(String(analysisResult.score ?? "-"))} / ${escapeHtml(String(maxScore))}점</strong></p>`,
+      `<p style="margin:0 0 20px;">${escapeHtml(feedback)}</p>`,
+      breakdown.length ? `<div style="margin:0 0 20px;">${questionBlocksHtml}</div>` : "",
+      `<p style="margin:0;color:#777;font-size:12px;">본 메일은 Aivle 코딩테스트 플랫폼에서 자동 발송되었습니다.</p>`
     ].join("");
     const text = [
       `${candidateName}님, 안녕하세요.`,
       `응시하신 ${examTitle}의 AI 분석 결과를 안내드립니다.`,
       `총점: ${analysisResult.score ?? "-"} / ${maxScore}점`,
       feedback,
-      breakdown.length ? `문제별 상세:\n${questionBlocksText}` : "",
+      breakdown.length ? `문제별 상세\n\n${questionBlocksText}` : "",
       "본 메일은 Aivle 코딩테스트 플랫폼에서 자동 발송되었습니다."
     ].filter(Boolean).join("\n\n");
     return { subject, html, text };
