@@ -512,6 +512,21 @@ export default function ManagerExamDetailPage() {
     }
   };
 
+  // 기존 응시자와 새로 입력한 이름·생년월일이 다르면 최신 입력값으로 갱신합니다.
+  // 갱신했으면 true, 바뀐 내용이 없으면 false를 돌려줍니다.
+  const syncExistingCandidateInfo = async (existingCandidate, input) => {
+    const name = (input.name ?? "").trim();
+    const birthDate = (input.birthDate ?? "").trim();
+    if (!name || !birthDate) return false;
+    if (existingCandidate.name === name && existingCandidate.birthDate === birthDate) return false;
+    await api.patch(
+      `/manager/candidates/${existingCandidate.id}`,
+      { name, email: existingCandidate.email, birthDate },
+      headers,
+    );
+    return true;
+  };
+
   const createCandidate = async (event) => {
     event.preventDefault();
     try {
@@ -523,6 +538,10 @@ export default function ManagerExamDetailPage() {
         showMessage("이 응시자는 현재 시험에 이미 등록되어 있습니다.", "error");
         return;
       }
+      // 이미 등록된 이메일이면 기존 응시자를 재사용하되, 방금 입력한 이름·생년월일로 갱신합니다.
+      const updatedExistingCandidate = existingCandidate
+        ? await syncExistingCandidateInfo(existingCandidate, candidateForm)
+        : false;
       const candidateId = existingCandidate
         ? existingCandidate.id
         : (await api.post(
@@ -536,7 +555,9 @@ export default function ManagerExamDetailPage() {
         headers,
       );
       setCandidateForm({ name: "", email: "", birthDate: "" });
-      showMessage("응시자가 등록되었습니다.");
+      showMessage(updatedExistingCandidate
+        ? "이미 등록된 이메일이라 기존 응시자 정보를 방금 입력한 내용으로 갱신했습니다."
+        : "응시자가 등록되었습니다.");
       await load();
     } catch (reason) {
       showMessage(apiErrorMessage(reason, "응시자 등록에 실패했습니다."), "error");
@@ -573,7 +594,16 @@ export default function ManagerExamDetailPage() {
             ? "파일 안에 중복된 이메일입니다."
             : "";
         uploadedEmails.add(email);
-        return { ...candidate, existingCandidateId: existingCandidate?.id ?? "", uploadError };
+        const infoWillUpdate = Boolean(existingCandidate)
+          && (existingCandidate.name !== candidate.name || existingCandidate.birthDate !== candidate.birthDate);
+        return {
+          ...candidate,
+          existingCandidateId: existingCandidate?.id ?? "",
+          existingName: existingCandidate?.name ?? "",
+          existingBirthDate: existingCandidate?.birthDate ?? "",
+          infoWillUpdate,
+          uploadError,
+        };
       });
       setCandidateUploadError("");
       setCandidateUploadPreview(previewCandidates);
@@ -595,6 +625,15 @@ export default function ManagerExamDetailPage() {
       const existingCandidateIds = uploadableCandidates
         .filter((candidate) => candidate.existingCandidateId)
         .map((candidate) => candidate.existingCandidateId);
+      // 이미 등록된 이메일은 기존 응시자를 재사용하되, 파일에 적힌 이름·생년월일로 갱신합니다.
+      const candidatesToUpdate = uploadableCandidates.filter((candidate) => candidate.existingCandidateId && candidate.infoWillUpdate);
+      for (const candidate of candidatesToUpdate) {
+        await api.patch(
+          `/manager/candidates/${candidate.existingCandidateId}`,
+          { name: candidate.name, email: candidate.email.trim().toLowerCase(), birthDate: candidate.birthDate },
+          headers,
+        );
+      }
       const newCandidates = uploadableCandidates.filter((candidate) => !candidate.existingCandidateId);
       const createdCandidates = newCandidates.length
         ? (await api.post(
@@ -612,7 +651,7 @@ export default function ManagerExamDetailPage() {
       setCandidateUploadPreview(remainingCandidates);
       if (remainingCandidates.length === 0) setCandidateUploadFileName("");
       setCandidateUploadError("");
-      showMessage(`${uploadableCandidates.length}명을 등록했습니다.${remainingCandidates.length ? ` ${remainingCandidates.length}명은 오류를 확인해주세요.` : ""}`);
+      showMessage(`${uploadableCandidates.length}명을 등록했습니다.${candidatesToUpdate.length ? ` 이미 등록된 ${candidatesToUpdate.length}명은 파일 정보로 갱신했습니다.` : ""}${remainingCandidates.length ? ` ${remainingCandidates.length}명은 오류를 확인해주세요.` : ""}`);
       await load();
     } catch (reason) {
       const uploadError = apiErrorMessage(reason, "응시자 파일을 등록하지 못했습니다.");
@@ -957,7 +996,7 @@ export default function ManagerExamDetailPage() {
                 {candidateUploadPreview.map((candidate, index) => (
                   <li key={`${candidate.email}-${index}`} className={candidate.uploadError ? "has-error" : ""}>
                     <b>{index + 1}</b>
-                    <span><strong>{candidate.name}</strong><small>{candidate.email} · {candidate.birthDate}</small>{candidate.uploadError && <em>{candidate.uploadError}</em>}</span>
+                    <span><strong>{candidate.name}</strong><small>{candidate.email} · {candidate.birthDate}</small>{candidate.uploadError && <em>{candidate.uploadError}</em>}{!candidate.uploadError && candidate.infoWillUpdate && <em className="text-warning">기존 정보({candidate.existingName} · {candidate.existingBirthDate})를 파일 내용으로 갱신합니다.</em>}</span>
                   </li>
                 ))}
               </ul>
