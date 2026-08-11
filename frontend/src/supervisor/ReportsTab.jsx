@@ -252,18 +252,20 @@ function AiAnalysisResult({ result = {} }) {
   const breakdown = Array.isArray(analysisResult.rubricBreakdown) ? analysisResult.rubricBreakdown : [];
   const maxScore = analysisResult.maxScore ?? breakdown[0]?.maxScore ?? 30;
   return <section className="ai-analysis-result" aria-labelledby="ai-analysis-result-title">
-    <div className="ai-analysis-summary"><div><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{analysisResult.feedback || '분석이 완료되었습니다.'}</p></div><strong>{analysisResult.score ?? '-'} / {maxScore}점</strong></div>
+    <div className="ai-analysis-summary">
+      <div className="ai-analysis-summary-copy"><span className="ai-analysis-kicker">AI REVIEW</span><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{analysisResult.feedback || '분석이 완료되었습니다.'}</p></div>
+      <div className="ai-analysis-total-score"><span>총점</span><strong>{analysisResult.score ?? '-'}</strong><small>/ {maxScore}점</small></div>
+    </div>
     {breakdown.length ? <div className="ai-analysis-question-list">{breakdown.map((item, index) => <article key={item.questionId ?? index}>
-      <div className="ai-analysis-question-heading"><strong>{item.title || `문제 ${index + 1}`}</strong><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
-      {(item.algorithmScore != null || item.codeQualityScore != null) && <div className="ai-analysis-score-grid">
-        <ResultMetric label="알고리즘" value={`${item.algorithmScore ?? '-'} / 20`} />
+      <div className="ai-analysis-question-heading"><div><small>문제 {index + 1}</small><strong>{item.title || `문제 ${index + 1}`}</strong></div><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
+      {(item.algorithmScore != null || item.codeQualityScore != null) && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 항목</h4><div className="ai-analysis-score-grid">
+        <ResultMetric label="알고리즘 정확성" value={`${item.algorithmScore ?? '-'} / 20`} />
         <ResultMetric label="코드 품질" value={`${item.codeQualityScore ?? '-'} / 10`} />
-      </div>}
-      <ComplexityAnalysis label="시간 복잡도" value={item.timeComplexity} />
-      <ComplexityAnalysis label="공간 복잡도" value={item.spaceComplexity} />
-      {Array.isArray(item.deductions) && item.deductions.length > 0 && <div className="ai-analysis-deductions"><strong>감점 사유</strong><ul>{item.deductions.map((deduction, deductionIndex) => <li key={deductionIndex}><span>-{deduction.points ?? 0}점</span> {deduction.reason || deduction.category}</li>)}</ul></div>}
-      {item.feedback && <div className="ai-analysis-feedback"><strong>피드백</strong><p>{item.feedback}</p></div>}
-      {item.algorithmScore == null && item.codeQualityScore == null && item.breakdown && <div className="ai-analysis-legacy-rubrics">{Object.entries(item.breakdown).map(([name, rubric]) => <div key={name}><strong>{name}</strong><span>{rubric?.score ?? '-'} / {rubric?.maxScore ?? '-'}</span><p>{rubric?.feedback}</p></div>)}</div>}
+      </div></section>}
+      {(item.timeComplexity || item.spaceComplexity) && <section className="ai-analysis-part complexity-part"><h4><span>02</span> 효율성 분석</h4><div className="ai-analysis-complexity-grid"><ComplexityAnalysis label="시간 복잡도" value={item.timeComplexity} /><ComplexityAnalysis label="공간 복잡도" value={item.spaceComplexity} /></div></section>}
+      {Array.isArray(item.deductions) && item.deductions.length > 0 && <section className="ai-analysis-part deduction-part"><h4><span>03</span> 감점 내역</h4><div className="ai-analysis-deductions"><ul>{item.deductions.map((deduction, deductionIndex) => <li key={deductionIndex}><span>-{deduction.points ?? 0}점</span> {deduction.reason || deduction.category}</li>)}</ul></div></section>}
+      {item.feedback && <section className="ai-analysis-part feedback-part"><h4><span>04</span> 종합 피드백</h4><div className="ai-analysis-feedback"><p>{item.feedback}</p></div></section>}
+      {item.algorithmScore == null && item.codeQualityScore == null && item.breakdown && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 기준별 결과</h4><div className="ai-analysis-legacy-rubrics">{Object.entries(item.breakdown).map(([name, rubric]) => <div key={name}><strong>{name}</strong><span>{rubric?.score ?? '-'} / {rubric?.maxScore ?? '-'}</span><p>{rubric?.feedback}</p></div>)}</div></section>}
     </article>)}</div> : <p className="empty-state">문제별 분석 자료가 없습니다.</p>}
   </section>;
 }
