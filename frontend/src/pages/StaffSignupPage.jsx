@@ -266,7 +266,7 @@ export default function StaffSignupPage() {
               {showServiceDetails && (
                 <div style={{ marginTop: '6px', padding: '10px', background: '#ffffff', border: '1px solid var(--border-default, #e2e8f0)', borderRadius: '6px', fontSize: '11px', color: 'var(--text-muted, #64748b)', lineHeight: '1.5', maxHeight: '120px', overflowY: 'auto' }}>
                   <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>제1조 (목적)</p>
-                  <p style={{ margin: '0 0 6px 0' }}>본 약관은 AI 리터러시 역량 테스트 플랫폼이 제공하는 모든 서비스의 이용 조건 및 절차, 이용자와 플랫폼 간의 권리 및 책임사항을 규정함을 목적으로 합니다.</p>
+                  <p style={{ margin: '0 0 6px 0' }}>본 약관은 ProctorAI가 제공하는 모든 서비스의 이용 조건 및 절차, 이용자와 플랫폼 간의 권리 및 책임사항을 규정함을 목적으로 합니다.</p>
 
                   <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>제2조 (계정 관리 및 의무)</p>
                   <p style={{ margin: '0 0 6px 0' }}>운영자 계정은 관리자의 승인 후에 활성화되며, 계정 정보의 보안 유지 책임은 이용자에게 있습니다.</p>

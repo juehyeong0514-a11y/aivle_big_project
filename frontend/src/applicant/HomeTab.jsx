@@ -11,8 +11,7 @@ export default function HomeTab() {
         </div>
 
         <h1 className="main-title" style={{ fontSize: '3rem', fontWeight: '900', lineHeight: '1.2', marginBottom: '1.5rem' }}>
-          AI 리터러시<br />
-          <span className="text-primary">역량 테스트</span> 플랫폼
+          <span className="text-primary">ProctorAI</span>
         </h1>
 
         <p className="sub-description" style={{ color: '#475569', fontSize: '1.1rem', lineHeight: '1.6', marginBottom: '2.5rem' }}>

@@ -6,7 +6,7 @@ export default function PrivacyPage() {
           <p className="policy-eyebrow">개인정보처리방침</p>
           
           <p>
-            AI 리터러시 역량 테스트 플랫폼은 응시자와 운영자의 신뢰를 바탕으로 시험 서비스를 제공하기 위해 필요한 최소한의
+            ProctorAI는 응시자와 운영자의 신뢰를 바탕으로 시험 서비스를 제공하기 위해 필요한 최소한의
             개인정보를 수집하고 안전하게 관리합니다.
           </p>
         </div>

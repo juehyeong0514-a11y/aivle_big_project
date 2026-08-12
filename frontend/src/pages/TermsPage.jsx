@@ -6,7 +6,7 @@ export default function TermsPage() {
           <p className="policy-eyebrow">서비스 이용약관</p>
           
           <p>
-            AI 리터러시 역량 테스트 플랫폼은 기업과 교육기관이 AI 역량 시험을 안전하고 효율적으로 운영할 수 있도록
+            ProctorAI는 기업과 교육기관이 AI 역량 시험을 안전하고 효율적으로 운영할 수 있도록
             설계된 온라인 시험 환경입니다.
           </p>
         </div>

@@ -9,7 +9,7 @@ export default function Footer() {
         <Link to="/faq" className="site-footer-link">FAQ</Link>
       </div>
       <div className="site-footer-meta">
-        <span>© 2026 AI 리터러시 역량 테스트 플랫폼</span>
+        <span>© 2026 ProctorAI</span>
         <span>KT AIVLE SCHOOL Team23</span>
       </div>
     </footer>

@@ -262,7 +262,7 @@ export default function Header() {
           <div className="logo-icon" style={{ width: 34, height: 34 }}>
             <ShieldCheck color="#ffffff" size={20} />
           </div>
-          <span className="logo-title">AI 리터러시 역량 테스트 플랫폼</span>
+          <span className="logo-title">ProctorAI</span>
         </div>
 
         {/* 로그인/회원가입 페이지에서도 네비게이션이 보이도록 제어 조건(!isAuthPage) 제거 */}
