@@ -3,7 +3,7 @@ import { Cpu, LoaderCircle, RefreshCw, RotateCcw } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { deriveAutomationSummary, localizeAutomationFailure, selectAutomationScope, sortAutomationExams } from '../automationUi.mjs';
 
-const statusLabel = { PENDING: '자동 처리 대기', PROCESSING: 'AI 채점 중', FINALIZING: '응시 마감 처리 중', GRADING: 'AI 채점 중', COMPLETED: '채점 완료', EMAIL_PENDING: '결과 메일 대기', EMAIL_SENDING: '결과 메일 발송 중', EMAIL_SENT: '결과 메일 발송 완료', FAILED: '채점 실패', GRADING_FAILED: '채점 실패', EMAIL_FAILED: '결과 메일 실패', ABSENT: '결시·제외', EXCLUDED: '강제 종료·제외' };
+const statusLabel = { PENDING: '자동 처리 대기', PROCESSING: 'AI 채점 중', FINALIZING: '응시 마감 처리 중', GRADING: 'AI 채점 중', COMPLETED: '채점 완료', FINALIZED: '자동 처리 완료', EMAIL_PENDING: '결과 메일 대기', EMAIL_SENDING: '결과 메일 발송 중', EMAIL_SENT: '결과 메일 발송 완료', FAILED: '채점 실패', GRADING_FAILED: '채점 실패', EMAIL_FAILED: '결과 메일 실패', ABSENT: '결시·제외', EXCLUDED: '강제 종료·제외' };
 const formatDate = (value) => value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '-';
 const asList = (payload) => Array.isArray(payload) ? payload : (Array.isArray(payload?.requests) ? payload.requests : Array.isArray(payload?.items) ? payload.items : []);
 const asExams = (payload) => Array.isArray(payload) ? payload : (Array.isArray(payload?.exams) ? payload.exams : []);
@@ -25,6 +25,7 @@ const summaryForScope = (requests, candidates, explicit, examId) => {
 export default function AiGradingQueueTab() {
   const [requests, setRequests] = useState([]);
   const [automationCandidates, setAutomationCandidates] = useState([]);
+  const [automationExamStates, setAutomationExamStates] = useState([]);
   const [automationSummary, setAutomationSummary] = useState(null);
   const [message, setMessage] = useState('');
   const [acceptingId, setAcceptingId] = useState('');
@@ -53,13 +54,14 @@ export default function AiGradingQueueTab() {
       const candidatesByExam = await Promise.all(asExams(examsData).map(async (exam) => {
         try {
           const { data: projection } = await api.get(`/admin/exams/${encodeURIComponent(exam.id)}/automation-status`, { headers: authHeaders() });
-          return (Array.isArray(projection?.candidates) ? projection.candidates : []).map((candidate) => ({ ...candidate, examId: candidate.examId || exam.id, examTitle: exam.title, organizationName: exam.organizationName }));
+          return { state: projection?.state, candidates: (Array.isArray(projection?.candidates) ? projection.candidates : []).map((candidate) => ({ ...candidate, examId: candidate.examId || exam.id, examTitle: exam.title, organizationName: exam.organizationName })) };
         } catch {
-          return [];
+          return { state: null, candidates: [] };
         }
       }));
       const summaryCandidates = (Array.isArray(summaryData?.candidates) ? summaryData.candidates : []).map((candidate) => ({ ...candidate, examTitle: candidate.examTitle || examById.get(candidate.examId)?.title || '시험 정보 없음', organizationName: candidate.organizationName || examById.get(candidate.examId)?.organizationName }));
-      const mergedCandidates = [...summaryCandidates, ...candidatesByExam.flat()];
+      setAutomationExamStates(candidatesByExam.map((item) => item.state).filter(Boolean));
+      const mergedCandidates = [...summaryCandidates, ...candidatesByExam.flatMap((item) => item.candidates)];
       setAutomationCandidates(mergedCandidates.filter((candidate, index, items) => items.findIndex((item) => `${item.examId}:${item.candidateId}` === `${candidate.examId}:${candidate.candidateId}`) === index));
       setMessage('');
     } catch (error) {
@@ -70,10 +72,13 @@ export default function AiGradingQueueTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (!requests.some((request) => ['PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(effectiveStatus(request)))) return undefined;
+    const hasProcessing = requests.some((request) => ['PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(effectiveStatus(request)))
+      || automationCandidates.some((candidate) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_PENDING', 'EMAIL_SENDING'].includes(String(candidate.status || '').toUpperCase()));
+    const hasEndedPendingExam = automationExamStates.some((state) => state.status === 'PENDING' && state.cutoffAt && Date.parse(state.cutoffAt) <= Date.now());
+    if (!hasProcessing && !hasEndedPendingExam) return undefined;
     const timer = window.setInterval(() => load().catch(() => {}), 4000);
     return () => window.clearInterval(timer);
-  }, [load, requests]);
+  }, [automationCandidates, automationExamStates, load, requests]);
 
   const retryGrading = async (request) => {
     setAcceptingId(request.id);

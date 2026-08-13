@@ -49,7 +49,13 @@ test("updates an exam schedule across invitations and removes the exam graph", a
   assert.equal(invalidDate.status, 400);
   const updated = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ date: "2099.10.11 12:00" }) });
   assert.equal(updated.status, 200);
-  assert.equal((await updated.json()).date, "2099.10.11 12:00");
+  const updatedExam = await updated.json();
+  assert.equal(updatedExam.date, "2099.10.11 12:00");
+  assert.equal(updatedExam.duration, "60분");
+  const durationUpdated = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ duration: "90분" }) });
+  assert.equal(durationUpdated.status, 200);
+  const durationUpdatedExam = await durationUpdated.json();
+  assert.equal(durationUpdatedExam.duration, "90분");
   const renamed = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ title: "Renamed schedule test" }) });
   assert.equal(renamed.status, 200);
   const renamedExam = await renamed.json();
@@ -62,7 +68,7 @@ test("updates an exam schedule across invitations and removes the exam graph", a
   assert.equal((await invitationPreviewInfo.json()).schedule, "2099.10.11 12:00");
   const managerInvitations = await fetch(`${baseUrl}/api/manager/invitations`, { headers: { Authorization: `Bearer ${manager.token}` } });
   const refreshedInvitation = (await managerInvitations.json()).find((item) => item.examId === exam.id);
-  assert.equal(Date.parse(refreshedInvitation.expiresAt), new Date(2099, 9, 11, 13, 0).getTime());
+  assert.equal(Date.parse(refreshedInvitation.expiresAt), new Date(2099, 9, 11, 13, 30).getTime());
 
   const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: "AIVLE-1001" }) });
   assert.equal(verified.status, 200);

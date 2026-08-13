@@ -5,6 +5,7 @@ const statusLabels = {
   PROCESSING: 'AI 채점 중',
   GRADING: 'AI 채점 중',
   COMPLETED: '채점 완료',
+  FINALIZED: '자동 처리 완료',
   EMAIL_PENDING: '결과 메일 대기',
   EMAIL_SENDING: '결과 메일 발송 중',
   EMAIL_SENT: '결과 메일 발송 완료',
@@ -88,6 +89,7 @@ export const automationStateFor = (result = {}, request, examinee, forceTerminat
   const reason = request?.automationFailureReason || result.automationFailureReason || request?.errorMessage || result.errorMessage || '';
   if (normalized === 'EMAIL_FAILED') return { status: 'EMAIL_FAILED', label: statusLabels.EMAIL_FAILED, reason: request?.resultEmailFailureReason || result.resultEmailFailureReason || reason || '결과 메일 발송에 실패했습니다.', emailFailed: true };
   if (normalized === 'EMAIL_SENT') return { status: 'EMAIL_SENT', label: statusLabels.EMAIL_SENT, reason: '', completed: true, emailSent: true };
+  if (normalized === 'FINALIZED') return { status: 'FINALIZED', label: statusLabels.FINALIZED, reason: '', completed: true };
   if (normalized === 'COMPLETED' && ['FAILED', 'ERROR'].includes(emailStatus)) return { status: 'EMAIL_FAILED', label: statusLabels.EMAIL_FAILED, reason: request?.resultEmailFailureReason || result.resultEmailFailureReason || reason || '결과 메일 발송에 실패했습니다.', emailFailed: true };
   if (normalized === 'COMPLETED' && (emailStatus === 'SENT' || request?.resultEmailedAt || result.resultEmailedAt)) return { status: 'EMAIL_SENT', label: statusLabels.EMAIL_SENT, reason: '', completed: true, emailSent: true };
   if (normalized === 'COMPLETED') return { status: 'EMAIL_PENDING', label: statusLabels.EMAIL_PENDING, reason: '', completed: true };

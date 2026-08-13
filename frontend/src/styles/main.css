@@ -2234,7 +2234,7 @@ h1, h2, h3, h4, h5, h6 {
 .exam-date-heading .workspace-eyebrow { display: inline-flex; align-items: center; gap: 5px; }
 .exam-date-heading h2 { margin: 8px 0 6px; color: var(--text-primary); font-size: 20px; }
 .exam-date-heading p { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.55; }
-.exam-date-panel .schedule-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px; gap: 10px; }
+.exam-date-panel .schedule-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 88px 88px 132px; gap: 10px; }
 .exam-date-panel .schedule-picker-row label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
 .exam-date-panel .schedule-picker-row input, .exam-date-panel .schedule-picker-row select { width: 100%; min-height: 40px; box-sizing: border-box; border: 1px solid var(--border-input); border-radius: 8px; padding: 0 10px; background: var(--surface-secondary); color: var(--text-primary); font: inherit; }
 .exam-date-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -2553,7 +2553,7 @@ h1, h2, h3, h4, h5, h6 {
 .floating-action-bar-content > span { color: var(--accent-primary); font-weight: 700; }
 .floating-action-buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 @media (max-width: 900px) { .workspace-grid.two-columns { grid-template-columns: 1fr; } .workspace-shell { padding-inline: 16px; } }
-@media (max-width: 640px) { .workspace-heading, .organization-switcher { flex-direction: column; } .metric-grid { grid-template-columns: 1fr 1fr; } .organization-row, .exam-invite-row, .admin-exam-row { align-items: flex-start; flex-direction: column; } .organization-actions { flex-wrap: wrap; } .form-row { grid-template-columns: 1fr; } .invite-card { padding: 24px; } .admin-exam-meta { justify-content: flex-start; } .exam-date-modal { padding: 12px; } .exam-date-panel { padding: 18px; } .exam-date-panel .schedule-picker-row { grid-template-columns: 1fr 1fr; } .exam-date-panel .schedule-picker-row label:first-child { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .workspace-heading, .organization-switcher { flex-direction: column; } .metric-grid { grid-template-columns: 1fr 1fr; } .organization-row, .exam-invite-row, .admin-exam-row { align-items: flex-start; flex-direction: column; } .organization-actions { flex-wrap: wrap; } .form-row { grid-template-columns: 1fr; } .invite-card { padding: 24px; } .admin-exam-meta { justify-content: flex-start; } .exam-date-modal { padding: 12px; } .exam-date-panel { padding: 18px; } .exam-date-panel .schedule-picker-row { grid-template-columns: 1fr 1fr; } .exam-date-panel .schedule-picker-row label:first-child, .exam-date-panel .schedule-picker-row label:last-child { grid-column: 1 / -1; } }
 @media (max-width: 720px) { .exam-dashboard-toolbar { grid-template-columns: 1fr; } .exam-filter-controls { justify-content: flex-start; } .exam-filter-controls > label { flex: 1 1 130px; } .question-list-row, .multiple-choice-option { align-items: flex-start; flex-direction: column; } .question-row-actions { width: 100%; } }
 @media (max-width: 720px) { .ai-analysis-heading, .ai-material-row { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; } .ai-complexity-grid { grid-template-columns: 1fr; } .ai-toggle { align-self: flex-start; } .ai-custom-algorithm-option { width: 100%; } .ai-custom-algorithm-draft { flex: 1 1 100%; max-width: none; } }
 @media (max-width: 1280px) {

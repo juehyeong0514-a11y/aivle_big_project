@@ -50,6 +50,7 @@ export default function ReportsTab() {
   const [savingReview, setSavingReview] = useState(false);
   const [recoveringRequestId, setRecoveringRequestId] = useState('');
   const [automationSummary, setAutomationSummary] = useState(null);
+  const [automationExamState, setAutomationExamState] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -85,6 +86,7 @@ export default function ReportsTab() {
       setExaminees([]);
       setAiRequests([]);
       setAutomationSummary(null);
+      setAutomationExamState(null);
       return;
     }
     Promise.all([
@@ -99,6 +101,7 @@ export default function ReportsTab() {
         setResults(nextResults);
         setExaminees(asList(examineeResponse.data));
         setAiRequests(nextRequests);
+        setAutomationExamState(automationResponse.data?.state ?? null);
         setAutomationSummary(projectionSummary(automationResponse.data) || deriveAutomationSummary(nextResults, nextRequests, payloadSummary(resultResponse.data) || payloadSummary(aiRequestResponse.data)));
       })
       .catch((reason) => setError(apiErrorMessage(reason, '결과를 불러오지 못했습니다.')));
@@ -126,7 +129,10 @@ export default function ReportsTab() {
   }, [selectedExamId, selectedCandidateId]);
 
   useEffect(() => {
-    if (!organizationId || !selectedExamId || !(aiRequests.some((item) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase())) || results.some((item) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_PENDING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase())))) return undefined;
+    const hasProcessing = aiRequests.some((item) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase()))
+      || results.some((item) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_PENDING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase()));
+    const hasEndedPendingExam = automationExamState?.status === 'PENDING' && automationExamState.cutoffAt && Date.parse(automationExamState.cutoffAt) <= Date.now();
+    if (!organizationId || !selectedExamId || (!hasProcessing && !hasEndedPendingExam)) return undefined;
     let active = true;
     const refreshRequests = () => Promise.all([
       api.get(`/manager/results?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
@@ -138,11 +144,12 @@ export default function ReportsTab() {
       const nextRequests = asList(requestResponse.data);
       setResults(nextResults);
       setAiRequests(nextRequests);
+      setAutomationExamState(automationResponse.data?.state ?? null);
       setAutomationSummary(projectionSummary(automationResponse.data) || deriveAutomationSummary(nextResults, nextRequests, payloadSummary(resultResponse.data) || payloadSummary(requestResponse.data)));
     }).catch(() => {});
     const timer = window.setInterval(refreshRequests, 5000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [organizationId, selectedExamId, aiRequests, results]);
+  }, [organizationId, selectedExamId, aiRequests, automationExamState, results]);
 
   useEffect(() => {
     if (!detail) return undefined;
@@ -170,6 +177,7 @@ export default function ReportsTab() {
     setExaminees([]);
     setAiRequests([]);
     setAutomationSummary(null);
+    setAutomationExamState(null);
     setOrganizationId(nextOrganizationId);
   };
 

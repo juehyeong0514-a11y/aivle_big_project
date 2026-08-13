@@ -22,6 +22,8 @@ test('automation helpers derive candidate states, recovery actions, and aggregat
   const completed = automationStateFor({}, { automationStatus: 'COMPLETED', resultEmailStatus: 'SENT' });
   assert.equal(completed.status, 'EMAIL_SENT');
   assert.equal(completed.emailSent, true);
+  const finalized = automationStateFor({ automationStatus: 'FINALIZED' });
+  assert.deepEqual({ status: finalized.status, label: finalized.label, completed: finalized.completed }, { status: 'FINALIZED', label: '자동 처리 완료', completed: true });
 
   const absent = automationStateFor({ resultStatus: 'ABSENT' });
   assert.equal(absent.status, 'ABSENT');

@@ -77,6 +77,64 @@ test("cutoff finalization marks never-started invitations ABSENT and grades star
   app.locals.automation.stop();
 });
 
+test("rechecks a completed exam when a submitted candidate is added after the previous run", async () => {
+  const previousApiKey = process.env.AI_API_KEY;
+  process.env.AI_API_KEY = "test-automation-key";
+  const { app, store } = await fixture({
+    automationClock: () => Date.parse("2099-01-02T03:00:00.000Z"),
+    aiProviderInvoker: async () => ({ score: 24, maxScore: 30, feedback: "ok", rubricBreakdown: [] }),
+    emailSender: async () => true
+  });
+  const exam = store.exams.find((item) => item.id === "exam-2026-second-half");
+  await store.updateExam(exam.id, { date: "2099.01.02 01:00", duration: "30분" });
+  await app.locals.automation.runNow();
+  assert.equal(store.examAutomationStates.find((item) => item.examId === exam.id)?.status, "COMPLETED");
+  const candidate = { id: "late-submission-candidate", name: "Late Submitter", email: "late@example.com", organizationId: exam.organizationId, candidateNumber: "LATE-1" };
+  await store.addCandidate(candidate);
+  const questions = store.questions.filter((question) => question.examId === exam.id && question.type === "CODING");
+  await store.addInvitation({ id: "late-submission-invitation", examId: exam.id, candidateId: candidate.id, organizationId: exam.organizationId, candidateNumber: candidate.candidateNumber, verifiedAt: "2099-01-02T01:30:00.000Z", submittedAt: "2099-01-02T01:40:00.000Z", expiresAt: "2099-01-02T02:00:00.000Z" });
+  await store.addAssignment({ id: "late-submission-assignment", examId: exam.id, candidateId: candidate.id, organizationId: exam.organizationId, status: "SUBMITTED", resultStatus: "PENDING_REVIEW", submittedAt: "2099-01-02T01:40:00.000Z" });
+  await store.saveCodingSubmission({ id: "late-submission", examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, answers: Object.fromEntries(questions.map((question) => [question.id, { language: "JavaScript", source: "console.log(1)" }])), runResults: {}, status: "SUBMITTED", submittedAt: "2099-01-02T01:40:00.000Z", updatedAt: "2099-01-02T01:40:00.000Z" });
+  await app.locals.automation.runNow();
+  assert.equal(store.candidateAutomationStates.find((item) => item.examId === exam.id && item.candidateId === candidate.id)?.status, "COMPLETED");
+  if (previousApiKey === undefined) delete process.env.AI_API_KEY;
+  else process.env.AI_API_KEY = previousApiKey;
+  app.locals.automation.stop();
+});
+
+test("cutoff processing publishes a candidate state while AI grading is still in flight", async () => {
+  const previousApiKey = process.env.AI_API_KEY;
+  process.env.AI_API_KEY = "test-automation-key";
+  let releaseGrading;
+  const gradingGate = new Promise((resolve) => { releaseGrading = resolve; });
+  const { app, store } = await fixture({
+    automationClock: () => Date.parse("2099-01-02T03:00:00.000Z"),
+    aiProviderInvoker: async () => {
+      await gradingGate;
+      return { score: 24, maxScore: 30, feedback: "ok", rubricBreakdown: [] };
+    },
+    emailSender: async () => true
+  });
+  const exam = store.exams.find((item) => item.id === "exam-2026-second-half");
+  await store.updateExam(exam.id, { date: "2099.01.02 01:00", duration: "30분" });
+  const candidate = { id: "candidate-in-flight", name: "In Flight", email: "in-flight@example.com", organizationId: exam.organizationId, candidateNumber: "IN-FLIGHT-1" };
+  await store.addCandidate(candidate);
+  await store.addAssignment({ id: "assignment-in-flight", examId: exam.id, candidateId: candidate.id, organizationId: exam.organizationId, status: "SUBMITTED", resultStatus: "PENDING_REVIEW", submittedAt: "2099-01-02T01:40:00.000Z" });
+  await store.addInvitation({ id: "invitation-in-flight", examId: exam.id, candidateId: candidate.id, organizationId: exam.organizationId, candidateNumber: candidate.candidateNumber, verifiedAt: "2099-01-02T01:30:00.000Z", submittedAt: "2099-01-02T01:40:00.000Z", expiresAt: "2099-01-02T02:00:00.000Z" });
+  const codingQuestions = store.questions.filter((question) => question.examId === exam.id && question.type === "CODING");
+  await store.saveCodingSubmission({ id: "submission-in-flight", examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, answers: Object.fromEntries(codingQuestions.map((question) => [question.id, { language: "JavaScript", source: "console.log(1)" }])), runResults: {}, status: "SUBMITTED", submittedAt: "2099-01-02T01:40:00.000Z", updatedAt: "2099-01-02T01:40:00.000Z" });
+  const run = app.locals.automation.runNow();
+  for (let attempt = 0; attempt < 50 && !store.aiGradingRequests.some((request) => request.candidateId === candidate.id && request.status === "PROCESSING"); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+  const projection = app.locals.automation.getStatus(exam.id);
+  assert.equal(projection.state.status, "PROCESSING");
+  assert.equal(projection.candidates.find((item) => item.candidateId === candidate.id)?.status, "GRADING");
+  releaseGrading();
+  await run;
+  app.locals.automation.stop();
+  if (previousApiKey === undefined) delete process.env.AI_API_KEY;
+  else process.env.AI_API_KEY = previousApiKey;
+});
+
 test("organization mismatches are excluded before AI grading or result email", async () => {
   const calls = [];
   const { app, store } = await fixture({

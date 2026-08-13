@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowUpDown, BookOpen, CalendarClock, CalendarDays, ClipboardList, MoreHorizontal, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react';
+import { ArrowUpDown, BookOpen, CalendarClock, CalendarDays, ClipboardList, Clock3, MoreHorizontal, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
-import { formatScheduleForApi, parseScheduleForForm, parseScheduleTimestamp } from '../manager/examSchedule.mjs';
+import { calculateExamEndsAt, formatExamEndsAt, formatScheduleForApi, parseScheduleForForm, parseScheduleTimestamp } from '../manager/examSchedule.mjs';
 
 const statusLabel = (status) => ({ AVAILABLE: '운영 예정', IN_PROGRESS: '운영 중', COMPLETED: '종료됨' }[status] ?? status);
 const statusClass = (status) => ({ AVAILABLE: 'approved', IN_PROGRESS: 'active', COMPLETED: 'completed' }[status] ?? 'pending');
@@ -16,6 +16,7 @@ const examStatusAt = (exam, now) => {
 };
 const hourOptions = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
 const minuteOptions = Array.from({ length: 12 }, (_, minute) => String(minute * 5).padStart(2, '0'));
+const durationForForm = (duration) => String(duration ?? '').match(/\d+/)?.[0] ?? '60';
 
 export default function SupervisorExamDashboard() {
   const navigate = useNavigate();
@@ -29,7 +30,7 @@ export default function SupervisorExamDashboard() {
   const [message, setMessage] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [editingExam, setEditingExam] = useState(null);
-  const [editSchedule, setEditSchedule] = useState({ date: '', hour: '10', minute: '00' });
+  const [editSchedule, setEditSchedule] = useState({ date: '', hour: '10', minute: '00', duration: '60' });
   const [examToDelete, setExamToDelete] = useState(null);
   const [savingDate, setSavingDate] = useState(false);
   const [deletingExamId, setDeletingExamId] = useState(null);
@@ -83,7 +84,7 @@ export default function SupervisorExamDashboard() {
   }, [exams, now, organizationId, query, sort, status]);
 
   const openDateEditor = (exam) => {
-    setEditSchedule(parseScheduleForForm(exam.date));
+    setEditSchedule({ ...parseScheduleForForm(exam.date), duration: durationForForm(exam.duration) });
     setEditingExam(exam);
     setOpenMenuId(null);
     setError('');
@@ -93,24 +94,32 @@ export default function SupervisorExamDashboard() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const date = formatScheduleForApi(`${formData.get('date')}T${formData.get('hour')}:${formData.get('minute')}`);
+    const duration = String(formData.get('duration') ?? '').trim();
     if (!date || !editingExam) {
       setError('시험 시작 일시를 올바르게 입력해주세요.');
+      return;
+    }
+    if (!/^\d+$/.test(duration) || Number(duration) < 1) {
+      setError('시험 제한 시간은 1분 이상 입력해주세요.');
       return;
     }
     setSavingDate(true);
     setError('');
     try {
-      await api.patch(`/manager/exams/${editingExam.id}`, { date }, { headers: authHeaders() });
+      await api.patch(`/manager/exams/${editingExam.id}`, { date, duration: `${duration}분` }, { headers: authHeaders() });
       const { data: refreshedExams } = await api.get('/manager/exams', { headers: authHeaders() });
       setExams(refreshedExams);
       setEditingExam(null);
-      setMessage('시험 일정과 연결된 초대 링크 만료 시각이 함께 수정되었습니다.');
+      setMessage('시험 일정과 제한 시간, 연결된 초대 링크 만료 시각이 함께 수정되었습니다.');
     } catch (reason) {
       setError(apiErrorMessage(reason, '시험 일정을 수정하지 못했습니다.'));
     } finally {
       setSavingDate(false);
     }
   };
+
+  const editScheduleValue = editSchedule.date ? `${editSchedule.date}T${editSchedule.hour}:${editSchedule.minute}` : '';
+  const editExamEndsAt = calculateExamEndsAt(editScheduleValue, editSchedule.duration);
 
   const deleteExam = async () => {
     if (!examToDelete) return;
@@ -146,7 +155,7 @@ export default function SupervisorExamDashboard() {
           <div className="exam-card-tools">
             <button className="icon-button exam-card-menu-trigger" type="button" aria-label={`${exam.title} 관리 메뉴`} aria-expanded={openMenuId === exam.id} onClick={() => setOpenMenuId((current) => current === exam.id ? null : exam.id)}><MoreHorizontal size={18} /></button>
             {openMenuId === exam.id && <div className="exam-card-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => openDateEditor(exam)}><Pencil size={15} /> 날짜 수정</button>
+              <button type="button" role="menuitem" onClick={() => openDateEditor(exam)}><Pencil size={15} /> 일정·시간 수정</button>
               <button className="exam-card-menu-danger" type="button" role="menuitem" onClick={() => { setExamToDelete(exam); setOpenMenuId(null); }}><Trash2 size={15} /> 시험 삭제</button>
             </div>}
           </div>
@@ -163,12 +172,14 @@ export default function SupervisorExamDashboard() {
     {editingExam && <div className="exam-date-modal" role="dialog" aria-modal="true" aria-labelledby="exam-date-editor-title">
       <button className="exam-date-modal-backdrop" type="button" aria-label="시험 일정 수정 닫기" onClick={() => setEditingExam(null)} />
       <form className="exam-date-panel" onSubmit={saveExamDate}>
-        <div className="exam-date-heading"><div><span className="workspace-eyebrow"><CalendarClock size={14} /> 시험 일정 수정</span><h2 id="exam-date-editor-title">{editingExam.title}</h2><p>시험 날짜를 바꾸면 기존 초대 링크의 시험 일정과 만료 시각도 함께 갱신됩니다.</p></div><button className="icon-button" type="button" aria-label="시험 일정 수정 닫기" onClick={() => setEditingExam(null)}><X size={18} /></button></div>
-        <div className="schedule-picker-row">
+        <div className="exam-date-heading"><div><span className="workspace-eyebrow"><CalendarClock size={14} /> 시험 일정 수정</span><h2 id="exam-date-editor-title">{editingExam.title}</h2><p>시작 일시나 제한 시간을 바꾸면 자동 종료 시각과 기존 초대 링크 만료 시각도 함께 갱신됩니다.</p></div><button className="icon-button" type="button" aria-label="시험 일정 수정 닫기" onClick={() => setEditingExam(null)}><X size={18} /></button></div>
+        <div className="schedule-picker-row exam-edit-schedule-row">
           <label>날짜<input name="date" type="date" value={editSchedule.date} onChange={(event) => setEditSchedule({ ...editSchedule, date: event.target.value })} required /></label>
           <label>시<select name="hour" value={editSchedule.hour} onChange={(event) => setEditSchedule({ ...editSchedule, hour: event.target.value })}>{hourOptions.map((hour) => <option value={hour} key={hour}>{hour}</option>)}</select></label>
           <label>분<select name="minute" value={editSchedule.minute} onChange={(event) => setEditSchedule({ ...editSchedule, minute: event.target.value })}>{minuteOptions.map((minute) => <option value={minute} key={minute}>{minute}</option>)}</select></label>
+          <label>제한 시간 (분)<input name="duration" type="number" min="1" step="1" value={editSchedule.duration} onChange={(event) => setEditSchedule({ ...editSchedule, duration: event.target.value })} required /></label>
         </div>
+        <span className="schedule-end-hint" aria-live="polite"><Clock3 size={14} /><span>{editExamEndsAt ? `자동 종료 ${formatExamEndsAt(editExamEndsAt)}` : '시작 일시와 제한 시간을 입력하면 자동 종료 시각이 계산됩니다.'}</span></span>
         <div className="exam-date-actions"><button className="secondary-button" type="button" onClick={() => setEditingExam(null)}>취소</button><button className="primary-button" type="submit" disabled={savingDate}>{savingDate ? '저장 중...' : '일정 저장'}</button></div>
       </form>
     </div>}

@@ -1066,6 +1066,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "FINALIZED", finalizedAt: now });
       return { status: "FINALIZED" };
     }
+    await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "GRADING", finalizedAt: now });
     const grading = await ensureAutomationGrading(exam, candidate, submission ?? store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id));
     const stateStatus = grading.status === "GRADED" ? "COMPLETED" : grading.status === "EMAIL_FAILED" ? "EMAIL_FAILED" : grading.status === "EMAIL_PENDING" ? "EMAIL_PENDING" : grading.status === "GRADING_FAILED" ? "GRADING_FAILED" : "GRADING";
     await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: stateStatus, finalizedAt: now, gradingRequestId: grading.gradingRequest?.id, lastError: grading.error?.message ?? grading.gradingRequest?.errorMessage ?? "" });
@@ -1077,16 +1078,30 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const cutoffAt = scheduledExamEndsAt(exam);
     if (!cutoffAt) return { examId: exam.id, status: "UNSCHEDULED", cutoffAt: null };
     const cutoffMs = Date.parse(cutoffAt);
+    const previousExamState = store.examAutomationStates.find((item) => item.examId === exam.id);
+    const cutoffChanged = previousExamState?.cutoffAt !== cutoffAt;
     let examState = await store.upsertExamAutomationState(exam.id, { cutoffAt });
     if (now < cutoffMs) return { ...examState, status: "PENDING", cutoffAt };
-    if (examState.status === "COMPLETED" && !store.candidateAutomationStates.some((item) => item.examId === exam.id && ["EMAIL_PENDING", "GRADING", "GRADING_FAILED", "EMAIL_FAILED"].includes(item.status))) return examState;
+    const invitations = store.invitations.filter((item) => item.examId === exam.id);
+    const hasNewlyStartedCandidate = invitations.some((invitation) => {
+      const candidateState = store.candidateAutomationStates.find((item) => item.examId === exam.id && item.candidateId === invitation.candidateId);
+      if (!candidateState || !["ABSENT", "FINALIZED"].includes(candidateState.status)) return !candidateState;
+      const assignment = automationAssignment(exam.id, invitation.candidateId);
+      const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === invitation.candidateId);
+      return Boolean(invitation.verifiedAt || invitation.submittedAt || assignment?.status === "SUBMITTED" || ["DRAFT", "SUBMITTED"].includes(submission?.status));
+    });
+    if (!cutoffChanged && examState.status === "COMPLETED" && !hasNewlyStartedCandidate && !store.candidateAutomationStates.some((item) => item.examId === exam.id && ["EMAIL_PENDING", "GRADING", "GRADING_FAILED", "EMAIL_FAILED"].includes(item.status))) return examState;
     const claimed = await store.claimExamAutomation(exam.id, { now, leaseMs: 5 * 60_000 });
     if (!claimed) return store.examAutomationStates.find((item) => item.examId === exam.id) ?? examState;
     const processingLeaseUntil = claimed.processingLeaseUntil;
     examState = await store.updateExamAutomationState(exam.id, { cutoffAt, lastRunAt: automationTimestamp() });
-    const invitations = store.invitations.filter((item) => item.examId === exam.id);
     const results = [];
-    for (const invitation of invitations) results.push(await finalizeAutomationCandidate(exam, invitation, new Date(cutoffMs).toISOString()));
+    for (const invitation of invitations) {
+      if (!store.candidateAutomationStates.some((item) => item.examId === exam.id && item.candidateId === invitation.candidateId)) {
+        await store.upsertCandidateAutomationState(exam.id, invitation.candidateId, { status: "PENDING", queuedAt: automationTimestamp() });
+      }
+      results.push(await finalizeAutomationCandidate(exam, invitation, new Date(cutoffMs).toISOString()));
+    }
     const states = store.candidateAutomationStates.filter((item) => item.examId === exam.id);
     const pending = states.filter((item) => ["PENDING", "GRADING", "EMAIL_PENDING"].includes(item.status)).length;
     const failures = states.filter((item) => ["GRADING_FAILED", "EMAIL_FAILED"].includes(item.status)).length;
@@ -3142,20 +3157,27 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const exam = scopedExam(request, request.params.id);
       const hasDate = Object.hasOwn(request.body, "date");
       const hasTitle = Object.hasOwn(request.body, "title");
+      const hasDuration = Object.hasOwn(request.body, "duration");
       const date = hasDate && typeof request.body.date === "string" ? request.body.date.trim() : exam?.date;
       const title = hasTitle && typeof request.body.title === "string" ? request.body.title.trim() : exam?.title;
+      const duration = hasDuration && typeof request.body.duration === "string" ? request.body.duration.trim() : exam?.duration;
       if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
-      if (!hasDate && !hasTitle) return response.status(400).json({ message: "수정할 시험 정보를 입력해주세요." });
+      if (!hasDate && !hasTitle && !hasDuration) return response.status(400).json({ message: "수정할 시험 정보를 입력해주세요." });
       if (!isNonEmptyText(title)) return response.status(400).json({ message: "시험 제목을 입력해주세요." });
       if (title.length > 100) return response.status(400).json({ message: "시험 제목은 100자 이하로 입력해주세요." });
       if (!isNonEmptyText(date)) return response.status(400).json({ message: "시험 시작 일시를 입력해주세요." });
-      const nextExam = { ...exam, title, date };
+      if (!isNonEmptyText(duration)) return response.status(400).json({ message: "시험 제한 시간을 입력해주세요." });
+      const nextExam = { ...exam, title, date, duration };
       const expiresAt = scheduledExamEndsAt(nextExam);
       if (!expiresAt) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
-      const updated = await store.updateExam(exam.id, { title, date, updatedAt: new Date().toISOString() });
+      const scheduleChanged = date !== exam.date || duration !== exam.duration;
+      const updated = await store.updateExam(exam.id, { title, date, duration, updatedAt: new Date().toISOString() });
       await Promise.all(store.invitations
         .filter((invitation) => invitation.examId === exam.id && !invitation.revokedAt)
         .map((invitation) => store.updateInvitation(invitation.id, { expiresAt })));
+      if (scheduleChanged && store.examAutomationStates.some((state) => state.examId === exam.id)) {
+        await store.updateExamAutomationState(exam.id, { status: "PENDING", cutoffAt: expiresAt, completedAt: null, processingLeaseId: null, processingLeaseUntil: null, lastError: "" });
+      }
       return response.json({ ...updated, invitationExpiresAt: expiresAt });
     } catch (error) {
       return next(error);
@@ -3531,14 +3553,22 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (!exam) return { exam: null, allowed: false };
     return { exam, allowed: request.user.role === "ADMIN" || managerOrganizationIds(request.user, store.organizations).includes(exam.organizationId) };
   };
+  const triggerAutomationCatchUp = (exam) => {
+    const cutoffAt = scheduledExamEndsAt(exam);
+    if (!cutoffAt || Date.parse(cutoffAt) > automationClock()) return;
+    void runExamAutomation(exam).catch((error) => console.error("automation status catch-up failed", error));
+  };
   app.get("/api/manager/exams/:examId/automation-status", authenticate, requireManager, (request, response) => {
     const access = automationAccess(request, request.params.examId);
     if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
     if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 상태를 조회할 권한이 없습니다." });
+    triggerAutomationCatchUp(access.exam);
     return response.json(automationProjection(request.params.examId));
   });
   app.get("/api/admin/exams/:examId/automation-status", authenticate, requireRole("ADMIN"), (request, response) => {
-    if (!store.exams.some((exam) => exam.id === request.params.examId)) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    const exam = store.exams.find((item) => item.id === request.params.examId);
+    if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    triggerAutomationCatchUp(exam);
     return response.json(automationProjection(request.params.examId));
   });
   app.get("/api/manager/automation-status", authenticate, requireManager, (request, response) => {
@@ -3546,11 +3576,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const access = automationAccess(request, examId);
     if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
     if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 상태를 조회할 권한이 없습니다." });
+    triggerAutomationCatchUp(access.exam);
     return response.json(automationProjection(examId));
   });
   app.get("/api/admin/automation-status", authenticate, requireRole("ADMIN"), (request, response) => {
     const examId = typeof request.query.examId === "string" ? request.query.examId : "";
-    if (!store.exams.some((exam) => exam.id === examId)) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    const exam = store.exams.find((item) => item.id === examId);
+    if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    triggerAutomationCatchUp(exam);
     return response.json(automationProjection(examId));
   });
   app.post("/api/manager/exams/:examId/automation/retry", authenticate, requireManager, async (request, response, next) => {
