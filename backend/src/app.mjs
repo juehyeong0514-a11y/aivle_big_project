@@ -1228,6 +1228,34 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  const publicIdentityVerificationRequest = (item) => ({
+    id: item.id,
+    status: item.status,
+    reason: item.reason ?? "",
+    requestedAt: item.requestedAt,
+    reviewedAt: item.reviewedAt ?? null,
+    reviewerNote: item.reviewerNote ?? ""
+  });
+  app.get("/api/applicant/identity-verification-request", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const item = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+    return response.json(item ? publicIdentityVerificationRequest(item) : { status: "NONE" });
+  });
+  app.post("/api/applicant/identity-verification-request", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const existing = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+      if (existing?.status === "APPROVED") return response.json(publicIdentityVerificationRequest(existing));
+      const reason = typeof request.body?.reason === "string" ? request.body.reason.trim().slice(0, 500) : "";
+      const patch = { status: "PENDING", reason, requestedAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, reviewerNote: "" };
+      const saved = existing
+        ? await store.updateIdentityVerificationRequest(existing.id, patch)
+        : await store.addIdentityVerificationRequest({ id: randomUUID(), organizationId: exam.organizationId, examId: exam.id, candidateId: candidate.id, ...patch });
+      return response.status(existing ? 200 : 201).json(publicIdentityVerificationRequest(saved));
+    } catch (error) {
+      return next(error);
+    }
+  });
   const idCardScanResponse = (scan) => ({
     status: scan.status,
     verified: scan.status === "VERIFIED",
@@ -1265,6 +1293,32 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       idCardScans.set(scan.token, scan);
       await store.addIdCardScan(scan);
       return response.status(201).json({ token: scan.token });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/manager/exams/:examId/identity-verification-requests", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+    if (!exam) return response.status(404).json({ message: "Exam not found or not authorized." });
+    return response.json(store.identityVerificationRequests
+      .filter((item) => item.examId === exam.id)
+      .map((item) => {
+        const candidate = store.candidates.find((entry) => entry.id === item.candidateId);
+        return { ...publicIdentityVerificationRequest(item), candidateId: item.candidateId, candidateName: candidate?.name ?? "Candidate", candidateNumber: candidate?.candidateNumber ?? "" };
+      }));
+  });
+  app.patch("/api/manager/exams/:examId/identity-verification-requests/:requestId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+      const item = store.identityVerificationRequests.find((entry) => entry.id === request.params.requestId && entry.examId === exam?.id);
+      const status = request.body?.status;
+      const reviewerNote = typeof request.body?.reviewerNote === "string" ? request.body.reviewerNote.trim().slice(0, 1000) : "";
+      if (!exam || !item) return response.status(404).json({ message: "Identity verification request not found." });
+      if (!["APPROVED", "REJECTED"].includes(status)) return response.status(400).json({ message: "Choose APPROVED or REJECTED." });
+      const updated = await store.updateIdentityVerificationRequest(item.id, { status, reviewerNote, reviewedAt: new Date().toISOString(), reviewedBy: request.user.id });
+      return response.json(publicIdentityVerificationRequest(updated));
     } catch (error) {
       return next(error);
     }

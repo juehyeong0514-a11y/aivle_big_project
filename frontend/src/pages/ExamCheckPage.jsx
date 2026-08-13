@@ -32,6 +32,8 @@ export default function ExamCheckPage() {
   // 촬영 결과
   const [idCardImage, setIdCardImage] = useState('');
   const [idCardVerification, setIdCardVerification] = useState({ status: 'PENDING', message: '' });
+  const [alternativeVerification, setAlternativeVerification] = useState({ status: 'NONE', message: '' });
+  const [requestingAlternativeVerification, setRequestingAlternativeVerification] = useState(false);
   const [webcamReady, setWebcamReady] = useState(false);
   const [displayReady, setDisplayReady] = useState(false);
   const [qrConnected, setQrConnected] = useState(false);
@@ -76,6 +78,9 @@ export default function ExamCheckPage() {
       .then(({ data }) => setExamSession(data))
       .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
+    api.get('/applicant/identity-verification-request', { headers: candidateAuthHeaders() })
+      .then(({ data }) => setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' }))
+      .catch(() => {});
     return undefined;
   }, []);
 
@@ -107,6 +112,14 @@ export default function ExamCheckPage() {
     const interval = window.setInterval(poll, 2000);
     return () => window.clearInterval(interval);
   }, [idCardVerification.status, idScanToken]);
+
+  useEffect(() => {
+    if (alternativeVerification.status !== 'PENDING') return undefined;
+    const interval = window.setInterval(() => api.get('/applicant/identity-verification-request', { headers: candidateAuthHeaders() })
+      .then(({ data }) => setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' }))
+      .catch(() => {}), 3000);
+    return () => window.clearInterval(interval);
+  }, [alternativeVerification.status]);
 
   useEffect(() => {
     if (!examSession) return;
@@ -238,11 +251,25 @@ export default function ExamCheckPage() {
     setErrorMsg('');
   };
 
+  const requestAlternativeVerification = async () => {
+    setRequestingAlternativeVerification(true);
+    try {
+      const { data } = await api.post('/applicant/identity-verification-request', { reason: '신분증 또는 대체 문서를 제시할 수 없어 매니저 확인을 요청합니다.' }, { headers: candidateAuthHeaders() });
+      setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' });
+      setErrorMsg('');
+    } catch (error) {
+      setErrorMsg(apiErrorMessage(error, '대체 신원확인 요청을 보내지 못했습니다.'));
+    } finally {
+      setRequestingAlternativeVerification(false);
+    }
+  };
+
   const isAllReady =
     webcamReady &&
-    idCardVerification.status === 'VERIFIED' &&
+    (idCardVerification.status === 'VERIFIED' || alternativeVerification.status === 'APPROVED') &&
     displayReady &&
     qrConnected;
+  const identityVerified = idCardVerification.status === 'VERIFIED' || alternativeVerification.status === 'APPROVED';
 
   return (
     <div className="container">
@@ -281,11 +308,11 @@ export default function ExamCheckPage() {
               <CreditCard size={20} color="#2563EB" />
               <h3>1. 신분증 촬영</h3>
             </div>
-            {idCardVerification.status === 'VERIFIED' && <CheckCircle2 color="#16a34a" />}
+            {identityVerified && <CheckCircle2 color="#16a34a" />}
           </div>
 
           <div className="qr-connection-box">
-            {idCardVerification.status === 'VERIFIED' ? (
+            {identityVerified ? (
               idCardImage ? (
                 <img src={idCardImage} alt="촬영한 신분증" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }} />
               ) : (
@@ -307,11 +334,11 @@ export default function ExamCheckPage() {
           <div className="identity-status-list">
             <div>
               <span>신분증 촬영</span>
-              <strong className={idCardVerification.status === 'VERIFIED' ? 'text-success' : 'text-danger'}>{idCardVerification.status === 'VERIFIED' ? '신원확인 완료' : idCardVerification.status === 'MISMATCH' ? '생년월일 불일치' : '대기'}</strong>
+              <strong className={identityVerified ? 'text-success' : 'text-danger'}>{identityVerified ? '신원확인 완료' : idCardVerification.status === 'MISMATCH' ? '생년월일 불일치' : '대기'}</strong>
             </div>
           </div>
 
-          {idCardVerification.status === 'VERIFIED' ? (
+          {identityVerified ? (
             <button type="button" className="btn-secondary identity-full-button" onClick={generateNewToken}>
               <RefreshCw size={18} /> 신분증 다시 촬영
             </button>
@@ -322,6 +349,15 @@ export default function ExamCheckPage() {
               </button>
             </div>
           ) : null}
+          {idCardVerification.status !== 'VERIFIED' && (
+            <div className="identity-action-row" style={{ gridTemplateColumns: '1fr', marginTop: '0.75rem' }}>
+              <button type="button" className="secondary-button compact-button" style={{ justifyContent: 'center', minHeight: '44px' }} onClick={requestAlternativeVerification} disabled={requestingAlternativeVerification || alternativeVerification.status === 'PENDING'}>
+                {alternativeVerification.status === 'PENDING' ? '매니저 확인 대기 중' : alternativeVerification.status === 'APPROVED' ? '매니저 대체 확인 승인됨' : '신분증이 없어요 · 매니저 확인 요청'}
+              </button>
+              {alternativeVerification.status === 'REJECTED' && <p className="form-hint text-danger">대체 확인이 반려되었습니다. {alternativeVerification.message}</p>}
+              {alternativeVerification.status === 'APPROVED' && <p className="form-hint text-success">기관 사전 등록 명단을 기준으로 매니저 승인이 완료되었습니다.</p>}
+            </div>
+          )}
           {idCardVerification.message && idCardVerification.status !== 'VERIFIED' && <p className="form-hint text-danger" style={{ marginTop: '0.75rem' }}>{idCardVerification.message}</p>}
         </div>
 
@@ -422,7 +458,7 @@ export default function ExamCheckPage() {
       <div className="footer-box">
         <div className="status-summary">
           <span>
-            신분증: <strong className={idCardVerification.status === 'VERIFIED' ? 'text-success' : 'text-danger'}>{idCardVerification.status === 'VERIFIED' ? '신원확인 완료' : '미확인'}</strong>
+            신분증: <strong className={identityVerified ? 'text-success' : 'text-danger'}>{identityVerified ? '신원확인 완료' : '미확인'}</strong>
           </span>
           <span>
             웹캠/마이크: <strong className={webcamReady ? 'text-success' : 'text-danger'}>{webcamReady ? '연결됨' : '미연결'}</strong>
