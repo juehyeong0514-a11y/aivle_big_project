@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams } from './automationUi.mjs';
 
 test('full invocation history replaces the latest list instead of rendering both panels', () => {
   assert.equal(invocationLogView(false), 'latest');
   assert.equal(invocationLogView(true), 'all');
+});
+
+test('completed result mail is not rendered as a second status line', async () => {
+  const source = await readFile(new URL('./supervisor/ReportsTab.jsx', import.meta.url), 'utf8');
+  assert.equal((source.match(/className="automation-mail-sent"/g) || []).length, 0, 'the mail-sent status must not duplicate the automation badge');
 });
 
 test('automation helpers derive candidate states, recovery actions, and aggregate progress', () => {
