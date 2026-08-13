@@ -17,7 +17,7 @@ import useTestShortcuts from '../applicant/useTestShortcuts';
 export default function ExamCheckPage() {
   const navigate = useNavigate();
 
-  // Ctrl(Cmd) + Shift + T 로만 열리는 임시 인증 버튼
+  // Ctrl + Alt + M 으로만 열리는 임시 인증 버튼
   const testShortcutsEnabled = useTestShortcuts();
 
   const idVideoRef = useRef(null);
@@ -281,7 +281,7 @@ export default function ExamCheckPage() {
             background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
           }}
         >
-          임시 인증 버튼 표시 중 (Ctrl+Shift+T)
+          임시 인증 버튼 표시 중 (Ctrl+Alt+M)
         </div>
       )}
       <h1 className="main-title" style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>
