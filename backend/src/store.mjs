@@ -35,6 +35,9 @@ const collectionDefaults = {
   emailVerifications: [],
   aiGradingRequests: [],
   aiInvocationLogs: [],
+  examAutomationStates: [],
+  candidateAutomationStates: [],
+  resultEmailDeliveries: [],
   organizationAiPolicies: {},
   systemPolicies: {
     invitationSecurity: {
@@ -275,6 +278,9 @@ const save = async () => {
     get emailVerifications() { return data.emailVerifications; },
     get aiGradingRequests() { return data.aiGradingRequests; },
     get aiInvocationLogs() { return data.aiInvocationLogs; },
+    get examAutomationStates() { return data.examAutomationStates; },
+    get candidateAutomationStates() { return data.candidateAutomationStates; },
+    get resultEmailDeliveries() { return data.resultEmailDeliveries; },
     get organizationAiPolicies() { return data.organizationAiPolicies; },
     get systemPolicies() { return data.systemPolicies; },
     updateSystemPolicies: async (patch) => {
@@ -298,6 +304,69 @@ const save = async () => {
       Object.assign(request, patch);
       await queuedSave();
       return request;
+    },
+    upsertExamAutomationState: async (examId, patch = {}) => {
+      let state = data.examAutomationStates.find((item) => item.examId === examId);
+      if (!state) {
+        state = { examId, status: "PENDING", updatedAt: new Date().toISOString(), ...patch };
+        data.examAutomationStates.push(state);
+      } else Object.assign(state, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return state;
+    },
+    updateExamAutomationState: async (examId, patch) => {
+      const state = data.examAutomationStates.find((item) => item.examId === examId);
+      if (!state) return undefined;
+      Object.assign(state, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return state;
+    },
+    claimExamAutomation: async (examId, { now = Date.now(), leaseMs = 300_000 } = {}) => {
+      const state = data.examAutomationStates.find((item) => item.examId === examId);
+      if (state?.status === "PROCESSING" && state.processingLeaseUntil && Date.parse(state.processingLeaseUntil) > now) return undefined;
+      const leaseId = randomUUID();
+      const processingLeaseUntil = new Date(now + leaseMs).toISOString();
+      if (!state) {
+        const created = { examId, status: "PROCESSING", processingLeaseId: leaseId, processingLeaseUntil, processingStartedAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
+        data.examAutomationStates.push(created);
+        await queuedSave();
+        return created;
+      }
+      Object.assign(state, { status: "PROCESSING", processingLeaseId: leaseId, processingLeaseUntil, processingStartedAt: state.processingStartedAt ?? new Date(now).toISOString(), updatedAt: new Date(now).toISOString() });
+      await queuedSave();
+      return state;
+    },
+    upsertCandidateAutomationState: async (examId, candidateId, patch = {}) => {
+      let state = data.candidateAutomationStates.find((item) => item.examId === examId && item.candidateId === candidateId);
+      if (!state) {
+        state = { id: randomUUID(), examId, candidateId, status: "PENDING", updatedAt: new Date().toISOString(), ...patch };
+        data.candidateAutomationStates.push(state);
+      } else Object.assign(state, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return state;
+    },
+    updateCandidateAutomationState: async (examId, candidateId, patch) => {
+      const state = data.candidateAutomationStates.find((item) => item.examId === examId && item.candidateId === candidateId);
+      if (!state) return undefined;
+      Object.assign(state, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return state;
+    },
+    upsertResultEmailDelivery: async (examId, candidateId, patch = {}) => {
+      let delivery = data.resultEmailDeliveries.find((item) => item.examId === examId && item.candidateId === candidateId);
+      if (!delivery) {
+        delivery = { id: randomUUID(), examId, candidateId, status: "PENDING", attempts: 0, retryCount: 0, updatedAt: new Date().toISOString(), ...patch };
+        data.resultEmailDeliveries.push(delivery);
+      } else Object.assign(delivery, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return delivery;
+    },
+    updateResultEmailDelivery: async (examId, candidateId, patch) => {
+      const delivery = data.resultEmailDeliveries.find((item) => item.examId === examId && item.candidateId === candidateId);
+      if (!delivery) return undefined;
+      Object.assign(delivery, patch, { updatedAt: new Date().toISOString() });
+      await queuedSave();
+      return delivery;
     },
     addAiInvocationLog: async (log) => {
       data.aiInvocationLogs.unshift(log);
@@ -351,6 +420,9 @@ const save = async () => {
       data.idCardScans = data.idCardScans.filter((scan) => scan.examId !== id);
       data.identityVerificationRequests = data.identityVerificationRequests.filter((item) => item.examId !== id);
       data.aiGradingRequests = data.aiGradingRequests.filter((request) => request.examId !== id);
+      data.examAutomationStates = data.examAutomationStates.filter((state) => state.examId !== id);
+      data.candidateAutomationStates = data.candidateAutomationStates.filter((state) => state.examId !== id);
+      data.resultEmailDeliveries = data.resultEmailDeliveries.filter((delivery) => delivery.examId !== id);
       data.notices = data.notices.map((notice) => notice.examId === id ? { ...notice, examId: null } : notice);
       data.communityPosts = data.communityPosts.map((post) => post.examId === id ? { ...post, examId: null } : post);
       await queuedSave();
@@ -511,6 +583,8 @@ const save = async () => {
       data.auxiliaryDevices = data.auxiliaryDevices.filter((device) => !removedCandidateIds.has(device.candidateId));
       data.idCardScans = data.idCardScans.filter((scan) => !removedCandidateIds.has(scan.candidateId));
       data.aiGradingRequests = data.aiGradingRequests.filter((request) => !removedCandidateIds.has(request.candidateId));
+      data.candidateAutomationStates = data.candidateAutomationStates.filter((state) => !removedCandidateIds.has(state.candidateId));
+      data.resultEmailDeliveries = data.resultEmailDeliveries.filter((delivery) => !removedCandidateIds.has(delivery.candidateId));
       await queuedSave();
       return removedCandidateIds;
     },
@@ -622,6 +696,8 @@ const save = async () => {
       data.invitations = data.invitations.filter((invitation) => !(invitation.examId === examId && candidateIdSet.has(invitation.candidateId)));
       data.examinees = data.examinees.filter((examinee) => !examineeIds.has(examinee.id));
       data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
+      data.candidateAutomationStates = data.candidateAutomationStates.filter((state) => !(state.examId === examId && candidateIdSet.has(state.candidateId)));
+      data.resultEmailDeliveries = data.resultEmailDeliveries.filter((delivery) => !(delivery.examId === examId && candidateIdSet.has(delivery.candidateId)));
       await queuedSave();
       return { assignmentIds, examineeIds };
     },

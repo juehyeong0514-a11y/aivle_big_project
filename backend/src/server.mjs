@@ -12,6 +12,7 @@ let shuttingDown = false;
 const shutdown = () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  app.locals.automation?.stop();
   server.close(() => process.exit(0));
   void Promise.all([app.locals.aiProctor?.shutdown({ graceMs: 5000 }), app.locals.mobileAiProctor?.shutdown({ graceMs: 5000 })]).finally(() => server.closeAllConnections?.());
   setTimeout(() => process.exit(1), 7000).unref();
