@@ -226,8 +226,6 @@ export default function ManagerExamDetailPage() {
   const [candidateUploadPreview, setCandidateUploadPreview] = useState([]);
   const [candidateUploadFileName, setCandidateUploadFileName] = useState("");
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
-  const [selectedAdminCandidateIds, setSelectedAdminCandidateIds] = useState([]);
-  const [candidateAdminSearch, setCandidateAdminSearch] = useState("");
   const [mailPreviews, setMailPreviews] = useState([]);
   const [identityVerificationRequests, setIdentityVerificationRequests] = useState([]);
   const [reviewingIdentityRequestId, setReviewingIdentityRequestId] = useState("");
@@ -272,13 +270,6 @@ export default function ManagerExamDetailPage() {
       ),
     ]);
     setSelectedCandidateIds((current) =>
-      current.filter((candidateId) =>
-        examCandidateResponse.data.some(
-          (candidate) => candidate.id === candidateId,
-        ),
-      ),
-    );
-    setSelectedAdminCandidateIds((current) =>
       current.filter((candidateId) =>
         examCandidateResponse.data.some(
           (candidate) => candidate.id === candidateId,
@@ -355,18 +346,6 @@ export default function ManagerExamDetailPage() {
   const selectedAssignedCount = selectedCandidateIds.filter((candidateId) =>
     assignedCandidateIds.includes(candidateId),
   ).length;
-  const visibleAdminCandidates = useMemo(
-    () =>
-      scopedCandidates.filter((candidate) =>
-          `${candidate.name} ${candidate.email}`.toLowerCase().includes(candidateAdminSearch.trim().toLowerCase()),
-        ),
-    [scopedCandidates, candidateAdminSearch],
-  );
-  const allAdminCandidatesSelected =
-    visibleAdminCandidates.length > 0 &&
-    visibleAdminCandidates.every((candidate) =>
-      selectedAdminCandidateIds.includes(candidate.id),
-    );
 
   const requestAiReferenceAnswer = async (sourceForm = questionForm, isCurrent = () => true) => {
     const requestForm = sourceForm;
@@ -666,7 +645,6 @@ export default function ManagerExamDetailPage() {
       });
       showMessage("응시자를 이 시험에서 제거했습니다.");
       setCandidateToDelete(null);
-      setSelectedAdminCandidateIds((current) => current.filter((id) => id !== candidateId));
       setSelectedCandidateIds((current) => current.filter((id) => id !== candidateId));
       await load();
     } catch (reason) {
@@ -674,42 +652,6 @@ export default function ManagerExamDetailPage() {
     }
   };
 
-  const deleteSelectedCandidates = async () => {
-    if (selectedAdminCandidateIds.length === 0) return;
-    if (!window.confirm(`${selectedAdminCandidateIds.length}명의 응시자를 이 시험에서 제거하시겠습니까? 조직 응시자 정보는 유지됩니다.`)) return;
-
-    const candidateIdsToDelete = [...selectedAdminCandidateIds];
-    try {
-      await api.delete(`/manager/exams/${examId}/assignments`, {
-        ...headers,
-        data: { candidateIds: candidateIdsToDelete },
-      });
-      showMessage(`${candidateIdsToDelete.length}명의 응시자를 이 시험에서 제거했습니다.`);
-      setSelectedAdminCandidateIds([]);
-      setSelectedCandidateIds((current) => current.filter((id) => !candidateIdsToDelete.includes(id)));
-      await load();
-    } catch (reason) {
-      showMessage(apiErrorMessage(reason, "응시자를 이 시험에서 제거하지 못했습니다."), "error");
-    }
-  };
-
-  const toggleAdminCandidate = (id) =>
-    setSelectedAdminCandidateIds((current) =>
-      current.includes(id)
-        ? current.filter((candidateId) => candidateId !== id)
-        : [...current, id],
-    );
-
-  const toggleAllAdminCandidates = () => {
-    if (allAdminCandidatesSelected) {
-      setSelectedAdminCandidateIds([]);
-    } else {
-      setSelectedAdminCandidateIds(
-        visibleAdminCandidates.map((candidate) => candidate.id),
-      );
-    }
-  };
-  
   const sendInvitations = async () => {
     if (selectedCandidateIds.some((candidateId) => !assignableCandidates.find((candidate) => candidate.id === candidateId)?.birthDate)) {
       showMessage("신분 인증을 위해 생년월일이 없는 응시자의 정보를 먼저 수정해주세요.", "error");
@@ -828,7 +770,7 @@ export default function ManagerExamDetailPage() {
     );
 
   return (
-    <section className="workspace-shell manager-exam-detail-shell">
+    <section className={`workspace-shell manager-exam-detail-shell ${activeManagementPanel === "candidates" ? "candidate-operations-view" : ""}`}>
       <button
         className="back-link"
         type="button"
@@ -873,20 +815,9 @@ export default function ManagerExamDetailPage() {
           aria-pressed={activeManagementPanel === "candidates"}
           onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}
         >
-          응시자 관리
+          응시자 운영
           <span className="exam-detail-tab-count">
-            응시자 {examCandidateScope.count}명
-          </span>
-        </button>
-        <button
-          className={`exam-detail-tab ${activeManagementPanel === "invitations" ? "active" : ""}`}
-          type="button"
-          aria-pressed={activeManagementPanel === "invitations"}
-          onClick={() => { setActiveManagementPanel("invitations"); setMessage(""); }}
-        >
-          배정 및 초대
-          <span className="exam-detail-tab-count">
-            {scopedCandidates.length}/{invitedCandidateIds.length}명
+            등록 {examCandidateScope.count} · 초대 {invitedCandidateIds.length}
           </span>
         </button>
         <button
@@ -917,8 +848,8 @@ export default function ManagerExamDetailPage() {
         >
           <div className="panel-heading">
             <div>
-              <h2>응시자 이메일 등록</h2>
-              <p>응시자를 추가하면 이 시험에만 등록됩니다.</p>
+              <h2>응시자 등록</h2>
+              <p>개별 또는 CSV로 등록하면 오른쪽 운영 현황에 바로 추가됩니다.</p>
             </div>
             <Users size={20} />
           </div>
@@ -987,66 +918,6 @@ export default function ManagerExamDetailPage() {
               </ul>
             </section>
           )}
-          <div className="workspace-subsection">
-            <div className="panel-heading">
-              <div>
-                <h2>이 시험에 등록된 응시자 목록</h2>
-                <p>이 시험에 추가한 응시자만 표시됩니다. 조직의 다른 시험 응시자는 이 목록에 나오지 않습니다.</p>
-              </div>
-            </div>
-            <div className="candidate-controls-group">
-              <div className="candidate-toolbar">
-                <label className="select-all-control">
-                  <input type="checkbox" checked={allAdminCandidatesSelected} onChange={toggleAllAdminCandidates} disabled={!visibleAdminCandidates.length} />
-                  <span>전체 선택</span>
-                </label>
-              </div>
-              <label className="input-with-icon">
-                <Search size={16} />
-                <input value={candidateAdminSearch} onChange={(event) => setCandidateAdminSearch(event.target.value)} placeholder="이름 또는 이메일 검색" />
-              </label>
-            </div>
-            <div className="candidate-list-table">
-              {visibleAdminCandidates.length > 0 ? (
-                visibleAdminCandidates.map((candidate) => (
-                  <div className="candidate-list-row" key={candidate.id}>
-                    <input type="checkbox" checked={selectedAdminCandidateIds.includes(candidate.id)} onChange={() => toggleAdminCandidate(candidate.id)} />
-                    <span>{candidate.name}</span>
-                    <span>{candidate.email}</span>
-                    <span>{candidate.birthDate ?? "미등록"}</span>
-                    <div className="candidate-row-actions">
-                      <button className="danger-button compact-button" type="button" onClick={() => setCandidateToDelete(candidate)}>
-                        <Trash2 size={14} /> 삭제
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="empty-state">등록된 응시자가 없습니다. 상단 폼을 통해 응시자를 등록해 주세요.</p>
-              )}
-            </div>
-            {candidateToDelete && (
-              <div className="workspace-alert error">
-                <strong>{candidateToDelete.name}</strong> 응시자를 이 시험에서 제거하시겠습니까? 조직 응시자 정보는 유지됩니다.
-                <div className="candidate-row-actions" style={{ justifyContent: "flex-end" }}>
-                  <button className="secondary-button compact-button" type="button" onClick={() => setCandidateToDelete(null)}>취소</button>
-                  <button className="danger-button compact-button" type="button" onClick={() => deleteCandidate(candidateToDelete.id)}>시험에서 제거</button>
-                </div>
-              </div>
-            )}
-            <div className="floating-action-bar static">
-              <div className="floating-action-bar-content">
-                <span>{selectedAdminCandidateIds.length}명 선택됨</span>
-                <div className="floating-action-buttons">
-                  {selectedAdminCandidateIds.length > 0 && (
-                    <button className="danger-button" type="button" onClick={deleteSelectedCandidates}>
-                      <Trash2 size={16} /> 시험에서 제거 ({selectedAdminCandidateIds.length}명)
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         </form>
       )}
 
@@ -1077,12 +948,12 @@ export default function ManagerExamDetailPage() {
         </section>
       )}
 
-      {activeManagementPanel === "invitations" && (
+      {activeManagementPanel === "candidates" && (
       <div id="invitation-management" className="data-panel">
         <div className="panel-heading">
           <div>
-            <h2>시험 대상자 배정 및 초대</h2>
-            <p>이 시험에 등록된 응시자에게 초대 링크를 보내거나, 선택한 대상자의 시험 배정을 해제할 수 있습니다.</p>
+            <h2>응시자 현황 및 초대</h2>
+            <p>등록 정보와 배정·초대 상태를 확인하고 필요한 작업을 바로 처리하세요.</p>
           </div>
           <div className="invitation-panel-actions">
             <Send size={20} />
@@ -1128,8 +999,16 @@ export default function ManagerExamDetailPage() {
               ) : (
                 <em className="assignment-state rejected">배정되지 않음</em>
               )}
+              {invitedCandidateIds.includes(candidate.id) ? (
+                <em className="invitation-state sent">초대 발송</em>
+              ) : (
+                <em className="invitation-state">미초대</em>
+              )}
               <button className="secondary-button compact-button" type="button" onClick={(event) => { event.preventDefault(); setEditingCandidate({ ...candidate }); }}>
                 <Pencil size={14} /> 수정
+              </button>
+              <button className="danger-button compact-button" type="button" onClick={(event) => { event.preventDefault(); setCandidateToDelete(candidate); }}>
+                <Trash2 size={14} /> 제거
               </button>
             </label>
           ))}
@@ -1137,6 +1016,15 @@ export default function ManagerExamDetailPage() {
             <p className="empty-state">검색 결과가 없습니다.</p>
           )}
         </div>
+        {candidateToDelete && (
+          <div className="workspace-alert error candidate-remove-confirmation">
+            <span><strong>{candidateToDelete.name}</strong> 응시자를 이 시험에서 제거하시겠습니까? 조직 응시자 정보는 유지됩니다.</span>
+            <div className="candidate-row-actions">
+              <button className="secondary-button compact-button" type="button" onClick={() => setCandidateToDelete(null)}>취소</button>
+              <button className="danger-button compact-button" type="button" onClick={() => deleteCandidate(candidateToDelete.id)}>시험에서 제거</button>
+            </div>
+          </div>
+        )}
         <div className="floating-action-bar static">
           <div className="floating-action-bar-content">
             <span>{selectedCandidateIds.length}명 선택됨</span>
