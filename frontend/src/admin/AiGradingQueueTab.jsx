@@ -61,7 +61,7 @@ export default function AiGradingQueueTab() {
       }));
       const summaryCandidates = (Array.isArray(summaryData?.candidates) ? summaryData.candidates : []).map((candidate) => ({ ...candidate, examTitle: candidate.examTitle || examById.get(candidate.examId)?.title || '시험 정보 없음', organizationName: candidate.organizationName || examById.get(candidate.examId)?.organizationName }));
       setAutomationExamStates(candidatesByExam.map((item) => item.state).filter(Boolean));
-      const mergedCandidates = [...summaryCandidates, ...candidatesByExam.flatMap((item) => item.candidates)];
+      const mergedCandidates = [...candidatesByExam.flatMap((item) => item.candidates), ...summaryCandidates];
       setAutomationCandidates(mergedCandidates.filter((candidate, index, items) => items.findIndex((item) => `${item.examId}:${item.candidateId}` === `${candidate.examId}:${candidate.candidateId}`) === index));
       setMessage('');
     } catch (error) {
