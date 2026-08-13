@@ -82,13 +82,24 @@ export default function MobileProctoringPage() {
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user' },
+          video: {
+            facingMode: { ideal: 'user' },
+            width: { ideal: 960, max: 1280 },
+            height: { ideal: 540, max: 720 },
+            aspectRatio: { ideal: 16 / 9 },
+            frameRate: { ideal: 15, max: 20 }
+          },
           audio: false
         });
       } catch (firstErr) {
         console.warn('전면 카메라(facingMode: user) 접근 실패, 기본 비디오로 재시도합니다.', firstErr);
         stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: {
+            width: { ideal: 960, max: 1280 },
+            height: { ideal: 540, max: 720 },
+            aspectRatio: { ideal: 16 / 9 },
+            frameRate: { ideal: 15, max: 20 }
+          },
           audio: false
         });
       }
