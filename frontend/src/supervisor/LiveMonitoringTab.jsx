@@ -192,6 +192,11 @@ export default function LiveMonitoringTab() {
   const currentLiveAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.monitoringSnapshot);
   const currentLiveAuxiliaryAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.auxiliarySnapshot);
   const currentLiveAuxiliarySnapshotImage = currentLiveExaminee?.auxiliarySnapshot?.image ?? null;
+  const currentLiveAuxiliaryAspectRatio = Number(currentLiveExaminee?.auxiliarySnapshot?.sourceAspectRatio) || 16 / 9;
+  const currentLiveAuxiliaryIsPortrait = currentLiveAuxiliaryAspectRatio < 1;
+  const currentLiveAuxiliaryPortraitStyle = currentLiveAuxiliaryIsPortrait
+    ? { '--auxiliary-rotation-scale': Math.min(16 / 9, 1 / currentLiveAuxiliaryAspectRatio) }
+    : undefined;
   const auxiliarySurfaceReady = auxiliaryLiveReady || Boolean(currentLiveAuxiliarySnapshotImage);
   const currentLiveWarnings = currentLiveExaminee ? warningsFor(currentLiveExaminee.id) : [];
 
@@ -557,8 +562,8 @@ export default function LiveMonitoringTab() {
             </div>
             <div className="monitoring-live-surface">
               <span>휴대폰 보조 카메라 라이브</span>
-              <video ref={auxiliaryLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (auxiliaryLiveReady ? 'connected' : '')} />
-              {!auxiliaryLiveReady && currentLiveAuxiliarySnapshotImage ? <img src={currentLiveAuxiliarySnapshotImage} alt={currentLiveExaminee.name + ' 응시자 휴대폰 보조 카메라 영상'} className="monitoring-live-video connected" /> : null}
+              <video ref={auxiliaryLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (auxiliaryLiveReady ? 'connected ' : '') + (currentLiveAuxiliaryIsPortrait ? 'auxiliary-portrait-video' : '')} style={currentLiveAuxiliaryPortraitStyle} />
+              {!auxiliaryLiveReady && currentLiveAuxiliarySnapshotImage ? <img src={currentLiveAuxiliarySnapshotImage} alt={currentLiveExaminee.name + ' 응시자 휴대폰 보조 카메라 영상'} className={'monitoring-live-video connected ' + (currentLiveAuxiliaryIsPortrait ? 'auxiliary-portrait-video' : '')} style={currentLiveAuxiliaryPortraitStyle} /> : null}
               {auxiliarySurfaceReady && currentLiveAuxiliaryAiMonitoring?.detections.length ? <DetectionOverlay detections={currentLiveAuxiliaryAiMonitoring.detections} sourceAspectRatio={currentLiveAuxiliaryAiMonitoring.sourceAspectRatio} /> : null}
               {auxiliarySurfaceReady && currentLiveAuxiliaryAiMonitoring?.analyzedAt && <time className="monitoring-live-detection-time" dateTime={currentLiveAuxiliaryAiMonitoring.analyzedAt}>AI 분석 {new Date(currentLiveAuxiliaryAiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}
               {!auxiliarySurfaceReady && <><Video size={36} /><strong>휴대폰 카메라 연결 대기</strong><small>QR로 연결한 휴대폰 보조 카메라 스트림을 기다리고 있습니다.</small></>}
