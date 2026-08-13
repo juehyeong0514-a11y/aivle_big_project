@@ -770,7 +770,7 @@ export default function ManagerExamDetailPage() {
     );
 
   return (
-    <section className={`workspace-shell manager-exam-detail-shell ${activeManagementPanel === "candidates" ? "candidate-operations-view" : ""}`}>
+    <section className="workspace-shell manager-exam-detail-shell">
       <button
         className="back-link"
         type="button"
@@ -778,7 +778,7 @@ export default function ManagerExamDetailPage() {
       >
         <ArrowLeft size={16} /> 시험 목록으로
       </button>
-      <div className="workspace-heading no-bottom-margin">
+      <div className="workspace-heading no-bottom-margin manager-exam-heading">
         <div>
           <span className="workspace-eyebrow">EXAM DETAIL</span>
           <div className="title-with-badge">
@@ -806,7 +806,7 @@ export default function ManagerExamDetailPage() {
           aria-pressed={activeManagementPanel === "questions"}
           onClick={() => { setActiveManagementPanel("questions"); setMessage(""); }}
         >
-          문제 및 미리보기
+          <span className="exam-detail-tab-label"><BookOpen size={19} /> 문제 생성 및 미리보기</span>
           <span className="exam-detail-tab-count">문제 {questions.length}개</span>
         </button>
         <button
@@ -815,7 +815,7 @@ export default function ManagerExamDetailPage() {
           aria-pressed={activeManagementPanel === "candidates"}
           onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}
         >
-          응시자 운영
+          <span className="exam-detail-tab-label"><Users size={19} /> 응시자 운영</span>
           <span className="exam-detail-tab-count">
             등록 {examCandidateScope.count} · 초대 {invitedCandidateIds.length}
           </span>
@@ -826,7 +826,7 @@ export default function ManagerExamDetailPage() {
           aria-pressed={activeManagementPanel === "identity"}
           onClick={() => setActiveManagementPanel("identity")}
         >
-          대체 신원확인
+          <span className="exam-detail-tab-label"><CheckSquare size={19} /> 대체 신원확인</span>
           <span className="exam-detail-tab-count">대기 {identityVerificationRequests.filter((item) => item.status === "PENDING").length}건</span>
         </button>
       </nav>
@@ -841,9 +841,10 @@ export default function ManagerExamDetailPage() {
         openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
 
       {activeManagementPanel === "candidates" && (
+        <div className="candidate-operations-layout">
         <form
           id="candidate-management"
-          className="data-panel form-panel"
+          className="data-panel form-panel detail-management-panel"
           onSubmit={createCandidate}
         >
           <div className="panel-heading">
@@ -919,37 +920,7 @@ export default function ManagerExamDetailPage() {
             </section>
           )}
         </form>
-      )}
-
-      {activeManagementPanel === "identity" && (
-        <section className="data-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>신분증 미소지자 대체 신원확인</h2>
-              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
-            </div>
-            <Users size={20} />
-          </div>
-          <div className="candidate-list-table">
-            {identityVerificationRequests.length ? identityVerificationRequests.map((item) => (
-              <div className="candidate-list-row" key={item.id}>
-                <span style={{ fontWeight: 700 }}>{item.candidateName} · {item.candidateNumber}</span>
-                <span>{item.status === "PENDING" ? "승인 대기" : item.status === "APPROVED" ? "승인됨" : "반려됨"}</span>
-                <span>{item.requestedAt ? new Date(item.requestedAt).toLocaleString("ko-KR") : "-"}</span>
-                <div className="candidate-row-actions">
-                  {item.status === "PENDING" && <>
-                    <button className="primary-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "APPROVED")}>승인</button>
-                    <button className="danger-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "REJECTED")}>반려</button>
-                  </>}
-                </div>
-              </div>
-            )) : <p className="empty-state">대체 신원확인 요청이 없습니다.</p>}
-          </div>
-        </section>
-      )}
-
-      {activeManagementPanel === "candidates" && (
-      <div id="invitation-management" className="data-panel">
+      <div id="invitation-management" className="data-panel detail-management-panel">
         <div className="panel-heading">
           <div>
             <h2>응시자 현황 및 초대</h2>
@@ -1089,6 +1060,34 @@ export default function ManagerExamDetailPage() {
           </div>
         )}
       </div>
+      </div>
+      )}
+
+      {activeManagementPanel === "identity" && (
+        <section id="identity-management" className="data-panel detail-management-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>신분증 미소지자 대체 신원확인</h2>
+              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
+            </div>
+            <Users size={20} />
+          </div>
+          <div className="candidate-list-table">
+            {identityVerificationRequests.length ? identityVerificationRequests.map((item) => (
+              <div className="candidate-list-row" key={item.id}>
+                <span style={{ fontWeight: 700 }}>{item.candidateName} · {item.candidateNumber}</span>
+                <span>{item.status === "PENDING" ? "승인 대기" : item.status === "APPROVED" ? "승인됨" : "반려됨"}</span>
+                <span>{item.requestedAt ? new Date(item.requestedAt).toLocaleString("ko-KR") : "-"}</span>
+                <div className="candidate-row-actions">
+                  {item.status === "PENDING" && <>
+                    <button className="primary-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "APPROVED")}>승인</button>
+                    <button className="danger-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "REJECTED")}>반려</button>
+                  </>}
+                </div>
+              </div>
+            )) : <p className="empty-state">대체 신원확인 요청이 없습니다.</p>}
+          </div>
+        </section>
       )}
 
       {isExamPreviewOpen && (
@@ -1390,7 +1389,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     activeAnswerRequestSignature.current = "";
   };
 
-  return <section id="question-management" className="data-panel form-panel coding-problem-form">
+  return <section id="question-management" className="data-panel form-panel coding-problem-form detail-management-panel">
     <div className="panel-heading"><div><h2>문제 정보 편집</h2><p>직접 작성하거나 출제 도우미로 초안을 빠르게 채울 수 있습니다.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
     {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
     {isAuthoringOpen ? <form onSubmit={submitQuestion} noValidate={isCoding}>
