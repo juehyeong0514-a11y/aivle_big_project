@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 // 응시자 화면의 임시 인증 버튼은 평소에는 숨겨두고, 개발·시연 점검 중에만 단축키로 꺼냅니다.
-// Ctrl(또는 Cmd) + Shift + T 를 누르면 표시 상태가 토글됩니다.
+// Ctrl + Alt + M 을 누르면 표시 상태가 토글됩니다.
 // 새로고침해도 유지되도록 sessionStorage에 저장하며, 탭을 닫으면 자동으로 해제됩니다.
 const STORAGE_KEY = 'applicantTestShortcuts';
 
@@ -18,8 +18,8 @@ export default function useTestShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) return;
-      if (event.key?.toLowerCase() !== 't') return;
+      if (!event.ctrlKey || !event.altKey) return;
+      if (event.key?.toLowerCase() !== 'm') return;
       event.preventDefault();
       setEnabled((previous) => {
         const next = !previous;

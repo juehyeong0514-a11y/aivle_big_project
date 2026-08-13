@@ -54,7 +54,8 @@ export default function MobileProctoringPage() {
       if (!deviceToken) return;
       api.get('/mobile-devices/' + deviceToken + '/status')
         .then(({ data }) => {
-          if (!active || !data.ended) return;
+          if (!active) return;
+          if (!data.ended) return;
           stopMonitoringRef.current?.();
           stopMonitoringRef.current = null;
           streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -66,7 +67,7 @@ export default function MobileProctoringPage() {
         .catch(() => {});
     };
     checkExamStatus();
-    const timer = window.setInterval(checkExamStatus, 3000);
+    const timer = window.setInterval(checkExamStatus, 1500);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -81,13 +82,24 @@ export default function MobileProctoringPage() {
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user' },
+          video: {
+            facingMode: { ideal: 'user' },
+            width: { ideal: 960, max: 1280 },
+            height: { ideal: 540, max: 720 },
+            aspectRatio: { ideal: 16 / 9 },
+            frameRate: { ideal: 15, max: 20 }
+          },
           audio: false
         });
       } catch (firstErr) {
         console.warn('전면 카메라(facingMode: user) 접근 실패, 기본 비디오로 재시도합니다.', firstErr);
         stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: {
+            width: { ideal: 960, max: 1280 },
+            height: { ideal: 540, max: 720 },
+            aspectRatio: { ideal: 16 / 9 },
+            frameRate: { ideal: 15, max: 20 }
+          },
           audio: false
         });
       }
@@ -100,7 +112,7 @@ export default function MobileProctoringPage() {
       if (!deviceToken) throw new Error('보조 카메라 연결 정보를 찾을 수 없습니다.');
       streamRef.current = stream;
       stopMonitoringRef.current?.();
-      stopMonitoringRef.current = startMobileLiveMonitoring(deviceToken, stream);
+      stopMonitoringRef.current = startMobileLiveMonitoring(deviceToken, stream, mobileVideoRef.current);
       setIsStarted(true);
     } catch (err) {
       console.error("NotReadableError caught:", err);

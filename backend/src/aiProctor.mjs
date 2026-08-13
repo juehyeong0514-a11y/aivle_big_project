@@ -63,7 +63,7 @@ export const createAiProctor = ({
     const timestamp = now();
     const present = new Map(result.events.map((event) => [event.type, event]));
     for (const type of EVENT_TYPES) {
-      const stateKey = `${job.examId}:${job.candidateId}:${type}`;
+      const stateKey = `${job.examId}:${job.candidateId}:${job.source ?? "webcam"}:${type}`;
       const state = eventStates.get(stateKey) ?? { consecutiveHits: 0, lastSeenAt: timestamp, lastWarningAt: 0 };
       const event = present.get(type);
       state.lastSeenAt = timestamp;
@@ -96,8 +96,8 @@ export const createAiProctor = ({
     while (job && !stopping) {
       try {
         const result = await detect(job);
-        await onResult(job, { ...result, analyzedAt: new Date(now()).toISOString() });
-        await updateEventStates(job, result);
+        const accepted = await onResult(job, { ...result, analyzedAt: new Date(now()).toISOString() });
+        if (accepted !== false) await updateEventStates(job, result);
       } catch (error) {
         logger.warn?.("AI proctor analysis failed", error instanceof Error ? error.message : error);
       }
@@ -110,7 +110,7 @@ export const createAiProctor = ({
 
   const schedule = (job) => {
     if (stopping || !baseUrl || !job?.image || !job.examId || !job.candidateId) return false;
-    const key = `${job.examId}:${job.candidateId}`;
+    const key = `${job.examId}:${job.candidateId}:${job.source ?? "webcam"}`;
     const slot = active.get(key);
     if (slot) {
       slot.pending = job;

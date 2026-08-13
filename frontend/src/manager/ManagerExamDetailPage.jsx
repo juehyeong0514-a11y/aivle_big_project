@@ -229,6 +229,8 @@ export default function ManagerExamDetailPage() {
   const [selectedAdminCandidateIds, setSelectedAdminCandidateIds] = useState([]);
   const [candidateAdminSearch, setCandidateAdminSearch] = useState("");
   const [mailPreviews, setMailPreviews] = useState([]);
+  const [identityVerificationRequests, setIdentityVerificationRequests] = useState([]);
+  const [reviewingIdentityRequestId, setReviewingIdentityRequestId] = useState("");
   const [copiedEntryLink, setCopiedEntryLink] = useState("");
   const [activeManagementPanel, setActiveManagementPanel] = useState("questions");
   const [isExamPreviewOpen, setIsExamPreviewOpen] = useState(false);
@@ -245,18 +247,20 @@ export default function ManagerExamDetailPage() {
   const uploadErrorCount = candidateUploadPreview.length - uploadableCandidateCount;
 
   const load = useCallback(async () => {
-    const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse] =
+    const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse, identityRequestResponse] =
       await Promise.all([
         api.get("/manager/exams", headers),
         api.get("/manager/candidates", headers),
         api.get(`/manager/exams/${examId}/candidates`, headers),
         api.get(`/manager/exams/${examId}/questions`, headers),
         api.get("/manager/invitations", headers),
+        api.get(`/manager/exams/${examId}/identity-verification-requests`, headers),
       ]);
     setExam(examResponse.data.find((item) => item.id === examId) || null);
     setCandidates(examCandidateResponse.data);
     setOrganizationCandidates(candidateResponse.data);
     setQuestions(questionResponse.data);
+    setIdentityVerificationRequests(identityRequestResponse.data);
     setAssignedCandidateIds(
       examCandidateResponse.data.map((candidate) => candidate.id),
     );
@@ -307,6 +311,19 @@ export default function ManagerExamDetailPage() {
       showMessage(apiErrorMessage(reason, "시험 제목을 수정하지 못했습니다."), "error");
     } finally {
       setIsSavingExamTitle(false);
+    }
+  };
+
+  const reviewIdentityVerificationRequest = async (requestId, status) => {
+    setReviewingIdentityRequestId(requestId);
+    try {
+      await api.patch(`/manager/exams/${examId}/identity-verification-requests/${requestId}`, { status }, headers);
+      await load();
+      showMessage(status === "APPROVED" ? "대체 신원확인 요청을 승인했습니다." : "대체 신원확인 요청을 반려했습니다.");
+    } catch (reason) {
+      showMessage(apiErrorMessage(reason, "대체 신원확인 요청을 처리하지 못했습니다."), "error");
+    } finally {
+      setReviewingIdentityRequestId("");
     }
   };
 
@@ -872,6 +889,15 @@ export default function ManagerExamDetailPage() {
             {scopedCandidates.length}/{invitedCandidateIds.length}명
           </span>
         </button>
+        <button
+          className={`exam-detail-tab ${activeManagementPanel === "identity" ? "active" : ""}`}
+          type="button"
+          aria-pressed={activeManagementPanel === "identity"}
+          onClick={() => setActiveManagementPanel("identity")}
+        >
+          대체 신원확인
+          <span className="exam-detail-tab-count">대기 {identityVerificationRequests.filter((item) => item.status === "PENDING").length}건</span>
+        </button>
       </nav>
 
       {activeManagementPanel === "questions" && <QuestionManagement
@@ -1022,6 +1048,33 @@ export default function ManagerExamDetailPage() {
             </div>
           </div>
         </form>
+      )}
+
+      {activeManagementPanel === "identity" && (
+        <section className="data-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>신분증 미소지자 대체 신원확인</h2>
+              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
+            </div>
+            <Users size={20} />
+          </div>
+          <div className="candidate-list-table">
+            {identityVerificationRequests.length ? identityVerificationRequests.map((item) => (
+              <div className="candidate-list-row" key={item.id}>
+                <span style={{ fontWeight: 700 }}>{item.candidateName} · {item.candidateNumber}</span>
+                <span>{item.status === "PENDING" ? "승인 대기" : item.status === "APPROVED" ? "승인됨" : "반려됨"}</span>
+                <span>{item.requestedAt ? new Date(item.requestedAt).toLocaleString("ko-KR") : "-"}</span>
+                <div className="candidate-row-actions">
+                  {item.status === "PENDING" && <>
+                    <button className="primary-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "APPROVED")}>승인</button>
+                    <button className="danger-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "REJECTED")}>반려</button>
+                  </>}
+                </div>
+              </div>
+            )) : <p className="empty-state">대체 신원확인 요청이 없습니다.</p>}
+          </div>
+        </section>
       )}
 
       {activeManagementPanel === "invitations" && (

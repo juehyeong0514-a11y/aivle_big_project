@@ -41,6 +41,42 @@ test("requires consecutive hits and enforces cooldown", async () => {
   assert.equal(warnings.length, 2);
 });
 
+test("keeps webcam and auxiliary-camera warning state separate", async () => {
+  const warnings = [];
+  const proctor = createAiProctor({
+    endpoint: "http://ai",
+    fetchImpl: async () => response(payload([{ type: "CELL_PHONE_DETECTED", confidence: .9 }])),
+    onWarning: async (job) => warnings.push(job.source)
+  });
+  const makeJob = (source) => ({ image: "data:image/jpeg;base64,x", examId: "exam", candidateId: "candidate", examineeId: "examinee", source });
+
+  proctor.schedule(makeJob("webcam"));
+  await waitUntil(() => proctor.activeCount === 0);
+  proctor.schedule(makeJob("auxiliary"));
+  await waitUntil(() => proctor.activeCount === 0);
+  assert.deepEqual(warnings, []);
+  proctor.schedule(makeJob("webcam"));
+  await waitUntil(() => proctor.activeCount === 0);
+
+  assert.deepEqual(warnings, ["webcam"]);
+});
+
+test("discards warning state when a detection result belongs to a stale snapshot", async () => {
+  const warnings = [];
+  const proctor = createAiProctor({
+    endpoint: "http://ai",
+    consecutiveHits: 1,
+    fetchImpl: async () => response(payload([{ type: "CELL_PHONE_DETECTED", confidence: .9 }])),
+    onResult: async () => false,
+    onWarning: async (_job, event) => warnings.push(event)
+  });
+
+  proctor.schedule({ image: "data:image/jpeg;base64,x", examId: "exam", candidateId: "candidate", examineeId: "examinee", source: "auxiliary" });
+  await waitUntil(() => proctor.activeCount === 0);
+
+  assert.deepEqual(warnings, []);
+});
+
 test("coalesces concurrent requests to the newest pending snapshot", async () => {
   const images = [];
   let release;

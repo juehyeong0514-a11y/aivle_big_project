@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Building2, Clock3, Monitor, PanelLeftClose, PanelLeftOpen, Radio, Search, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { createMonitoringRefreshGate } from './monitoringRefreshGate.mjs';
-import { normalizeAiMonitoring, warningSourceLabel } from './aiMonitoring.mjs';
+import { normalizeAiMonitoring, projectDetectionBoxToCover, warningSourceLabel } from './aiMonitoring.mjs';
 
 const monitoringRefreshIntervalMs = 2000;
 
@@ -190,6 +190,14 @@ export default function LiveMonitoringTab() {
     });
   const currentLiveExaminee = liveExaminee ? examinees.find((examinee) => examinee.id === liveExaminee.id) ?? liveExaminee : null;
   const currentLiveAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.monitoringSnapshot);
+  const currentLiveAuxiliaryAiMonitoring = normalizeAiMonitoring(currentLiveExaminee?.auxiliarySnapshot);
+  const currentLiveAuxiliarySnapshotImage = currentLiveExaminee?.auxiliarySnapshot?.image ?? null;
+  const currentLiveAuxiliaryAspectRatio = Number(currentLiveExaminee?.auxiliarySnapshot?.sourceAspectRatio) || 16 / 9;
+  const currentLiveAuxiliaryIsPortrait = currentLiveAuxiliaryAspectRatio < 1;
+  const currentLiveAuxiliaryPortraitStyle = currentLiveAuxiliaryIsPortrait
+    ? { '--auxiliary-rotation-scale': Math.min(16 / 9, 1 / currentLiveAuxiliaryAspectRatio) }
+    : undefined;
+  const auxiliarySurfaceReady = auxiliaryLiveReady || Boolean(currentLiveAuxiliarySnapshotImage);
   const currentLiveWarnings = currentLiveExaminee ? warningsFor(currentLiveExaminee.id) : [];
 
   useEffect(() => {
@@ -529,7 +537,7 @@ export default function LiveMonitoringTab() {
             <div>
               <span className="workspace-eyebrow"><Radio size={14} /> LIVE MONITORING</span>
               <h2 id="monitoring-live-title">{currentLiveExaminee.name} 응시자 라이브 화면</h2>
-              <p>정면 영상의 박스는 2초 주기 최신 AI 분석 결과와 동기화됩니다.</p>
+              <p>정면과 휴대폰 보조 카메라 영상에 각 카메라의 최신 AI 분석 박스를 표시합니다.</p>
             </div>
             <div className="monitoring-live-actions">
               <button className={'monitoring-live-audio-toggle ' + (microphoneLiveEnabled ? 'active' : '')} type="button" onClick={toggleMicrophoneLive} disabled={!microphoneLiveReady} aria-pressed={microphoneLiveEnabled}>
@@ -546,7 +554,7 @@ export default function LiveMonitoringTab() {
             <div className="monitoring-live-surface">
               <span>정면 라이브</span>
               <video ref={frontLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (frontLiveReady ? 'connected' : '')} />
-              {frontLiveReady && currentLiveAiMonitoring?.detections.length ? <DetectionOverlay detections={currentLiveAiMonitoring.detections} /> : null}
+              {frontLiveReady && currentLiveAiMonitoring?.detections.length ? <DetectionOverlay detections={currentLiveAiMonitoring.detections} sourceAspectRatio={currentLiveAiMonitoring.sourceAspectRatio} /> : null}
               {frontLiveReady && currentLiveAiMonitoring?.analyzedAt && <time className="monitoring-live-detection-time" dateTime={currentLiveAiMonitoring.analyzedAt}>AI 분석 {new Date(currentLiveAiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}
               <Video size={36} />
               <strong>{liveError || '영상 연결 중'}</strong>
@@ -554,10 +562,12 @@ export default function LiveMonitoringTab() {
             </div>
             <div className="monitoring-live-surface">
               <span>휴대폰 보조 카메라 라이브</span>
-              <video ref={auxiliaryLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (auxiliaryLiveReady ? 'connected' : '')} />
-              <Video size={36} />
-              <strong>{auxiliaryLiveReady ? '영상 연결됨' : '휴대폰 카메라 연결 대기'}</strong>
-              <small>QR로 연결한 휴대폰 보조 카메라 스트림을 기다리고 있습니다.</small>
+              <video ref={auxiliaryLiveRef} autoPlay muted playsInline className={'monitoring-live-video ' + (auxiliaryLiveReady ? 'connected ' : '') + (currentLiveAuxiliaryIsPortrait ? 'auxiliary-portrait-video' : '')} style={currentLiveAuxiliaryPortraitStyle} />
+              {!auxiliaryLiveReady && currentLiveAuxiliarySnapshotImage ? <img src={currentLiveAuxiliarySnapshotImage} alt={currentLiveExaminee.name + ' 응시자 휴대폰 보조 카메라 영상'} className={'monitoring-live-video connected ' + (currentLiveAuxiliaryIsPortrait ? 'auxiliary-portrait-video' : '')} style={currentLiveAuxiliaryPortraitStyle} /> : null}
+              {auxiliarySurfaceReady && currentLiveAuxiliaryAiMonitoring?.detections.length ? <DetectionOverlay detections={currentLiveAuxiliaryAiMonitoring.detections} sourceAspectRatio={currentLiveAuxiliaryAiMonitoring.sourceAspectRatio} /> : null}
+              {auxiliarySurfaceReady && currentLiveAuxiliaryAiMonitoring?.analyzedAt && <time className="monitoring-live-detection-time" dateTime={currentLiveAuxiliaryAiMonitoring.analyzedAt}>AI 분석 {new Date(currentLiveAuxiliaryAiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}
+              {!auxiliarySurfaceReady && <><Video size={36} /><strong>휴대폰 카메라 연결 대기</strong><small>QR로 연결한 휴대폰 보조 카메라 스트림을 기다리고 있습니다.</small></>}
+              {!auxiliaryLiveReady && currentLiveAuxiliarySnapshotImage && <small>휴대폰 영상 수신 중 · 실시간 라이브 연결 대기</small>}
             </div>
             <div className="monitoring-live-surface">
               <span>PC 화면 공유 라이브</span>
@@ -570,8 +580,9 @@ export default function LiveMonitoringTab() {
           <audio ref={microphoneLiveRef} autoPlay muted className="monitoring-live-audio" aria-label="응시자 마이크 오디오" />
           <div className="monitoring-live-tools">
             <section className="monitoring-live-tool-panel">
-              <div className="monitoring-live-tool-heading"><strong>AI 분석</strong>{currentLiveAiMonitoring?.analyzedAt && <time dateTime={currentLiveAiMonitoring.analyzedAt}>{new Date(currentLiveAiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}</div>
-              {currentLiveAiMonitoring ? <><p>{currentLiveAiMonitoring.personCount === null ? '사람 수 미확인' : `사람 ${currentLiveAiMonitoring.personCount}명`} · {currentLiveAiMonitoring.model}</p>{currentLiveAiMonitoring.events.length ? <div className="monitoring-ai-events">{currentLiveAiMonitoring.events.map((event) => <span key={event.type}>{event.label} {Math.round(event.confidence * 100)}%</span>)}</div> : <small>현재 감지 이벤트가 없습니다.</small>}</> : <p className="empty-state">AI 분석 결과를 기다리고 있습니다.</p>}
+              <div className="monitoring-live-tool-heading"><strong>AI 분석</strong></div>
+              <AiSourceSummary label="정면" monitoring={currentLiveAiMonitoring} />
+              <AiSourceSummary label="휴대폰" monitoring={currentLiveAuxiliaryAiMonitoring} />
             </section>
             <section className="monitoring-live-tool-panel">
               <div className="monitoring-live-tool-heading"><strong>감시 로그</strong><button type="button" onClick={() => setWarningLogExaminee(currentLiveExaminee)}>전체 보기</button></div>
@@ -626,7 +637,8 @@ export default function LiveMonitoringTab() {
           const screenConnected = Boolean(examinee.mediaStatus?.screen);
           const auxiliaryConnected = Boolean(examinee.mediaStatus?.auxiliaryCamera);
           const aiMonitoring = normalizeAiMonitoring(examinee.monitoringSnapshot);
-          return <article key={examinee.id} className={'monitoring-card ' + (selectedExamineeId === examinee.id ? 'selected ' : '') + examinee.status.toLowerCase() + (aiMonitoring?.events.length ? ' ai-alert' : '')}>
+          const auxiliaryAiMonitoring = normalizeAiMonitoring(examinee.auxiliarySnapshot);
+          return <article key={examinee.id} className={'monitoring-card ' + (selectedExamineeId === examinee.id ? 'selected ' : '') + examinee.status.toLowerCase() + (aiMonitoring?.events.length || auxiliaryAiMonitoring?.events.length ? ' ai-alert' : '')}>
             <div className="monitoring-card-heading">
               <strong>{examinee.name} 응시자</strong>
               <span className={'status-badge ' + (examinee.status === 'NORMAL' ? 'approved' : examinee.status.toLowerCase())}>{examinee.statusText}</span>
@@ -639,10 +651,10 @@ export default function LiveMonitoringTab() {
             </div>
             <div className="monitoring-video-grid">
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 정면 라이브 화면 열기'}>
-                <span>정면 화면</span>{webcamConnected && examinee.monitoringSnapshot?.image ? <><img src={examinee.monitoringSnapshot.image} alt={examinee.name + ' 응시자 웹캠 정지 화면'} />{aiMonitoring?.detections.length ? <DetectionOverlay detections={aiMonitoring.detections} /> : null}</> : <Video size={24} />}<small>{webcamConnected ? `정지 화면 · ${snapshotTime}` : '웹캠 연결 안 됨'}</small>
+                <span>정면 화면</span>{webcamConnected && examinee.monitoringSnapshot?.image ? <><img src={examinee.monitoringSnapshot.image} alt={examinee.name + ' 응시자 웹캠 정지 화면'} />{aiMonitoring?.detections.length ? <DetectionOverlay detections={aiMonitoring.detections} sourceAspectRatio={aiMonitoring.sourceAspectRatio} /> : null}</> : <Video size={24} />}<small>{webcamConnected ? `정지 화면 · ${snapshotTime}` : '웹캠 연결 안 됨'}</small>
               </button>
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 보조 라이브 화면 열기'}>
-                <span>보조 모니터링</span>{auxiliaryConnected && examinee.auxiliarySnapshot?.image ? <img src={examinee.auxiliarySnapshot.image} alt={examinee.name + ' 응시자 휴대폰 보조 카메라 정지 화면'} /> : <Video size={24} />}<small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>
+                <span>보조 모니터링</span>{auxiliaryConnected && examinee.auxiliarySnapshot?.image ? <><img src={examinee.auxiliarySnapshot.image} alt={examinee.name + ' 응시자 휴대폰 보조 카메라 정지 화면'} />{auxiliaryAiMonitoring?.detections.length ? <DetectionOverlay detections={auxiliaryAiMonitoring.detections} sourceAspectRatio={auxiliaryAiMonitoring.sourceAspectRatio} /> : null}</> : <Video size={24} />}<small>{auxiliaryConnected ? `정지 화면 · ${snapshotTime}` : '모바일 보조 카메라 연결 안 됨'}</small>
               </button>
               <button className="monitoring-snapshot" type="button" onClick={() => openLive(examinee)} aria-label={examinee.name + ' 응시자의 PC 화면 공유 라이브 화면 열기'}>
                 <span>PC 화면 공유</span><Monitor size={24} /><small>{screenConnected ? '화면 공유 연결됨 · 클릭하여 라이브 보기' : '화면 공유 연결 안 됨'}</small>
@@ -665,9 +677,15 @@ export default function LiveMonitoringTab() {
   );
 }
 
-function DetectionOverlay({ detections }) {
+function DetectionOverlay({ detections, sourceAspectRatio = 16 / 9 }) {
   return <div className="monitoring-detection-overlay" aria-label={`AI 객체 탐지 ${detections.length}건`}>{detections.map((detection) => {
-    const [x1, y1, x2, y2] = detection.bbox;
-    return <span className={'monitoring-detection-box detection-' + detection.label.replace(/\s+/g, '-')} key={detection.id} style={{ left: `${x1 * 100}%`, top: `${y1 * 100}%`, width: `${(x2 - x1) * 100}%`, height: `${(y2 - y1) * 100}%` }}><b>{detection.displayLabel} {Math.round(detection.confidence * 100)}%</b></span>;
+    const projected = projectDetectionBoxToCover(detection.bbox, sourceAspectRatio, 16 / 9);
+    if (!projected) return null;
+    const [x1, y1, x2, y2] = projected;
+    return <span className={'monitoring-detection-box detection-' + detection.label.replace(/\s+/g, '-') + (x1 > .65 ? ' edge-right' : '')} key={detection.id} style={{ left: `${x1 * 100}%`, top: `${y1 * 100}%`, width: `${(x2 - x1) * 100}%`, height: `${(y2 - y1) * 100}%` }}><b>{detection.displayLabel} {Math.round(detection.confidence * 100)}%</b></span>;
   })}</div>;
+}
+
+function AiSourceSummary({ label, monitoring }) {
+  return <div className="monitoring-ai-source-summary"><div><strong>{label}</strong>{monitoring?.analyzedAt && <time dateTime={monitoring.analyzedAt}>{new Date(monitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}</div>{monitoring ? <><p>{monitoring.personCount === null ? '사람 수 미확인' : `사람 ${monitoring.personCount}명`} · {monitoring.model}</p>{monitoring.events.length ? <div className="monitoring-ai-events">{monitoring.events.map((event) => <span key={event.type}>{event.label} {Math.round(event.confidence * 100)}%</span>)}</div> : <small>감지 이벤트 없음</small>}</> : <small>분석 결과 대기 중</small>}</div>;
 }

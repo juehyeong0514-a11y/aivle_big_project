@@ -130,6 +130,13 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - Accessibility: problem selector and result tabs are keyboard reachable; editor has an explicit label; the bottom controls repeat execution and submission actions without relying on the header.
 - Responsive behavior: at 900px the statement pane stacks above the editor; on small screens control labels stay readable and examples become one column.
 
+### AI detection overlay
+
+- Structure: a non-interactive layer over webcam or auxiliary-camera video, with one semantic bounding box and confidence label per detected object.
+- Variants: supervisor snapshot/live video and mirrored mobile front-camera preview; the mobile variant mirrors box coordinates while keeping labels readable.
+- States: waiting for first analysis, detections visible, and no detections; the latest analysis time remains visible without blocking camera controls, and the supervisor summary separates front-camera and mobile-camera results.
+- Accessibility: the overlay exposes the detection count as text and never relies on box color alone because each box includes an object label and confidence.
+
 ## 6. Motion & Interaction
 
 Use 120ms ease-out for button feedback and 240ms ease-in-out for tab/panel state changes. Animate only `transform` and `opacity`; respect `prefers-reduced-motion`. Toasts and confirmation copy should explain the completed action without blocking the next task.

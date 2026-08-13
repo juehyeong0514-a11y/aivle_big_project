@@ -451,7 +451,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, mobileAiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -472,15 +472,17 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     return id;
   };
   const app = express();
-  const aiProctor = createAiProctor({
-    ...aiProctorOptions,
-    onResult: async (job, result) => {
+  const persistAiResult = async (job, result) => {
       const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
-      if (!examinee?.monitoringSnapshot) return;
-      await store.updateExaminee(examinee.id, { monitoringSnapshot: { ...examinee.monitoringSnapshot, ai: { ...result, sourceSnapshotAt: job.snapshotUpdatedAt } } });
-      await aiProctorOptions.onResult?.(job, result);
-    },
-    onWarning: async (job, event) => {
+      const snapshotKey = job.source === "auxiliary" ? "auxiliarySnapshot" : "monitoringSnapshot";
+      const snapshot = examinee?.[snapshotKey];
+      if (!examinee || !snapshot || snapshot.updatedAt !== job.snapshotUpdatedAt) return false;
+      await store.updateExaminee(examinee.id, { [snapshotKey]: { ...snapshot, ai: { ...result, sourceSnapshotAt: job.snapshotUpdatedAt, sourceAspectRatio: job.sourceAspectRatio ?? 16 / 9 } } });
+      const options = job.source === "auxiliary" ? mobileAiProctorOptions : aiProctorOptions;
+      await options.onResult?.(job, result);
+      return true;
+  };
+  const persistAiWarning = async (job, event) => {
       const examinee = store.examinees.find((item) => item.id === job.examineeId && item.examId === job.examId && item.candidateId === job.candidateId);
       if (!examinee) return;
       const exam = store.exams.find((item) => item.id === job.examId);
@@ -493,11 +495,24 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       };
       const policyKey = policyKeyByEvent[event.type];
       if (!policies?.aiAnalysisEnabled || (policyKey && !policies.cheatDetection?.[policyKey])) return;
-      await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, type: event.type, confidence: event.confidence, message: event.message, source: "AI", createdAt: new Date().toISOString() });
-      await aiProctorOptions.onWarning?.(job, event);
-    }
+      await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, type: event.type, confidence: event.confidence, message: event.message, source: "AI", cameraSource: job.source ?? "webcam", createdAt: new Date().toISOString() });
+      const options = job.source === "auxiliary" ? mobileAiProctorOptions : aiProctorOptions;
+      await options.onWarning?.(job, event);
+  };
+  const aiProctor = createAiProctor({
+    ...aiProctorOptions,
+    onResult: persistAiResult,
+    onWarning: persistAiWarning
+  });
+  const mobileAiProctor = createAiProctor({
+    ...aiProctorOptions,
+    ...mobileAiProctorOptions,
+    endpoint: mobileAiProctorOptions.endpoint ?? process.env.AI_MOBILE_PROCTOR_URL ?? aiProctorOptions.endpoint ?? process.env.AI_PROCTOR_URL,
+    onResult: persistAiResult,
+    onWarning: persistAiWarning
   });
   app.locals.aiProctor = aiProctor;
+  app.locals.mobileAiProctor = mobileAiProctor;
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const executionAllowedHosts = resolveCodeExecutionAllowedHosts();
   let normalizedCodeExecutionUrl = "";
@@ -1217,6 +1232,34 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  const publicIdentityVerificationRequest = (item) => ({
+    id: item.id,
+    status: item.status,
+    reason: item.reason ?? "",
+    requestedAt: item.requestedAt,
+    reviewedAt: item.reviewedAt ?? null,
+    reviewerNote: item.reviewerNote ?? ""
+  });
+  app.get("/api/applicant/identity-verification-request", authenticateApplicant, (request, response) => {
+    const { candidate, exam } = request.applicantSession;
+    const item = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+    return response.json(item ? publicIdentityVerificationRequest(item) : { status: "NONE" });
+  });
+  app.post("/api/applicant/identity-verification-request", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const existing = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+      if (existing?.status === "APPROVED") return response.json(publicIdentityVerificationRequest(existing));
+      const reason = typeof request.body?.reason === "string" ? request.body.reason.trim().slice(0, 500) : "";
+      const patch = { status: "PENDING", reason, requestedAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, reviewerNote: "" };
+      const saved = existing
+        ? await store.updateIdentityVerificationRequest(existing.id, patch)
+        : await store.addIdentityVerificationRequest({ id: randomUUID(), organizationId: exam.organizationId, examId: exam.id, candidateId: candidate.id, ...patch });
+      return response.status(existing ? 200 : 201).json(publicIdentityVerificationRequest(saved));
+    } catch (error) {
+      return next(error);
+    }
+  });
   const idCardScanResponse = (scan) => ({
     status: scan.status,
     verified: scan.status === "VERIFIED",
@@ -1254,6 +1297,32 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       idCardScans.set(scan.token, scan);
       await store.addIdCardScan(scan);
       return response.status(201).json({ token: scan.token });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/manager/exams/:examId/identity-verification-requests", authenticate, requireManager, (request, response) => {
+    const organizationIds = managerOrganizationIds(request.user, store.organizations);
+    const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+    if (!exam) return response.status(404).json({ message: "Exam not found or not authorized." });
+    return response.json(store.identityVerificationRequests
+      .filter((item) => item.examId === exam.id)
+      .map((item) => {
+        const candidate = store.candidates.find((entry) => entry.id === item.candidateId);
+        return { ...publicIdentityVerificationRequest(item), candidateId: item.candidateId, candidateName: candidate?.name ?? "Candidate", candidateNumber: candidate?.candidateNumber ?? "" };
+      }));
+  });
+  app.patch("/api/manager/exams/:examId/identity-verification-requests/:requestId", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
+      const item = store.identityVerificationRequests.find((entry) => entry.id === request.params.requestId && entry.examId === exam?.id);
+      const status = request.body?.status;
+      const reviewerNote = typeof request.body?.reviewerNote === "string" ? request.body.reviewerNote.trim().slice(0, 1000) : "";
+      if (!exam || !item) return response.status(404).json({ message: "Identity verification request not found." });
+      if (!["APPROVED", "REJECTED"].includes(status)) return response.status(400).json({ message: "Choose APPROVED or REJECTED." });
+      const updated = await store.updateIdentityVerificationRequest(item.id, { status, reviewerNote, reviewedAt: new Date().toISOString(), reviewedBy: request.user.id });
+      return response.json(publicIdentityVerificationRequest(updated));
     } catch (error) {
       return next(error);
     }
@@ -1300,10 +1369,23 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/applicant/auxiliary-devices", authenticateApplicant, async (request, response, next) => {
     try {
       const { candidate, exam } = request.applicantSession;
+      for (const [existingToken, existingDevice] of auxiliaryDevices) {
+        if (existingDevice.examId === exam.id && existingDevice.candidateId === candidate.id) auxiliaryDevices.delete(existingToken);
+      }
+      for (const [id, liveSession] of liveSessions) {
+        if (liveSession.source === "auxiliary" && liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
+      }
       const token = randomUUID();
       const device = { token, examId: exam.id, candidateId: candidate.id, expiresAt: Date.now() + 60 * 60 * 1000 };
       auxiliaryDevices.set(token, device);
       await store.addAuxiliaryDevice(device);
+      const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+      if (examinee) {
+        await store.updateExaminee(examinee.id, {
+          mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: false, updatedAt: new Date().toISOString() },
+          auxiliarySnapshot: null
+        });
+      }
       return response.status(201).json({ token });
     } catch (error) {
       return next(error);
@@ -1320,8 +1402,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const token = typeof request.body.token === "string" ? request.body.token : "";
       const device = auxiliaryDevices.get(token);
       if (!device || device.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 보조 카메라 QR 코드입니다." });
-      device.deviceToken ??= randomUUID();
-      await store.updateAuxiliaryDevice(device.token, { deviceToken: device.deviceToken });
+      if (device.deviceToken) return response.status(409).json({ message: "이미 연결된 보조 카메라 QR 코드입니다. PC에서 새 QR 코드를 생성해주세요." });
+      device.deviceToken = randomUUID();
+      device.pairedAt = Date.now();
+      await store.updateAuxiliaryDevice(device.token, { deviceToken: device.deviceToken, pairedAt: device.pairedAt });
       const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
       if (examinee) await store.updateExaminee(examinee.id, { mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: true, updatedAt: new Date().toISOString() } });
       return response.json({ deviceToken: device.deviceToken });
@@ -1336,7 +1420,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const invitation = store.invitations.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
     const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
     const pcMediaEnded = Boolean(examinee?.mediaStatus?.updatedAt) && !examinee.mediaStatus.webcam && !examinee.mediaStatus.screen;
-    return response.json({ ended: assignment?.status === "SUBMITTED" || Boolean(invitation?.submittedAt) || pcMediaEnded });
+    return response.json({ ended: assignment?.status === "SUBMITTED" || Boolean(invitation?.submittedAt) || pcMediaEnded, ai: examinee?.auxiliarySnapshot?.ai ?? null });
   });
   app.get("/api/mobile-devices/:deviceToken/live-offers", (request, response) => {
     const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
@@ -1355,14 +1439,21 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
       const image = typeof request.body.image === "string" ? request.body.image : "";
+      const sourceAspectRatio = Number(request.body.sourceAspectRatio);
       if (!device || !image.startsWith("data:image/") || image.length > 120000) return response.status(400).json({ message: "보조 카메라 화면 형식이 올바르지 않습니다." });
+      if (!Number.isFinite(sourceAspectRatio) || sourceAspectRatio < .25 || sourceAspectRatio > 4) return response.status(400).json({ message: "보조 카메라 화면 비율이 올바르지 않습니다." });
+      const receivedAt = Date.now();
+      if (device.lastSnapshotAt && receivedAt - device.lastSnapshotAt < 2500) return response.status(429).json({ message: "보조 카메라 화면 전송 간격이 너무 짧습니다." });
+      device.lastSnapshotAt = receivedAt;
       const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
       if (examinee) {
         const updatedAt = new Date().toISOString();
         await store.updateExaminee(examinee.id, {
           mediaStatus: { ...(examinee.mediaStatus ?? {}), auxiliaryCamera: true, updatedAt },
-          auxiliarySnapshot: { image, updatedAt }
+          auxiliarySnapshot: { image, updatedAt, sourceAspectRatio }
         });
+        const exam = store.exams.find((item) => item.id === device.examId);
+        if (exam?.examPolicies?.aiAnalysisEnabled) mobileAiProctor.schedule({ image, examineeId: examinee.id, examId: device.examId, candidateId: device.candidateId, snapshotUpdatedAt: updatedAt, sourceAspectRatio, source: "auxiliary" });
       }
       return response.sendStatus(204);
     } catch (error) {
@@ -1371,7 +1462,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.post("/api/mobile-devices/:deviceToken/disconnect", async (request, response, next) => {
     try {
-      const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken);
+      const device = [...auxiliaryDevices.values()].find((item) => item.deviceToken === request.params.deviceToken && item.expiresAt > Date.now());
       if (!device) return response.sendStatus(204);
       for (const [id, liveSession] of liveSessions) {
         if (liveSession.source === "auxiliary" && liveSession.examId === device.examId && liveSession.candidateId === device.candidateId) liveSessions.delete(id);
@@ -1405,7 +1496,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const snapshotUpdatedAt = new Date().toISOString();
       const previousAi = examinee.monitoringSnapshot?.ai;
       await store.updateExaminee(examinee.id, { monitoringSnapshot: { image, updatedAt: snapshotUpdatedAt, ...(previousAi ? { ai: previousAi } : {}) } });
-      if (exam.examPolicies?.aiAnalysisEnabled) aiProctor.schedule({ image, examineeId: examinee.id, examId: exam.id, candidateId: candidate.id, snapshotUpdatedAt });
+      if (exam.examPolicies?.aiAnalysisEnabled) aiProctor.schedule({ image, examineeId: examinee.id, examId: exam.id, candidateId: candidate.id, snapshotUpdatedAt, source: "webcam" });
       return response.sendStatus(204);
     } catch (error) {
       return next(error);

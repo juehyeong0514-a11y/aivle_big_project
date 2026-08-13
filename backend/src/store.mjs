@@ -23,6 +23,7 @@ const collectionDefaults = {
   warnings: [],
   auxiliaryDevices: [],
   idCardScans: [],
+  identityVerificationRequests: [],
   organizationJoinRequests: [],
   sessions: [],
   emailVerifications: [],
@@ -254,6 +255,7 @@ const save = async () => {
     get warnings() { return data.warnings; },
     get auxiliaryDevices() { return data.auxiliaryDevices; },
     get idCardScans() { return data.idCardScans; },
+    get identityVerificationRequests() { return data.identityVerificationRequests; },
     get examinees() { return data.examinees; },
     get organizations() { return data.organizations; },
     get candidates() { return data.candidates; },
@@ -341,6 +343,7 @@ const save = async () => {
       data.warnings = data.warnings.filter((warning) => !examineeIds.has(warning.examineeId));
       data.auxiliaryDevices = data.auxiliaryDevices.filter((device) => device.examId !== id);
       data.idCardScans = data.idCardScans.filter((scan) => scan.examId !== id);
+      data.identityVerificationRequests = data.identityVerificationRequests.filter((item) => item.examId !== id);
       data.aiGradingRequests = data.aiGradingRequests.filter((request) => request.examId !== id);
       data.notices = data.notices.map((notice) => notice.examId === id ? { ...notice, examId: null } : notice);
       data.communityPosts = data.communityPosts.map((post) => post.examId === id ? { ...post, examId: null } : post);
@@ -352,7 +355,7 @@ const save = async () => {
       await queuedSave();
     },
     addAuxiliaryDevice: async (device) => {
-      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.expiresAt > Date.now());
+      data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.expiresAt > Date.now() && (item.examId !== device.examId || item.candidateId !== device.candidateId));
       data.auxiliaryDevices.push(device);
       await queuedSave();
       return device;
@@ -376,6 +379,18 @@ const save = async () => {
       Object.assign(scan, patch);
       await queuedSave();
       return scan;
+    },
+    addIdentityVerificationRequest: async (request) => {
+      data.identityVerificationRequests.unshift(request);
+      await queuedSave();
+      return request;
+    },
+    updateIdentityVerificationRequest: async (id, patch) => {
+      const request = data.identityVerificationRequests.find((item) => item.id === id);
+      if (!request) return undefined;
+      Object.assign(request, patch);
+      await queuedSave();
+      return request;
     },
     removeAuxiliaryDevices: async (examId, candidateId) => {
       data.auxiliaryDevices = data.auxiliaryDevices.filter((item) => item.examId !== examId || item.candidateId !== candidateId);
