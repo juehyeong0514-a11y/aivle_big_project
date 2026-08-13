@@ -14,7 +14,11 @@ const summaryFor = (requests, explicit) => explicit && typeof explicit === 'obje
   failed: requests.filter((item) => ['FAILED', 'GRADING_FAILED', 'EMAIL_FAILED'].includes(String(item.automationStatus || item.status).toUpperCase())).length,
   progress: requests.length ? Math.round(requests.filter((item) => ['COMPLETED', 'EMAIL_SENT', 'ABSENT', 'EXCLUDED'].includes(String(item.automationStatus || item.status).toUpperCase())).length / requests.length * 100) : 0,
 };
-const effectiveStatus = (request) => String(request?.automationStatus || request?.status || 'PENDING').toUpperCase();
+const effectiveStatus = (request) => {
+  const status = String(request?.automationStatus || request?.status || 'PENDING').toUpperCase();
+  const emailSent = String(request?.resultEmailStatus || '').toUpperCase() === 'SENT' || Boolean(request?.resultEmailedAt);
+  return status === 'COMPLETED' && emailSent ? 'EMAIL_SENT' : status;
+};
 const recoveryStatus = (status) => ['FAILED', 'GRADING_FAILED', 'EMAIL_FAILED'].includes(status);
 const summaryForScope = (requests, candidates, explicit, examId) => {
   if (!examId || examId === 'ALL') return summaryFor(requests, explicit);
