@@ -31,6 +31,8 @@ export default function ExamSessionPage() {
   const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [waitingUntil, setWaitingUntil] = useState('');
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
   const [activeWarning, setActiveWarning] = useState(null);
   const [termination, setTermination] = useState(null);
   const warningIdsRef = useRef(new Set());
@@ -115,7 +117,7 @@ export default function ExamSessionPage() {
   }, []);
 
   useEffect(() => {
-    if (!exam?.id) return undefined;
+    if (!exam?.id || waitingUntil) return undefined;
     const totalSeconds = durationInSeconds(exam.duration);
     if (!totalSeconds) return undefined;
     const timerKey = `examEndAt:${exam.id}`;
@@ -126,7 +128,7 @@ export default function ExamSessionPage() {
     updateTimer();
     const timer = window.setInterval(updateTimer, 1000);
     return () => window.clearInterval(timer);
-  }, [exam?.id, exam?.duration]);
+  }, [exam?.id, exam?.duration, waitingUntil]);
 
   useEffect(() => {
     const reportMediaHeartbeat = () => {
@@ -142,17 +144,28 @@ export default function ExamSessionPage() {
   }, []);
 
   useEffect(() => {
-    api.get('/applicant/exam', { headers: candidateAuthHeaders() })
+    let active = true;
+    let retryTimer;
+    const loadExam = () => api.get('/applicant/exam', { headers: candidateAuthHeaders() })
       .then(async ({ data }) => {
+        if (!active) return null;
+        setExam(data.exam ?? null);
+        if (data.waiting) {
+          setWaitingUntil(data.startsAt ?? '');
+          retryTimer = window.setTimeout(loadExam, 1000);
+          return null;
+        }
+        setWaitingUntil('');
         const normalized = Array.isArray(data.questions)
           ? data.questions.map((question) => ({ ...question, options: Array.isArray(question.options) ? question.options.filter(Boolean) : [] }))
           : [];
-        setExam(data.exam ?? null);
         setQuestions(normalized);
         const progress = await api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
         return { progress, questions: normalized };
       })
-      .then(({ progress, questions: loadedQuestions }) => {
+      .then((result) => {
+        if (!active || !result) return;
+        const { progress, questions: loadedQuestions } = result;
         const initializedAnswers = { ...(progress.data.answers ?? {}) };
         loadedQuestions.forEach((question) => {
           if (question.type !== 'CODING' || !question.starterCode) return;
@@ -169,8 +182,23 @@ export default function ExamSessionPage() {
         setRunResults(progress.data.runResults ?? {});
         if (progress.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(progress.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
       })
-      .catch((reason) => setError(apiErrorMessage(reason, '시험 세션을 확인할 수 없습니다. 초대 링크로 다시 입장해 주세요.')));
+      .catch((reason) => {
+        if (active) setError(apiErrorMessage(reason, '시험 세션을 확인할 수 없습니다. 초대 링크로 다시 입장해 주세요.'));
+      });
+    loadExam();
+    return () => {
+      active = false;
+      window.clearTimeout(retryTimer);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!waitingUntil) return undefined;
+    const updateWaitingTime = () => setWaitingSeconds(Math.max(0, Math.ceil((Date.parse(waitingUntil) - Date.now()) / 1000)));
+    updateWaitingTime();
+    const timer = window.setInterval(updateWaitingTime, 1000);
+    return () => window.clearInterval(timer);
+  }, [waitingUntil]);
 
   const submitExam = async (event) => {
     event.preventDefault();
@@ -202,6 +230,7 @@ export default function ExamSessionPage() {
   if (submitted) return <ResultPage submitted={submitted} navigate={navigate} />;
   if (error) return <ErrorPage error={error} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
+  if (waitingUntil) return <ExamWaitingPage exam={exam} startsAt={waitingUntil} waitingSeconds={waitingSeconds} />;
   const remainingTime = formatRemainingTime(remainingSeconds);
   if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={questions} remainingTime={remainingTime} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} />{activeWarning && <ExamWarningModal warning={activeWarning} dismiss={() => setActiveWarning(null)} />}</form>;
 
@@ -219,6 +248,10 @@ export default function ExamSessionPage() {
       {activeWarning && <ExamWarningModal warning={activeWarning} dismiss={() => setActiveWarning(null)} />}
     </main>
   );
+}
+
+function ExamWaitingPage({ exam, startsAt, waitingSeconds }) {
+  return <main className="container"><section className="card exam-session-result exam-waiting-card"><Clock size={42} color="var(--accent-primary)" /><span className="workspace-eyebrow">WAITING ROOM</span><h1>{exam.title}</h1><p>사전 점검이 완료되었습니다. 시험 시작 시간이 되면 자동으로 시험 화면이 열립니다.</p><strong className="exam-waiting-countdown">{formatRemainingTime(waitingSeconds)}</strong><dl><div><dt>시험 시작</dt><dd>{new Date(startsAt).toLocaleString('ko-KR')}</dd></div><div><dt>제한 시간</dt><dd>{exam.duration}</dd></div></dl><p className="form-hint">이 페이지를 닫거나 새로고침하지 말고 잠시 기다려 주세요.</p></section></main>;
 }
 
 function ExamWarningModal({ warning, dismiss }) {

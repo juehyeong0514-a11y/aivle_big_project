@@ -326,6 +326,20 @@ export default function ManagerExamDetailPage() {
     );
   }, [load]);
 
+  useEffect(() => {
+    if (activeManagementPanel !== "identity") return undefined;
+    let active = true;
+    const refreshIdentityRequests = () => api.get(`/manager/exams/${examId}/identity-verification-requests`, headers)
+      .then(({ data }) => { if (active) setIdentityVerificationRequests(data); })
+      .catch(() => {});
+    refreshIdentityRequests();
+    const timer = window.setInterval(refreshIdentityRequests, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeManagementPanel, examId, headers]);
+
   const examCandidateScope = useMemo(
     () => getExamCandidateScope({
       candidates: organizationCandidates,

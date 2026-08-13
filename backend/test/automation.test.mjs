@@ -3,13 +3,26 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createApp, scheduledExamEndsAt } from "../src/app.mjs";
+import { createApp, scheduledExamEndsAt, scheduledExamStartsAt, shouldWaitForExamStart } from "../src/app.mjs";
 
 const fixture = async (options = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "aivle-automation-"));
   const app = await createApp({ databasePath: join(directory, "database.json"), startAutomation: false, ...options });
   return { app, store: app.locals.store };
 };
+
+test("parses the scheduled exam start in Asia/Seoul time", () => {
+  assert.equal(scheduledExamStartsAt({ date: "2099.01.01 10:30" }), "2099-01-01T01:30:00.000Z");
+  assert.equal(scheduledExamStartsAt({ date: "invalid" }), undefined);
+});
+
+test("waits before the exam for regular candidates but lets test candidates enter", () => {
+  const exam = { date: "2099.01.01 10:30" };
+  const beforeStart = Date.parse("2099-01-01T01:00:00.000Z");
+  assert.equal(shouldWaitForExamStart({ isTestCandidate: false }, exam, beforeStart), true);
+  assert.equal(shouldWaitForExamStart({ isTestCandidate: true }, exam, beforeStart), false);
+  assert.equal(shouldWaitForExamStart({}, exam, Date.parse("2099-01-01T01:30:00.000Z")), false);
+});
 
 test("automatic processing is a cutoff no-op before scheduledExamEndsAt and catches up after restart", async () => {
   let now = Date.parse("2099-01-01T00:00:00.000Z");
