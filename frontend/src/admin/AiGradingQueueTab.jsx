@@ -145,7 +145,7 @@ function AutomationRequestRow({ request, acceptingId, onRetryGrading, onRetryEma
 }
 
 function AutomationCandidateRow({ candidate, acceptingId, onRecover }) {
-  const status = String(candidate.status || 'WAITING').toUpperCase();
+  const status = String(candidate.status || 'WAITING').toUpperCase() === 'COMPLETED' && candidate.email?.status === 'SENT' ? 'EMAIL_SENT' : String(candidate.status || 'WAITING').toUpperCase();
   const reason = localizeAutomationFailure(candidate.failureReason || candidate.email?.failureReason || '');
   const recoveryId = `${candidate.examId}:${candidate.candidateId}`;
   const emailFailure = status === 'EMAIL_FAILED' || candidate.email?.status === 'FAILED';
