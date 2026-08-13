@@ -26,6 +26,7 @@ export default function InvitePage() {
     if (!isVerifiedSession) {
       localStorage.removeItem('candidateAccessToken');
       localStorage.removeItem('candidateNumber');
+      localStorage.removeItem('candidateSkipPrecheck');
       sessionStorage.removeItem('candidateInvitationToken');
       sessionStorage.removeItem('candidateInvitationName');
       window.dispatchEvent(new Event('candidate-invitation-updated'));
@@ -53,9 +54,15 @@ export default function InvitePage() {
       const { data } = await api.post(`/invitations/${token}/verify`, { candidateNumber: candidateNumber.trim() });
       localStorage.setItem('candidateAccessToken', data.accessToken);
       localStorage.setItem('candidateNumber', data.candidateNumber);
+      if (data.skipPrecheck) localStorage.setItem('candidateSkipPrecheck', 'true');
+      else localStorage.removeItem('candidateSkipPrecheck');
       sessionStorage.setItem('candidateInvitationToken', token);
       sessionStorage.setItem('candidateInvitationName', invite?.candidateName || '응시자');
       window.dispatchEvent(new Event('candidate-invitation-updated'));
+      if (data.skipPrecheck) {
+        navigate('/exam/session');
+        return;
+      }
       setVerified(true);
     } catch (reason) {
       setError(apiErrorMessage(reason, '응시번호를 확인하지 못했습니다.'));

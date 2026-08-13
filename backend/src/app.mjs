@@ -1134,7 +1134,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/applicant/session", authenticateApplicant, (request, response) => {
     const { invitation, candidate, exam } = request.applicantSession;
     const questionCount = store.questions.filter((question) => question.examId === exam.id).length;
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt });
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt, skipPrecheck: candidate.isTestCandidate === true });
   });
   app.get("/api/applicant/notices", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
@@ -2266,6 +2266,21 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: "", date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId };
       if (!scheduledExamEndsAt(exam)) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
       await store.addExam(exam);
+      const testCandidate = {
+        id: randomUUID(),
+        name: "테스트 응시자",
+        email: request.user.email,
+        birthDate: "2000-01-01",
+        organizationId,
+        candidateNumber: `AIVLE-TEST-${exam.id.slice(0, 8).toUpperCase()}`,
+        status: "REGISTERED",
+        isTestCandidate: true,
+        testExamId: exam.id,
+        createdAt: new Date().toISOString()
+      };
+      await store.addCandidate(testCandidate);
+      await store.addAssignment({ id: randomUUID(), examId: exam.id, candidateId: testCandidate.id, status: "ASSIGNED" });
+      await store.addExaminee({ id: randomUUID(), candidateId: testCandidate.id, name: testCandidate.name, organizationId, examId: exam.id, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" });
       return response.status(201).json(exam);
     } catch (error) {
       return next(error);
@@ -2668,13 +2683,19 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.patch("/api/manager/exams/:id", authenticate, requireManager, async (request, response, next) => {
     try {
       const exam = scopedExam(request, request.params.id);
-      const date = typeof request.body.date === "string" ? request.body.date.trim() : "";
+      const hasDate = Object.hasOwn(request.body, "date");
+      const hasTitle = Object.hasOwn(request.body, "title");
+      const date = hasDate && typeof request.body.date === "string" ? request.body.date.trim() : exam?.date;
+      const title = hasTitle && typeof request.body.title === "string" ? request.body.title.trim() : exam?.title;
       if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!hasDate && !hasTitle) return response.status(400).json({ message: "수정할 시험 정보를 입력해주세요." });
+      if (!isNonEmptyText(title)) return response.status(400).json({ message: "시험 제목을 입력해주세요." });
+      if (title.length > 100) return response.status(400).json({ message: "시험 제목은 100자 이하로 입력해주세요." });
       if (!isNonEmptyText(date)) return response.status(400).json({ message: "시험 시작 일시를 입력해주세요." });
-      const nextExam = { ...exam, date };
+      const nextExam = { ...exam, title, date };
       const expiresAt = scheduledExamEndsAt(nextExam);
       if (!expiresAt) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
-      const updated = await store.updateExam(exam.id, { date, updatedAt: new Date().toISOString() });
+      const updated = await store.updateExam(exam.id, { title, date, updatedAt: new Date().toISOString() });
       await Promise.all(store.invitations
         .filter((invitation) => invitation.examId === exam.id && !invitation.revokedAt)
         .map((invitation) => store.updateInvitation(invitation.id, { expiresAt })));
@@ -2845,11 +2866,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organization = store.organizations.find((candidate) => candidate.id === invitation.organizationId);
     const candidate = store.candidates.find((candidate) => candidate.id === invitation.candidateId);
     const questionCount = store.questions.filter((question) => question.examId === exam?.id).length;
-    return response.json({ organizationName: organization?.name ?? "조직", candidateName: candidate?.name ?? "응시자", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: `총 ${questionCount}문제`, expiresAt: invitation.expiresAt });
+    return response.json({ organizationName: organization?.name ?? "조직", candidateName: candidate?.name ?? "응시자", examName: exam?.title ?? "시험", schedule: exam?.date ?? "일정 미정", duration: exam?.duration ?? "제한 시간 미정", questions: `총 ${questionCount}문제`, expiresAt: invitation.expiresAt, skipPrecheck: candidate?.isTestCandidate === true });
   });
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
       const invitation = invitationForToken(store.invitations, request.params.token);
+      const candidate = invitation && store.candidates.find((item) => item.id === invitation.candidateId);
       if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
       if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
       const cooldownMs = store.systemPolicies.invitationSecurity.reverificationCooldownMinutes * 60 * 1000;
@@ -2873,7 +2895,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       sessions.set(session.tokenHash, session);
       await store.updateInvitation(invitation.id, { verifiedAt: invitation.verifiedAt ?? new Date().toISOString() });
       await store.addSession(session);
-      return response.json({ accessToken, examId: invitation.examId, candidateNumber: invitation.candidateNumber });
+      return response.json({ accessToken, examId: invitation.examId, candidateNumber: invitation.candidateNumber, skipPrecheck: candidate?.isTestCandidate === true });
     } catch (error) {
       return next(error);
     }

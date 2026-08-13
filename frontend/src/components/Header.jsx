@@ -208,6 +208,7 @@ export default function Header() {
     localStorage.removeItem('userName');
     localStorage.removeItem('candidateAccessToken');
     localStorage.removeItem('candidateNumber');
+    localStorage.removeItem('candidateSkipPrecheck');
     sessionStorage.removeItem('candidateInvitationToken');
     sessionStorage.removeItem('candidateInvitationName');
     alert('로그아웃되었습니다.');

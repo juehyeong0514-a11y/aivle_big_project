@@ -37,7 +37,8 @@ export default function ExamSessionPage() {
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
 
   useEffect(() => {
-    if (!hasActiveLiveStream('webcam') || !hasActiveLiveStream('screen')) navigate('/exam/check', { replace: true });
+    const skipPrecheck = localStorage.getItem('candidateSkipPrecheck') === 'true';
+    if (!skipPrecheck && (!hasActiveLiveStream('webcam') || !hasActiveLiveStream('screen'))) navigate('/exam/check', { replace: true });
   }, [navigate]);
 
   useEffect(() => {
@@ -151,6 +152,7 @@ export default function ExamSessionPage() {
       stopLiveMonitoring();
       setSubmitted(data);
       localStorage.removeItem('candidateAccessToken');
+      localStorage.removeItem('candidateSkipPrecheck');
       sessionStorage.removeItem('candidateInvitationToken');
       sessionStorage.removeItem('candidateInvitationName');
     } catch (reason) {

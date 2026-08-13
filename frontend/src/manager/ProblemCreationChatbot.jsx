@@ -6,8 +6,9 @@ import { api, apiErrorMessage, authHeaders } from "../api/client";
 const empty = { difficulty: "", type: "", scope: "", languages: [] };
 const typeName = (value) => value === "CODING" ? "코딩 문제" : "객관식 문제";
 
-export default function ProblemCreationChatbot({ examId, onApplyCoding, onApplyMultipleChoice }) {
-  const [requirements, setRequirements] = useState(empty);
+export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOnly = false }) {
+  const initialRequirements = codingOnly ? { ...empty, type: "CODING" } : empty;
+  const [requirements, setRequirements] = useState(initialRequirements);
   const [errors, setErrors] = useState({});
   const [candidates, setCandidates] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -69,10 +70,10 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, onApplyM
       setFeedbackError(apiErrorMessage(error, "AI가 수정 요청을 반영하지 못했습니다. 다시 시도해 주세요."));
     } finally { setRevising(false); }
   };
-  const confirm = () => { const problem = candidateToProblem(selected); if (problem.type === "CODING") onApplyCoding(problem.form); else onApplyMultipleChoice(problem.form); setComplete(true); };
-  const restart = () => { setRequirements(empty); setErrors({}); setCandidates([]); setSelected(null); setFeedback(""); setComplete(false); setGenerationError(""); setAgentSteps([]); };
+  const confirm = () => { const problem = candidateToProblem(selected); onApplyCoding(problem.form); setComplete(true); };
+  const restart = () => { setRequirements(initialRequirements); setErrors({}); setCandidates([]); setSelected(null); setFeedback(""); setComplete(false); setGenerationError(""); setAgentSteps([]); };
 
-  return <section className="problem-chatbot" aria-label="AI 문제 만들기">
+  return <section className={`problem-chatbot${codingOnly ? " coding-only" : ""}`} aria-label="AI 문제 만들기">
     <header><div><strong><Bot size={18} /> AI 문제 만들기</strong><span>조건 입력 → 시안 선택 → 수정 → 확정</span></div><button type="button" onClick={restart}><RefreshCw size={14} /> 새로 시작</button></header>
     <div className="problem-chatbot-body">
       {!candidates.length && <><div className="chat-message"><Bot size={16} /><div><strong>어떻게 문제를 만들고 싶으세요?</strong><p>조건을 입력하면 AI가 이 화면 형식에 맞는 완성된 문제 시안 3개를 만들어요.</p></div></div><div className="chat-requirements-grid"><Select label="난이도" field="difficulty" options={REQUIREMENT_OPTIONS.difficulty} value={requirements.difficulty} update={update} error={errors.difficulty} /><Select label="문제 유형" field="type" options={REQUIREMENT_OPTIONS.type} value={requirements.type} update={update} error={errors.type} format={typeName} />{requirements.type === "CODING" && <fieldset className="chat-language-picker"><legend>사용 언어 <b>필수</b></legend><div>{CODING_LANGUAGE_OPTIONS.map((language) => <label key={language}><input type="checkbox" checked={requirements.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div>{errors.languages && <em>{errors.languages}</em>}</fieldset>}<label className="chat-scope">출제 범위 <b>필수</b><textarea value={requirements.scope} onChange={(event) => update("scope", event.target.value)} placeholder="예: 배열과 반복문" />{errors.scope && <em>{errors.scope}</em>}</label></div>{generating && <ol className="agent-step-log in-progress">{visibleAgentSteps.map((step) => <li key={step}><span className="agent-progress-dot" /> {step}</li>)}</ol>}{generationError && <p className="form-error">{generationError}</p>}<button className="primary-button" type="button" disabled={generating} onClick={() => create()}><Sparkles size={16} /> {generating ? "AI 에이전트 실행 중…" : "문제 시안 3개 만들기"}</button></>}

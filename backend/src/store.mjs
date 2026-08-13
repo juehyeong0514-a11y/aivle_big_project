@@ -331,6 +331,7 @@ const save = async () => {
         .filter((examinee) => examinee.examId === id)
         .map((examinee) => examinee.id));
       data.exams = data.exams.filter((candidate) => candidate.id !== id);
+      data.candidates = data.candidates.filter((candidate) => candidate.testExamId !== id);
       data.questions = data.questions.filter((question) => question.examId !== id);
       data.assignments = data.assignments.filter((assignment) => assignment.examId !== id);
       data.invitations = data.invitations.filter((invitation) => invitation.examId !== id);

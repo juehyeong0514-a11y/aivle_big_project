@@ -263,6 +263,9 @@ export default function ManagerExamDetailPage() {
   const [candidateToDelete, setCandidateToDelete] = useState(null);
   const [questionToDelete, setQuestionToDelete] = useState(null);
   const [messageType, setMessageType] = useState("info");
+  const [isEditingExamTitle, setIsEditingExamTitle] = useState(false);
+  const [examTitleDraft, setExamTitleDraft] = useState("");
+  const [isSavingExamTitle, setIsSavingExamTitle] = useState(false);
   const headers = useMemo(() => ({ headers: authHeaders() }), []);
   const uploadableCandidateCount = candidateUploadPreview.filter((candidate) => !candidate.uploadError).length;
   const uploadErrorCount = candidateUploadPreview.length - uploadableCandidateCount;
@@ -309,6 +312,28 @@ export default function ManagerExamDetailPage() {
   const showMessage = (text, type = "info") => {
     setMessage(text);
     setMessageType(type);
+  };
+
+  const startEditingExamTitle = () => {
+    setExamTitleDraft(exam.title);
+    setIsEditingExamTitle(true);
+  };
+
+  const saveExamTitle = async () => {
+    const title = examTitleDraft.trim();
+    if (!title) return showMessage("시험 제목을 입력해주세요.", "error");
+    if (title.length > 100) return showMessage("시험 제목은 100자 이하로 입력해주세요.", "error");
+    setIsSavingExamTitle(true);
+    try {
+      const { data } = await api.patch(`/manager/exams/${examId}`, { title }, headers);
+      setExam(data);
+      setIsEditingExamTitle(false);
+      showMessage("시험 제목을 수정했습니다.");
+    } catch (reason) {
+      showMessage(apiErrorMessage(reason, "시험 제목을 수정하지 못했습니다."), "error");
+    } finally {
+      setIsSavingExamTitle(false);
+    }
   };
 
   useEffect(() => {
@@ -821,7 +846,15 @@ export default function ManagerExamDetailPage() {
         <div>
           <span className="workspace-eyebrow">EXAM DETAIL</span>
           <div className="title-with-badge">
-            <h1>{exam.title}</h1>
+            {isEditingExamTitle ? (
+              <div className="exam-title-editor">
+                <input aria-label="시험 제목" autoFocus maxLength={100} value={examTitleDraft} onChange={(event) => setExamTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveExamTitle(); if (event.key === "Escape") setIsEditingExamTitle(false); }} />
+                <button className="primary-button compact-button" type="button" disabled={isSavingExamTitle} onClick={saveExamTitle}><Save size={15} /> {isSavingExamTitle ? "저장 중..." : "저장"}</button>
+                <button className="secondary-button compact-button" type="button" disabled={isSavingExamTitle} onClick={() => setIsEditingExamTitle(false)}><X size={15} /> 취소</button>
+              </div>
+            ) : (
+              <div className="exam-title-display"><h1>{exam.title}</h1><button className="icon-button" type="button" aria-label="시험 제목 수정" onClick={startEditingExamTitle}><Pencil size={17} /></button></div>
+            )}
             <span className="status-badge approved">{exam.status}</span>
           </div>
           <p>
@@ -835,7 +868,7 @@ export default function ManagerExamDetailPage() {
           className={`exam-detail-tab ${activeManagementPanel === "questions" ? "active" : ""}`}
           type="button"
           aria-pressed={activeManagementPanel === "questions"}
-          onClick={() => setActiveManagementPanel("questions")}
+          onClick={() => { setActiveManagementPanel("questions"); setMessage(""); }}
         >
           문제 및 미리보기
           <span className="exam-detail-tab-count">문제 {questions.length}개</span>
@@ -844,7 +877,7 @@ export default function ManagerExamDetailPage() {
           className={`exam-detail-tab ${activeManagementPanel === "candidates" ? "active" : ""}`}
           type="button"
           aria-pressed={activeManagementPanel === "candidates"}
-          onClick={() => setActiveManagementPanel("candidates")}
+          onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}
         >
           응시자 관리
           <span className="exam-detail-tab-count">
@@ -855,7 +888,7 @@ export default function ManagerExamDetailPage() {
           className={`exam-detail-tab ${activeManagementPanel === "invitations" ? "active" : ""}`}
           type="button"
           aria-pressed={activeManagementPanel === "invitations"}
-          onClick={() => setActiveManagementPanel("invitations")}
+          onClick={() => { setActiveManagementPanel("invitations"); setMessage(""); }}
         >
           배정 및 초대
           <span className="exam-detail-tab-count">
@@ -868,7 +901,7 @@ export default function ManagerExamDetailPage() {
         examId={examId}
         message={message} messageType={messageType}
         questionType={questionType} setQuestionType={setQuestionType} questionForm={questionForm} setQuestionForm={setQuestionForm}
-        multipleChoiceForm={multipleChoiceForm} setMultipleChoiceForm={setMultipleChoiceForm} editingQuestionId={editingQuestionId}
+        editingQuestionId={editingQuestionId}
         activeQuestionStep={activeQuestionStep} setActiveQuestionStep={setActiveQuestionStep} createQuestion={createQuestion}
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
@@ -1206,11 +1239,8 @@ export default function ManagerExamDetailPage() {
   );
 }
 
-function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, multipleChoiceForm, setMultipleChoiceForm, editingQuestionId, activeQuestionStep, setActiveQuestionStep, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
+function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, activeQuestionStep, setActiveQuestionStep, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
   const isCoding = questionType === "CODING";
-  const updateOption = (index, value) => setMultipleChoiceForm((current) => ({ ...current, options: current.options.map((option, optionIndex) => optionIndex === index ? value : option) }));
-  const addOption = () => setMultipleChoiceForm((current) => ({ ...current, options: [...current.options, ""] }));
-  const removeOption = (index) => setMultipleChoiceForm((current) => ({ ...current, options: current.options.filter((_, optionIndex) => optionIndex !== index), answer: current.answer === current.options[index] ? "" : current.answer }));
   const updateForm = (field, value) => {
     setQuestionForm((current) => ({ ...current, [field]: value }));
     setVisibleErrors((current) => {
@@ -1432,11 +1462,10 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form">
     <div className="panel-heading"><div><h2>문제 및 미리보기</h2><p>단계별 완료 상태와 응시자 화면을 한곳에서 확인하세요.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
-    {!editingQuestionId && <ProblemCreationChatbot examId={examId} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form })); setActiveQuestionStep(0); }} onApplyMultipleChoice={(form) => { setQuestionType("MULTIPLE_CHOICE"); setMultipleChoiceForm(form); setActiveQuestionStep(0); }} />}
-    <div className="question-type-switch" role="group" aria-label="문제 유형"><button type="button" disabled={Boolean(editingQuestionId)} className={isCoding ? "active" : ""} onClick={() => { setQuestionType("CODING"); setActiveQuestionStep(0); }}>코딩 문제</button><button type="button" disabled={Boolean(editingQuestionId)} className={!isCoding ? "active" : ""} onClick={() => { setQuestionType("MULTIPLE_CHOICE"); setActiveQuestionStep(0); }}>객관식 문제</button>{editingQuestionId && <span className="form-hint">수정 중에는 문제 유형을 변경할 수 없습니다.</span>}</div>
+    {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form })); setActiveQuestionStep(0); }} />}
     {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
     <form onSubmit={submitQuestion} noValidate={isCoding}>
-      {isCoding ? <>
+      <>
         <div className="coding-authoring-layout">
           <div className="coding-workflow-header"><nav className="coding-step-navigation" aria-label="코딩 문제 작성 단계">{CODING_STEPS.map((step, index) => <button key={step.id} id={`coding-step-${index}`} type="button" aria-current={activeQuestionStep === index ? "step" : undefined} className={activeQuestionStep === index ? "active" : ""} onClick={() => goToStep(index)}><b>{index + 1}</b><span><strong>{step.title}</strong><small>{step.description}</small></span><em className={`coding-step-status ${stepStates[index]}`}>{({ complete: "완료", attention: "확인 필요", incomplete: "작성 중", optional: "선택" })[stepStates[index]]}</em></button>)}</nav></div>
           <main className="coding-editor-column">
@@ -1446,22 +1475,23 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
               {activeQuestionStep === 1 && [["description", "문제 설명"], ["inputFormat", "입력 형식"], ["outputFormat", "출력 형식"], ["constraints", "제한"]].map(([field, label]) => <label key={field}>{requiredLabel(label)}<textarea id={`coding-field-${field}`} value={questionForm[field]} aria-invalid={Boolean(visibleErrors[field])} aria-describedby={visibleErrors[field] ? `coding-error-${field}` : undefined} onChange={(event) => updateForm(field, event.target.value)} />{errorFor(field)}</label>)}
               {activeQuestionStep === 2 && <><TestCaseEditor collection="publicExamples" cases={questionForm.publicExamples} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.publicExamples} /><TestCaseEditor collection="hiddenTestCases" cases={questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.hiddenTestCases} /><details className="coding-advanced-settings" open={questionForm.judgeMode !== "EXACT"}><summary>채점 방식 설정 <span>{questionForm.judgeMode === "EXACT" ? "기본값 사용 중" : "고급 설정 사용 중"}</span></summary><div><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input id="coding-field-numericTolerance" type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} />{errorFor("numericTolerance")}</label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea id="coding-field-customJudgeCode" className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} />{errorFor("customJudgeCode")}</label>}</div></details></>}
               {activeQuestionStep === 3 && <AiAnalysisEditor aiAnalysis={questionForm.aiAnalysis} updateAiAnalysis={updateAiAnalysis} toggleAiAnalysisValue={toggleAiAnalysisValue} toggleAiCustomEnabled={toggleAiCustomEnabled} addAiCustomTextItem={addAiCustomTextItem} updateAiCustomDraft={updateAiCustomDraft} removeAiCustomTextItem={removeAiCustomTextItem} setCustomAlgorithmsEnabled={setCustomAlgorithmsEnabled} addCustomAlgorithm={addCustomAlgorithm} updateCustomAlgorithm={updateCustomAlgorithm} removeCustomAlgorithm={removeCustomAlgorithm} toggleAlgorithm={toggleAlgorithm} updateAlgorithmLevel={updateAlgorithmLevel} updateLearningMaterial={updateLearningMaterial} addLearningMaterial={addLearningMaterial} removeLearningMaterial={removeLearningMaterial} uploadReferenceMaterial={uploadReferenceMaterial} removeReferenceMaterial={removeReferenceMaterial} />}
-              {activeQuestionStep === 4 && <ReviewAndRegister questionForm={questionForm} errors={allErrors} focusError={focusError} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
+              {activeQuestionStep === 4 && <ReviewAndRegister questionForm={questionForm} errors={allErrors} focusError={focusError} message={message} messageType={messageType} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
             </div>
           </main>
           <DraftPreview questionForm={questionForm} previewTab={previewTab} setPreviewTab={setPreviewTab} />
         </div>
-      </> : <div className="multiple-choice-editor"><label>문제 문구<textarea value={multipleChoiceForm.prompt} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, prompt: event.target.value }))} required /></label><div className="section-title-row"><h3>선택지</h3><button className="secondary-button compact-button" type="button" onClick={addOption}>선택지 추가</button></div>{multipleChoiceForm.options.map((option, index) => <div className="multiple-choice-option" key={index}><label>선택지 {index + 1}<input value={option} onChange={(event) => updateOption(index, event.target.value)} required /></label>{multipleChoiceForm.options.length > 2 && <button className="text-button" type="button" onClick={() => removeOption(index)}>삭제</button>}</div>)}<label>정답<select value={multipleChoiceForm.answer} onChange={(event) => setMultipleChoiceForm((current) => ({ ...current, answer: event.target.value }))} required><option value="">정답 선택</option>{multipleChoiceForm.options.filter(Boolean).map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>}
+      </>
       <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><span>{isCoding && <span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span>}</span><div>{isCoding && <button className="secondary-button" type="button" disabled={activeQuestionStep === 0} onClick={() => goToStep(activeQuestionStep - 1)}>이전</button>}{isCoding && activeQuestionStep < CODING_STEPS.length - 1 && <button className="secondary-button" type="button" onClick={() => goToStep(activeQuestionStep + 1)}>다음</button>}<button className="primary-button" type="submit"><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "문제 등록"}</button>{editingQuestionId && <button className="secondary-button" type="button" onClick={cancelQuestionEdit}>새 문제 등록</button>}</div></div></div>
     </form>
-    <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 숨김 테스트 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions"><button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button><button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
+    <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 숨김 테스트 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
   </section>;
 }
 
-function ReviewAndRegister({ questionForm, errors, focusError, requestAiReferenceAnswer }) {
+function ReviewAndRegister({ questionForm, errors, focusError, message, messageType, requestAiReferenceAnswer }) {
   const errorEntries = Object.entries(errors);
   return <div className="coding-review">
     {errorEntries.length > 0 && <div className="coding-error-summary" role="alert"><h4>확인할 항목</h4>{errorEntries.map(([field, message]) => <button type="button" key={field} onClick={() => focusError(field)}>{message}<span>수정하기 →</span></button>)}</div>}
+    {message && <div className={`ai-reference-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}
     <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={requestAiReferenceAnswer} />
   </div>;
 }
