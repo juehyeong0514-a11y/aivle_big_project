@@ -1,10 +1,11 @@
 export class ProblemAuthoringAgentError extends Error {
-  constructor(code, message, { retryable = false, trace = [] } = {}) {
+  constructor(code, message, { retryable = false, trace = [], cause } = {}) {
     super(message);
     this.name = "ProblemAuthoringAgentError";
     this.code = code;
     this.retryable = retryable;
     this.trace = trace;
+    this.cause = cause;
   }
 }
 
@@ -22,7 +23,7 @@ async function callTool(name, action, trace, onStep) {
       if (attempt === 1) record(trace, onStep, `${name} 일시 오류로 자동 재시도`);
     }
   }
-  throw new ProblemAuthoringAgentError("AI_TOOL_FAILED", `${name}에 실패했습니다. AI 연결, 모델 설정 또는 사용량을 확인한 뒤 다시 시도해주세요.`, { retryable: true, trace, cause: lastError });
+  throw new ProblemAuthoringAgentError("AI_TOOL_FAILED", `${name}에 실패했습니다.`, { retryable: true, trace, cause: lastError });
 }
 
 export async function runProblemAuthoringAgent({ generate, repair, normalizeCandidates, onStep }) {

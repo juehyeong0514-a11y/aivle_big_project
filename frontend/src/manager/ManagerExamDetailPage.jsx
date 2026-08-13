@@ -68,6 +68,9 @@ const initialCodingProblem = () => ({
       generatedAt: "",
       feasibilityMessage: "",
       errorMessage: "",
+      errorDetail: "",
+      errorCode: "",
+      providerStatus: undefined,
       warnings: [],
       provider: "",
       model: "",
@@ -128,6 +131,9 @@ const normalizeAiReferenceAnswer = (value) => ({
   generatedAt: typeof value?.generatedAt === "string" ? value.generatedAt : "",
   feasibilityMessage: typeof value?.feasibilityMessage === "string" ? value.feasibilityMessage : "",
   errorMessage: typeof value?.errorMessage === "string" ? value.errorMessage : "",
+  errorDetail: typeof value?.errorDetail === "string" ? value.errorDetail : "",
+  errorCode: typeof value?.errorCode === "string" ? value.errorCode : "",
+  providerStatus: Number.isInteger(Number(value?.providerStatus)) ? Number(value.providerStatus) : undefined,
   warnings: Array.isArray(value?.warnings) ? value.warnings.filter((item) => typeof item === "string") : [],
   provider: typeof value?.provider === "string" ? value.provider : "",
   model: typeof value?.model === "string" ? value.model : "",
@@ -373,6 +379,9 @@ export default function ManagerExamDetailPage() {
           ...(current.aiAnalysis.referenceAnswer ?? {}),
           status: "PROCESSING",
           errorMessage: "",
+          errorDetail: "",
+          errorCode: "",
+          providerStatus: undefined,
         },
       },
     }));
@@ -404,7 +413,7 @@ export default function ManagerExamDetailPage() {
         referenceSolutions: { ...current.referenceSolutions, ...(data.answers ?? {}) },
         aiAnalysis: {
           ...current.aiAnalysis,
-          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "", feasibilityMessage: "", errorMessage: "", warnings: data.warnings ?? [], provider: data.provider ?? "", model: data.model ?? "" },
+          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "", feasibilityMessage: "", errorMessage: "", errorDetail: "", errorCode: "", providerStatus: undefined, warnings: data.warnings ?? [], provider: data.provider ?? "", model: data.model ?? "" },
         },
       }));
       showMessage("입력한 문제 정보를 바탕으로 AI 모범 답안을 생성했습니다.");
@@ -412,14 +421,24 @@ export default function ManagerExamDetailPage() {
     } catch (reason) {
       if (!isCurrent()) return false;
       const errorMessage = apiErrorMessage(reason, reason?.message || "AI 모범 답안 생성에 실패했습니다.");
+      const failure = reason?.response?.data ?? {};
       setQuestionForm((current) => ({
         ...current,
         aiAnalysis: {
           ...current.aiAnalysis,
-          referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "FAILED", errorMessage },
+          referenceAnswer: {
+            ...current.aiAnalysis.referenceAnswer,
+            status: "FAILED",
+            errorMessage,
+            errorDetail: typeof failure.detail === "string" ? failure.detail : "",
+            errorCode: failure.providerCode || failure.code || "",
+            providerStatus: failure.providerStatus,
+            provider: failure.provider || "",
+            model: failure.model || "",
+          },
         },
       }));
-      showMessage(errorMessage, "error");
+      showMessage(failure.detail ? `${errorMessage} 상세 원인: ${failure.detail}` : errorMessage, "error");
       return false;
     }
   };
@@ -1453,7 +1472,7 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answe
     </div>
     {answerOutdated && <div className="ai-reference-feasibility-warning caution" role="alert"><strong>문제에 수정사항이 있습니다.</strong><p>현재 모범 답안이 수정된 문제와 다를 수 있습니다. 내용을 확인한 뒤 모범 답안을 다시 생성해 주세요.</p></div>}
     {answerState.status === "BLOCKED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>현재 조건으로 모범 답안을 생성할 수 없습니다.</strong><p>{answerState.feasibilityMessage}</p>{answerState.warnings.length > 0 && <ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</div>}
-    {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>모범 답안 생성에 실패했습니다.</strong><p>{answerState.errorMessage || "서버에서 실패 사유를 받지 못했습니다. 관리자 AI API 키와 모델 설정, 백엔드 로그를 확인해주세요."}</p></div>}
+    {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>{answerState.errorMessage || "모범 답안 생성에 실패했습니다."}</strong>{answerState.errorDetail && <p>상세 원인: {answerState.errorDetail}</p>}{(answerState.provider || answerState.model) && <small>연결: {[answerState.provider, answerState.model].filter(Boolean).join(" / ")}</small>}{(answerState.providerStatus || answerState.errorCode) && <small>오류 식별: {[answerState.providerStatus && `HTTP ${answerState.providerStatus}`, answerState.errorCode].filter(Boolean).join(" / ")}</small>}{!answerState.errorDetail && <p>서버에서 상세 실패 사유를 받지 못했습니다. 관리자 AI API 키와 모델 설정, 백엔드 로그를 확인해주세요.</p>}</div>}
     {answerState.status === "GENERATED" && answerState.warnings.length > 0 && <div className="ai-reference-feasibility-warning caution"><strong>생성 전제 확인</strong><ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
     {answerState.provider && <p className="form-hint">관리자 중앙 AI 설정: {answerState.provider} · {answerState.model}</p>}
     {hasGeneratedAnswer ? <div className="ai-generated-answer-list">

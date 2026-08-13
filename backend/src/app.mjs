@@ -71,6 +71,17 @@ const isValidPassword = (value) => {
   return trimmed.length >= 8 && /[A-Za-z]/.test(trimmed) && /\d/.test(trimmed) && /[^A-Za-z0-9]/.test(trimmed);
 };
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]);
+export const publicAiFailure = (error) => {
+  const rawMessage = typeof error?.message === "string" && error.message.trim() ? error.message.trim() : "AI 공급자가 오류 내용을 반환하지 않았습니다.";
+  const detail = rawMessage
+    .replace(/([?&](?:key|api_key)=)[^&\s]+/gi, "$1[숨김]")
+    .replace(/\b(?:sk|key)-[A-Za-z0-9_-]{12,}\b/g, "[인증정보 숨김]")
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/gi, "$1[숨김]")
+    .slice(0, 1_000);
+  const status = Number.isInteger(Number(error?.status)) ? Number(error.status) : undefined;
+  const code = typeof error?.code === "string" && /^[A-Za-z0-9_.-]{1,100}$/.test(error.code) ? error.code : undefined;
+  return { detail, ...(status ? { providerStatus: status } : {}), ...(code ? { providerCode: code } : {}) };
+};
 const safeAutomationFailure = (status, reason = "") => {
   const normalizedStatus = String(status ?? "").toUpperCase();
   const normalizedReason = String(reason ?? "").toUpperCase();
@@ -755,13 +766,19 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   };
   const invokeAiGrading = aiProviderInvoker ?? (async ({ apiKey, provider, model, prompt, systemPrompt = "You are an exam grader. Return concise JSON with score, feedback, and rubricBreakdown." }) => {
     const requestOptions = { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60000) };
+    const providerError = (message, response, code) => {
+      const error = new Error(message);
+      error.status = response.status;
+      error.code = code;
+      throw error;
+    };
     let response;
     if (provider === "OpenAI") {
       requestOptions.headers.Authorization = `Bearer ${apiKey}`;
       requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
       response = await fetch("https://api.openai.com/v1/chat/completions", requestOptions);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "OpenAI 채점 호출에 실패했습니다.");
+      if (!response.ok) providerError(payload.error?.message ?? "OpenAI 호출에 실패했습니다.", response, payload.error?.code);
       return parseAiJsonResponse(payload.choices?.[0]?.message?.content ?? "{}");
     }
     if (provider === "Anthropic") {
@@ -770,14 +787,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       requestOptions.body = JSON.stringify({ model, max_tokens: 1200, system: systemPrompt, messages: [{ role: "user", content: prompt }] });
       response = await fetch("https://api.anthropic.com/v1/messages", requestOptions);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "Anthropic 채점 호출에 실패했습니다.");
+      if (!response.ok) providerError(payload.error?.message ?? "Anthropic 호출에 실패했습니다.", response, payload.error?.type);
       return parseAiJsonResponse(payload.content?.[0]?.text ?? "{}");
     }
     if (provider === "Google Gemini") {
       requestOptions.body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n${prompt}` }] }], generationConfig: { responseMimeType: "application/json" } });
       response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, requestOptions);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "Gemini 채점 호출에 실패했습니다.");
+      if (!response.ok) providerError(payload.error?.message ?? "Gemini 호출에 실패했습니다.", response, payload.error?.status);
       return parseAiJsonResponse(payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}");
     }
     if (provider === "DeepSeek") {
@@ -785,7 +802,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       requestOptions.body = JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }], response_format: { type: "json_object" } });
       response = await fetch("https://api.deepseek.com/v1/chat/completions", requestOptions);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "DeepSeek 채점 호출에 실패했습니다.");
+      if (!response.ok) providerError(payload.error?.message ?? "DeepSeek 호출에 실패했습니다.", response, payload.error?.code);
       return parseAiJsonResponse(payload.choices?.[0]?.message?.content ?? "{}");
     }
     throw new Error(`${provider} 채점 어댑터는 아직 서버에 구성되지 않았습니다.`);
@@ -2861,7 +2878,18 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       await store.addAiInvocationLog({ id: randomUUID(), kind: "PROBLEM_CANDIDATES", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: scope, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: JSON.parse(prompt), response: { candidateCount: candidates.length, agentSteps }, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return finish(200, { candidates, agentSteps, provider: aiConfig.provider, model: aiConfig.model });
     } catch (error) {
-      if (error instanceof ProblemAuthoringAgentError) return finish(422, { message: error.message, code: error.code, retryable: error.retryable, agentSteps: error.trace });
+      if (error instanceof ProblemAuthoringAgentError) {
+        const failedAiConfig = centralAiConfig();
+        return finish(422, {
+          message: error.message,
+          code: error.code,
+          retryable: error.retryable,
+          agentSteps: error.trace,
+          ...publicAiFailure(error.cause),
+          provider: failedAiConfig.provider,
+          model: failedAiConfig.model,
+        });
+      }
       if (streaming) return finish(500, { message: "AI 에이전트 실행 중 서버 오류가 발생했습니다." });
       return next(error);
     }
@@ -2914,7 +2942,13 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!title || !description || languages.length === 0) return response.status(400).json({ message: "문제 제목, 설명, 사용 언어를 먼저 입력해주세요." });
       const aiConfig = centralAiConfig();
       const { apiKey } = aiConfig;
-      if (!apiKey) return response.status(503).json({ message: "등록된 중앙 AI API 키가 없습니다." });
+      if (!apiKey) return response.status(503).json({
+        message: "모범 답안 생성에 실패했습니다.",
+        detail: "등록된 중앙 AI API 키가 없습니다.",
+        code: "AI_API_KEY_MISSING",
+        provider: aiConfig.provider,
+        model: aiConfig.model,
+      });
       const aiAnalysis = { ...normalizeAiAnalysis(input.aiAnalysis) };
       delete aiAnalysis.validation;
       const prompt = JSON.stringify({
@@ -3014,12 +3048,25 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         const missingLanguages = languages.filter((language) => !answers[language]);
         const errorMessage = missingLanguages.length ? `AI 응답에서 다음 언어의 답안을 찾지 못했습니다: ${missingLanguages.join(", ")}` : "AI가 생성한 소스 코드의 문자가 손상되어 모범 답안으로 저장하지 않았습니다.";
         await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, errorMessage, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
-        return response.status(502).json({ message: errorMessage });
+        return response.status(502).json({
+          message: "모범 답안 생성에 실패했습니다.",
+          detail: errorMessage,
+          code: "AI_REFERENCE_ANSWER_INVALID",
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+        });
       }
       await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "COMPLETED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: title, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: auditContext.prompt, response: auditedResponse, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       return response.json({ feasible: true, answers, warnings, status: "GENERATED", provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, generatedAt: new Date().toISOString() });
     } catch (error) {
       if (auditContext) await store.addAiInvocationLog({ id: randomUUID(), kind: "REFERENCE_ANSWER", status: "FAILED", actorId: request.user.id, actorName: request.user.name, examId: request.params.examId, questionTitle: auditContext.title, provider: auditContext.aiConfig.provider, model: auditContext.aiConfig.model, connectionName: auditContext.aiConfig.connectionName, prompt: auditContext.prompt, response: error.rawResponse ? { rawText: error.rawResponse } : null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
+      if (auditContext) return response.status(502).json({
+        message: "모범 답안 생성에 실패했습니다.",
+        ...publicAiFailure(error),
+        code: "AI_REFERENCE_ANSWER_FAILED",
+        provider: auditContext.aiConfig.provider,
+        model: auditContext.aiConfig.model,
+      });
       return next(error);
     }
   });

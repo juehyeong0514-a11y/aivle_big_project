@@ -17,7 +17,7 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOn
   const [feedbackError, setFeedbackError] = useState("");
   const [complete, setComplete] = useState(completed);
   const [generating, setGenerating] = useState(false);
-  const [generationError, setGenerationError] = useState("");
+  const [generationError, setGenerationError] = useState(null);
   const [agentSteps, setAgentSteps] = useState([]);
   const [revising, setRevising] = useState(false);
   useEffect(() => setComplete(completed), [completed]);
@@ -51,16 +51,29 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOn
   const create = async () => {
     const next = validateRequirements(requirements);
     if (Object.keys(next).length) { setErrors(next); return; }
-    setGenerating(true); setGenerationError(""); setAgentSteps(["요구사항을 확인하는 중…"]);
+    setGenerating(true); setGenerationError(null); setAgentSteps(["요구사항을 확인하는 중…"]);
     try {
       const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
       const token = localStorage.getItem("accessToken");
       const response = await fetch(`${baseUrl}/manager/exams/${examId}/ai-problem-candidates?stream=1`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ requirements }) });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || `AI 요청에 실패했습니다. (HTTP ${response.status})`);
+      }
       if (!response.body) throw new Error("생성 진행 상태를 받을 수 없습니다.");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       let result;
+      const handleEvent = (event) => {
+        if (event.type === "progress") setAgentSteps((current) => [...current.filter((step) => step !== "요구사항을 확인하는 중…"), event.step]);
+        if (event.type === "result") result = event;
+        if (event.type === "error") {
+          const failure = new Error(event.message);
+          failure.aiFailure = event;
+          throw failure;
+        }
+      };
       while (true) {
         const { value, done } = await reader.read();
         buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
@@ -68,17 +81,25 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOn
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const event = JSON.parse(line);
-          if (event.type === "progress") setAgentSteps((current) => [...current.filter((step) => step !== "요구사항을 확인하는 중…"), event.step]);
-          if (event.type === "result") result = event;
-          if (event.type === "error") throw new Error(event.message);
+          handleEvent(JSON.parse(line));
         }
-        if (done) break;
+        if (done) {
+          if (buffer.trim()) handleEvent(JSON.parse(buffer));
+          break;
+        }
       }
       if (!result?.candidates) throw new Error("AI 에이전트가 결과를 반환하지 못했습니다.");
       setCandidates(result.candidates); setAgentSteps(result.agentSteps ?? []); setSelected(null); setComplete(false);
     } catch (error) {
-      setGenerationError(error.message || "AI 문제 시안을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      const failure = error.aiFailure;
+      setGenerationError({
+        message: error.message || "AI 문제 시안을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        detail: failure?.detail,
+        provider: failure?.provider,
+        model: failure?.model,
+        status: failure?.providerStatus,
+        code: failure?.providerCode || failure?.code,
+      });
     } finally { setGenerating(false); }
   };
   const revise = async () => {
@@ -97,7 +118,7 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOn
   if (complete) return <section className={`problem-chatbot${codingOnly ? " coding-only" : ""}`} aria-label="문제 시안 만들기"><div className="problem-chatbot-body"><div className="chat-complete"><Check size={20} /><div><strong>편집 폼에 적용했습니다.</strong><p>모범 답안을 준비했습니다. 왼쪽에서 내용을 수정한 경우 답안을 다시 생성해 주세요.</p></div></div></div></section>;
   return <section className={`problem-chatbot${codingOnly ? " coding-only" : ""}`} aria-label="문제 시안 만들기">
     <div className="problem-chatbot-body">
-      {!candidates.length && <><div className="chat-requirements-grid"><Select label="난이도" field="difficulty" options={REQUIREMENT_OPTIONS.difficulty} value={requirements.difficulty} update={update} error={errors.difficulty} /><Select label="문제 유형" field="type" options={REQUIREMENT_OPTIONS.type} value={requirements.type} update={update} error={errors.type} format={typeName} />{requirements.type === "CODING" && <fieldset className="chat-language-picker"><legend>사용 언어 <b>필수</b></legend><div>{CODING_LANGUAGE_OPTIONS.map((language) => <label key={language}><input type="checkbox" checked={requirements.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div>{errors.languages && <em>{errors.languages}</em>}</fieldset>}<label className="chat-scope"><span>문제 주제 및 요청사항 <b>필수</b></span><small>주제와 반드시 반영할 내용을 자유롭게 작성하세요.</small><textarea value={requirements.scope} onChange={(event) => update("scope", event.target.value)} placeholder={"예) 배열에서 중복된 숫자를 제거하는 문제\n- 공개 예제 2개 포함\n- 실무 데이터 처리 상황으로 설명"} />{errors.scope && <em>{errors.scope}</em>}</label>{requirements.type === "CODING" && <AuthoringConditions conditions={requirements.authoringConditions} updateCondition={updateCondition} toggleAlgorithm={toggleAlgorithm} updateAlgorithmLevel={updateAlgorithmLevel} />}</div>{generating && <ol className="agent-step-log in-progress">{visibleAgentSteps.map((step) => <li key={step}><span className="agent-progress-dot" /> {step}</li>)}</ol>}{generationError && <p className="form-error">{generationError}</p>}<button className="primary-button" type="button" disabled={generating} onClick={() => create()}><Sparkles size={16} /> {generating ? "시안 준비 중…" : "시안 3개 만들기"}</button></>}
+      {!candidates.length && <><div className="chat-requirements-grid"><Select label="난이도" field="difficulty" options={REQUIREMENT_OPTIONS.difficulty} value={requirements.difficulty} update={update} error={errors.difficulty} /><Select label="문제 유형" field="type" options={REQUIREMENT_OPTIONS.type} value={requirements.type} update={update} error={errors.type} format={typeName} />{requirements.type === "CODING" && <fieldset className="chat-language-picker"><legend>사용 언어 <b>필수</b></legend><div>{CODING_LANGUAGE_OPTIONS.map((language) => <label key={language}><input type="checkbox" checked={requirements.languages.includes(language)} onChange={() => toggleLanguage(language)} /> {language}</label>)}</div>{errors.languages && <em>{errors.languages}</em>}</fieldset>}<label className="chat-scope"><span>문제 주제 및 요청사항 <b>필수</b></span><small>주제와 반드시 반영할 내용을 자유롭게 작성하세요.</small><textarea value={requirements.scope} onChange={(event) => update("scope", event.target.value)} placeholder={"예) 배열에서 중복된 숫자를 제거하는 문제\n- 공개 예제 2개 포함\n- 실무 데이터 처리 상황으로 설명"} />{errors.scope && <em>{errors.scope}</em>}</label>{requirements.type === "CODING" && <AuthoringConditions conditions={requirements.authoringConditions} updateCondition={updateCondition} toggleAlgorithm={toggleAlgorithm} updateAlgorithmLevel={updateAlgorithmLevel} />}</div>{generating && <ol className="agent-step-log in-progress">{visibleAgentSteps.map((step) => <li key={step}><span className="agent-progress-dot" /> {step}</li>)}</ol>}{generationError && <div className="form-error ai-generation-error" role="alert"><strong>{generationError.message}</strong>{generationError.detail && <span>상세 원인: {generationError.detail}</span>}{(generationError.provider || generationError.model) && <small>연결: {[generationError.provider, generationError.model].filter(Boolean).join(" / ")}</small>}{(generationError.status || generationError.code) && <small>오류 식별: {[generationError.status && `HTTP ${generationError.status}`, generationError.code].filter(Boolean).join(" / ")}</small>}</div>}<button className="primary-button" type="button" disabled={generating} onClick={() => create()}><Sparkles size={16} /> {generating ? "시안 준비 중…" : "시안 3개 만들기"}</button></>}
       {candidates.length > 0 && !selected && <><div className="chat-message"><Bot size={16} /><div><strong>사용할 시안을 선택하세요.</strong></div></div><ol className="agent-step-log">{visibleAgentSteps.map((step) => <li key={step}><Check size={14} /> {step}</li>)}</ol><div className="chat-candidates">{candidates.map((candidate) => <button type="button" key={candidate.id} onClick={() => setSelected(candidate)}><span>시안 {candidate.seed}</span><strong>{candidate.label}</strong><p>{candidate.summary}</p></button>)}</div></>}
       {selected && !complete && <><div className="chat-message"><Bot size={16} /><div><strong>{selected.label} 시안 검토</strong><p>필요하면 요청사항을 반영한 뒤 편집 폼에 적용하세요.</p></div></div><div className="chat-review-controls"><label className="chat-feedback">수정 요청<textarea value={feedback} disabled={revising} onChange={(event) => { setFeedback(event.target.value); setFeedbackError(""); }} placeholder="예: 조금 더 쉽게, 예제를 추가해줘" />{feedbackError && <em>{feedbackError}</em>}</label><div className="chat-actions"><button className="secondary-button" type="button" disabled={revising} onClick={revise}>{revising ? "수정 중…" : "요청 반영"}</button><button className="primary-button" type="button" disabled={revising} onClick={confirm}><Check size={16} /> 편집 폼에 적용</button><button className="text-button" type="button" disabled={revising} onClick={() => setSelected(null)}>다른 시안 선택</button></div></div><CandidatePreview candidate={selected} /></>}
       {complete && <div className="chat-complete"><Check size={20} /><div><strong>편집 폼에 적용했습니다.</strong><p>모범 답안을 준비하고 있습니다. 왼쪽에서 내용을 바로 수정할 수 있습니다.</p></div></div>}

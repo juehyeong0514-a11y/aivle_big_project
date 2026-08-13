@@ -1717,6 +1717,9 @@ h1, h2, h3, h4, h5, h6 {
 .primary-button:active, .secondary-button:active { transform: translateY(1px); }
 .primary-button:disabled, .secondary-button:disabled { cursor: not-allowed; opacity: .5; }
 .form-error { color: #b42318; font-size: .86rem; }
+.ai-generation-error { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid #f5b7b1; border-radius: 8px; background: #fff4f2; }
+.ai-generation-error span { overflow-wrap: anywhere; }
+.ai-generation-error small { color: #7a271a; }
 .spin { animation: ai-config-spin 1s linear infinite; }
 @keyframes ai-config-spin { to { transform: rotate(360deg); } }
 .organization-switcher { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

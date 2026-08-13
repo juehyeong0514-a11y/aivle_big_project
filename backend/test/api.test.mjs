@@ -997,6 +997,12 @@ test("generates reference answers with the central ADMIN AI setting and reports 
     calls.push(request);
     const input = JSON.parse(request.prompt);
     if (input.instruction) return { feasible: true, feasibilityMessage: "", warnings: [], answers: { Python: "if __name__ == '__main__':\n    print('ok')" } };
+    if (input.problem.title === "호출 실패 문제") {
+      const error = new Error("Rate limit reached for gpt-4.1-mini");
+      error.status = 429;
+      error.code = "rate_limit_exceeded";
+      throw error;
+    }
     if (input.problem.title === "모순 문제") return { feasible: false, feasibilityMessage: "필수 시간복잡도가 문제의 출력 크기보다 작습니다.", warnings: ["제약 조건을 다시 확인하세요."], answers: {} };
     if (input.problem.title === "중첩 응답 문제") return { task: input.task, output: { feasible: true, feasibilityMessage: "", warnings: [], answers: { Python: "if **name** == '**main**':\n    print('bad')" } } };
     return { feasible: true, feasibilityMessage: "", warnings: ["입력은 정수라고 가정했습니다."], answers: { Python: "print(sum(map(int, input().split())))" } };
@@ -1045,6 +1051,16 @@ test("generates reference answers with the central ADMIN AI setting and reports 
   assert.equal(logs[2].prompt.problem.title, "합계");
   assert.ok(logs[2].response.answers.Python);
   assert.equal(JSON.stringify(logs).includes("admin-central-key"), false);
+
+  const failedResponse = await fetch(`${baseUrl}/api/manager/exams/exam-2026-second-half/ai-reference-answer`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ question: { ...question, title: "호출 실패 문제" } }) });
+  assert.equal(failedResponse.status, 502);
+  const failed = await failedResponse.json();
+  assert.equal(failed.message, "모범 답안 생성에 실패했습니다.");
+  assert.equal(failed.detail, "Rate limit reached for gpt-4.1-mini");
+  assert.equal(failed.provider, "OpenAI");
+  assert.equal(failed.model, "gpt-4.1-mini");
+  assert.equal(failed.providerStatus, 429);
+  assert.equal(failed.providerCode, "rate_limit_exceeded");
 });
 
 test("uses an organization request and central admin acceptance workflow for AI grading", async (context) => {
