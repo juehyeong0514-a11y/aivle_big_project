@@ -1,92 +1,148 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Cpu, LoaderCircle, Pencil, Play, RefreshCw, RotateCcw, X } from 'lucide-react';
+import { Cpu, LoaderCircle, RefreshCw, RotateCcw } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
+import { deriveAutomationSummary, localizeAutomationFailure, selectAutomationScope, sortAutomationExams } from '../automationUi.mjs';
 
-const statusLabel = { PENDING: '대기 중', PROCESSING: '채점 실행 중', COMPLETED: '완료', FAILED: '실패' };
+const statusLabel = { PENDING: '자동 처리 대기', PROCESSING: 'AI 채점 중', FINALIZING: '응시 마감 처리 중', GRADING: 'AI 채점 중', COMPLETED: '채점 완료', EMAIL_PENDING: '결과 메일 대기', EMAIL_SENDING: '결과 메일 발송 중', EMAIL_SENT: '결과 메일 발송 완료', FAILED: '채점 실패', GRADING_FAILED: '채점 실패', EMAIL_FAILED: '결과 메일 실패', ABSENT: '결시·제외', EXCLUDED: '강제 종료·제외' };
 const formatDate = (value) => value ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '-';
+const asList = (payload) => Array.isArray(payload) ? payload : (Array.isArray(payload?.requests) ? payload.requests : Array.isArray(payload?.items) ? payload.items : []);
+const asExams = (payload) => Array.isArray(payload) ? payload : (Array.isArray(payload?.exams) ? payload.exams : []);
+const summaryFor = (requests, explicit) => explicit && typeof explicit === 'object' ? explicit : {
+  total: requests.length,
+  processing: requests.filter((item) => ['PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase())).length,
+  completed: requests.filter((item) => ['COMPLETED', 'EMAIL_SENT'].includes(String(item.automationStatus || item.status).toUpperCase())).length,
+  failed: requests.filter((item) => ['FAILED', 'GRADING_FAILED', 'EMAIL_FAILED'].includes(String(item.automationStatus || item.status).toUpperCase())).length,
+  progress: requests.length ? Math.round(requests.filter((item) => ['COMPLETED', 'EMAIL_SENT', 'ABSENT', 'EXCLUDED'].includes(String(item.automationStatus || item.status).toUpperCase())).length / requests.length * 100) : 0,
+};
+const effectiveStatus = (request) => String(request?.automationStatus || request?.status || 'PENDING').toUpperCase();
+const recoveryStatus = (status) => ['FAILED', 'GRADING_FAILED', 'EMAIL_FAILED'].includes(status);
+const summaryForScope = (requests, candidates, explicit, examId) => {
+  if (!examId || examId === 'ALL') return summaryFor(requests, explicit);
+  const candidateResults = candidates.map((candidate) => ({ candidateId: candidate.candidateId, automationStatus: candidate.status, resultStatus: candidate.status, resultEmailStatus: candidate.email?.status, resultEmailedAt: candidate.email?.sentAt }));
+  return candidateResults.length ? deriveAutomationSummary(candidateResults, requests) : summaryFor(requests);
+};
 
 export default function AiGradingQueueTab() {
   const [requests, setRequests] = useState([]);
+  const [automationCandidates, setAutomationCandidates] = useState([]);
+  const [automationSummary, setAutomationSummary] = useState(null);
   const [message, setMessage] = useState('');
   const [acceptingId, setAcceptingId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
-  const [instructionDraft, setInstructionDraft] = useState('');
-  const [resultDraft, setResultDraft] = useState('');
-  const [editError, setEditError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [exams, setExams] = useState([]);
+  const [selectedExamId, setSelectedExamId] = useState('');
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/admin/ai-grading-requests', { headers: authHeaders() });
-      setRequests(data);
+      const [{ data }, { data: summaryData }, { data: examsData }] = await Promise.all([
+        api.get('/admin/ai-grading-requests', { headers: authHeaders() }),
+        api.get('/admin/ai-invocation-logs/automation-summary', { headers: authHeaders() }).catch(() => ({ data: null })),
+        api.get('/admin/exams', { headers: authHeaders() }).catch(() => ({ data: [] })),
+      ]);
+      const examList = sortAutomationExams(asExams(examsData));
+      const examById = new Map(examList.map((exam) => [exam.id, exam]));
+      const nextRequests = asList(data).map((request) => ({ ...request, examTitle: request.examTitle || examById.get(request.examId)?.title || '시험 정보 없음', organizationName: request.organizationName || examById.get(request.examId)?.organizationName }));
+      setExams(examList);
+      setSelectedExamId((current) => {
+        if (!current) return examList[0]?.id || 'ALL';
+        if (current === 'ALL' || examList.some((exam) => exam.id === current)) return current;
+        return examList[0]?.id || 'ALL';
+      });
+      setRequests(nextRequests);
+      setAutomationSummary(summaryFor(nextRequests, summaryData || data?.examAutomationSummary || data?.automationSummary));
+      const candidatesByExam = await Promise.all(asExams(examsData).map(async (exam) => {
+        try {
+          const { data: projection } = await api.get(`/admin/exams/${encodeURIComponent(exam.id)}/automation-status`, { headers: authHeaders() });
+          return (Array.isArray(projection?.candidates) ? projection.candidates : []).map((candidate) => ({ ...candidate, examId: candidate.examId || exam.id, examTitle: exam.title, organizationName: exam.organizationName }));
+        } catch {
+          return [];
+        }
+      }));
+      const summaryCandidates = (Array.isArray(summaryData?.candidates) ? summaryData.candidates : []).map((candidate) => ({ ...candidate, examTitle: candidate.examTitle || examById.get(candidate.examId)?.title || '시험 정보 없음', organizationName: candidate.organizationName || examById.get(candidate.examId)?.organizationName }));
+      const mergedCandidates = [...summaryCandidates, ...candidatesByExam.flat()];
+      setAutomationCandidates(mergedCandidates.filter((candidate, index, items) => items.findIndex((item) => `${item.examId}:${item.candidateId}` === `${candidate.examId}:${candidate.candidateId}`) === index));
       setMessage('');
     } catch (error) {
-      setMessage(apiErrorMessage(error, 'AI 채점 요청을 불러오지 못했습니다.'));
+      setMessage(apiErrorMessage(error, '자동 처리 현황을 불러오지 못했습니다.'));
     } finally {
       setLoading(false);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (!requests.some((request) => request.status === 'PROCESSING')) return undefined;
+    if (!requests.some((request) => ['PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(effectiveStatus(request)))) return undefined;
     const timer = window.setInterval(() => load().catch(() => {}), 4000);
     return () => window.clearInterval(timer);
   }, [load, requests]);
-  const acceptAndRun = async (requestId) => {
-    setAcceptingId(requestId);
+
+  const retryGrading = async (request) => {
+    setAcceptingId(request.id);
     try {
-      const { data } = await api.post(`/admin/ai-grading-requests/${requestId}/accept`, {}, { headers: authHeaders() });
-      setRequests((current) => current.map((item) => item.id === requestId ? data : item));
-      setMessage('채점을 실행했습니다. 프롬프트와 AI 원본 응답은 AI 로그 페이지에 기록됩니다.');
+      const { data } = await api.post(`/admin/ai-grading-requests/${request.id}/retry`, {}, { headers: authHeaders() });
+      setRequests((current) => current.map((item) => item.id === request.id ? data : item));
+      setMessage('실패한 채점의 재시도를 시작했습니다. 호출 기록에서 새 실행을 확인할 수 있습니다.');
     } catch (error) {
-      setMessage(apiErrorMessage(error, '채점 실행 요청에 실패했습니다.'));
+      setMessage(apiErrorMessage(error, '채점을 다시 실행하지 못했습니다.'));
     } finally {
       setAcceptingId('');
     }
   };
-  const retry = async (requestId) => {
-    setAcceptingId(requestId);
+  const retryEmail = async (request) => {
+    setAcceptingId(request.id);
     try {
-      const { data } = await api.post(`/admin/ai-grading-requests/${requestId}/retry`, {}, { headers: authHeaders() });
-      setRequests((current) => current.map((item) => item.id === requestId ? data : item));
-      setMessage('다시 채점을 시작했습니다. 새 프롬프트와 응답은 AI 로그에 별도로 기록됩니다.');
+      const { data } = await api.post(`/admin/exams/${encodeURIComponent(request.examId)}/automation/retry`, { candidateId: request.candidateId }, { headers: authHeaders() });
+      const candidateState = data?.candidates?.find((item) => item.candidateId === request.candidateId);
+      setRequests((current) => current.map((item) => item.id === request.id ? { ...item, automationStatus: candidateState?.status || 'EMAIL_PENDING', automationFailureReason: candidateState?.failureReason || '', resultEmailFailureReason: candidateState?.email?.failureReason || '', resultEmailStatus: candidateState?.email?.status || item.resultEmailStatus, nextRetryAt: candidateState?.email?.nextAttemptAt || item.nextRetryAt } : item));
+      setMessage('실패한 결과 메일의 재발송을 시작했습니다.');
     } catch (error) {
-      setMessage(apiErrorMessage(error, '다시 채점하지 못했습니다.'));
+      setMessage(apiErrorMessage(error, '결과 메일을 다시 발송하지 못했습니다.'));
     } finally {
       setAcceptingId('');
     }
   };
-  const openEdit = (request) => {
-    setEditing(request);
-    setInstructionDraft(request.adminInstructions ?? '');
-    setResultDraft(request.result ? JSON.stringify(request.result, null, 2) : '');
-    setEditError('');
-  };
-  const saveInstructions = async () => {
-    let result;
-    if (editing.status === 'COMPLETED') {
-      try {
-        result = JSON.parse(resultDraft);
-        if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error();
-      } catch {
-        setEditError('AI 응답을 올바른 JSON 객체 형식으로 입력해주세요.');
-        return;
-      }
-    }
-    setSaving(true);
-    setEditError('');
+  const recoverCandidate = async (candidate) => {
+    const recoveryId = `${candidate.examId}:${candidate.candidateId}`;
+    setAcceptingId(recoveryId);
     try {
-      const payload = { adminInstructions: instructionDraft, ...(editing.status === 'COMPLETED' ? { result } : {}) };
-      const { data } = await api.patch(`/admin/ai-grading-requests/${editing.id}`, payload, { headers: authHeaders() });
-      setRequests((current) => current.map((item) => item.id === editing.id ? data : item));
-      setEditing(null);
-      setMessage(editing.status === 'COMPLETED' ? '추가 요청 프롬프트와 수정된 AI 응답을 저장했습니다.' : '추가 요청 프롬프트를 저장했습니다. 다음 채점 실행에 포함됩니다.');
+      await api.post(`/admin/exams/${encodeURIComponent(candidate.examId)}/automation/retry`, { candidateId: candidate.candidateId }, { headers: authHeaders() });
+      setMessage(candidate.status === 'EMAIL_FAILED' ? '실패한 결과 메일의 재발송을 시작했습니다.' : '실패한 자동 채점의 재시도를 시작했습니다.');
+      await load();
     } catch (error) {
-      setEditError(apiErrorMessage(error, '채점 요청을 수정하지 못했습니다.'));
+      setMessage(apiErrorMessage(error, '자동 처리 복구를 시작하지 못했습니다.'));
     } finally {
-      setSaving(false);
+      setAcceptingId('');
     }
   };
-  return <section className="workspace-shell"><div className="workspace-heading"><div><span className="workspace-eyebrow">AI 채점 운영</span><h1>AI 채점 요청 대기열</h1><p>조직에서 요청한 채점을 검토하고 중앙 AI 연결로 실행합니다.</p></div><button className="secondary-button" type="button" onClick={load} disabled={loading}><RefreshCw size={16} /> 새로고침</button></div>{message && <div className="workspace-alert">{message}</div>}<div className="data-panel"><div className="panel-heading"><div><h2>채점 요청</h2><p>실행한 요청은 프롬프트·응답 로그에서 전체 내용을 확인할 수 있습니다.</p></div><Cpu size={20} /></div><div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>요청 일시</th><th>대상 응시자 / 시험</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.length === 0 ? <tr><td colSpan="5">{loading ? '요청을 불러오는 중입니다.' : '대기 중인 AI 채점 요청이 없습니다.'}</td></tr> : requests.map((request) => <tr key={request.id}><td>{request.organizationName}</td><td>{formatDate(request.requestedAt)}</td><td><strong>{request.candidateName}</strong><br /><span className="form-hint">{request.examTitle}</span>{request.adminInstructions && <><br /><span className="form-hint">추가 요청: {request.adminInstructions}</span></>}</td><td>{statusLabel[request.status] ?? request.status}{request.retryCount ? ` · 재시도 ${request.retryCount}회` : ''}{request.manuallyEditedAt ? <><br /><span className="form-hint">관리자 응답 수정됨</span></> : null}{request.status === 'FAILED' && request.errorMessage ? <><br /><span className="form-error">{request.errorMessage}</span></> : null}</td><td><div className="ai-grading-row-actions"><button className="secondary-button compact-button" type="button" onClick={() => openEdit(request)} disabled={request.status === 'PROCESSING'}><Pencil size={14} /> 수정</button>{request.status === 'PENDING' && <button className="primary-button compact-button" type="button" onClick={() => acceptAndRun(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />} 채점 실행</button>}{['FAILED', 'COMPLETED'].includes(request.status) && <button className="primary-button compact-button" type="button" onClick={() => retry(request.id)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 다시 채점</button>}</div></td></tr>)}</tbody></table></div></div>{editing && <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="grading-edit-title"><button className="confirm-modal-backdrop" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)} /><section className="confirm-modal-panel ai-grading-edit"><div className="section-title-row"><div><h2 id="grading-edit-title">AI 채점 요청 및 응답 수정</h2><p>{editing.candidateName} · {editing.examTitle}</p></div><button className="icon-button" type="button" aria-label="수정 닫기" onClick={() => setEditing(null)}><X size={18} /></button></div>{editError && <div className="workspace-alert error" role="alert">{editError}</div>}<div className={`ai-grading-edit-grid ${editing.status !== 'COMPLETED' ? 'single' : ''}`}><div className="ai-grading-edit-column"><label>추가 요청 프롬프트 <span className="text-muted">(선택)</span><textarea value={instructionDraft} maxLength="4000" onChange={(event) => setInstructionDraft(event.target.value)} placeholder="예: 시간복잡도와 경계값 처리 여부를 특히 엄격하게 평가하세요." /></label><p className="form-hint">다음 채점 실행 또는 다시 채점할 때 AI 프롬프트에 포함됩니다. {instructionDraft.length}/4000</p></div>{editing.status === 'COMPLETED' && <div className="ai-grading-edit-column"><label>AI 응답 직접 수정 <span className="text-muted">(JSON)</span><textarea className="ai-grading-result-editor" value={resultDraft} spellCheck="false" onChange={(event) => setResultDraft(event.target.value)} /></label><p className="form-hint">점수, 피드백, 세부 평가를 수정할 수 있으며 저장 즉시 응시자 리포트에 반영됩니다. AI 원본 응답은 별도로 보존됩니다.</p></div>}</div><div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setEditing(null)} disabled={saving}>취소</button><button className="primary-button" type="button" onClick={saveInstructions} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : null} 저장</button></div></section></div>}</section>;
+  const scopeId = selectedExamId || 'ALL';
+  const selectedExam = exams.find((exam) => exam.id === scopeId);
+  const scopeLabel = selectedExam?.title || '전체 시험';
+  const scopedRequests = selectAutomationScope(requests, scopeId);
+  const scopedCandidates = selectAutomationScope(automationCandidates, scopeId);
+  const summary = summaryForScope(scopedRequests, scopedCandidates, automationSummary, scopeId);
+  const requestKeys = new Set(scopedRequests.map((request) => `${request.examId}:${request.candidateId}`));
+  const candidateRows = scopedCandidates.filter((candidate) => !requestKeys.has(`${candidate.examId}:${candidate.candidateId}`));
+  return <section className="workspace-shell"><div className="workspace-heading"><div><span className="workspace-eyebrow">자동 처리 운영</span><h1>자동 처리 현황</h1><p>시험 종료 자동 마감·AI 채점·결과 메일의 진행 상태와 후보별 실패 복구를 관리합니다.</p></div><button className="secondary-button" type="button" onClick={load} disabled={loading}><RefreshCw size={16} /> 새로고침</button></div>{message && <div className="workspace-alert">{message}</div>}<AutomationExamFilter exams={exams} value={scopeId} onChange={setSelectedExamId} /><AutomationQueueSummary summary={summary} examTitle={scopeLabel} /><div className="data-panel"><div className="panel-heading"><div><h2>{scopeLabel} 후보 자동 처리 상태</h2><p>실패한 채점은 다시 실행하고, 결과 메일 실패는 메일 재발송으로 복구합니다.</p></div><Cpu size={20} /></div><div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>요청 조직</th><th>상태 시각</th><th>대상 후보 / 시험</th><th>자동 처리 상태</th><th>복구</th></tr></thead><tbody>{scopedRequests.length === 0 && candidateRows.length === 0 ? <tr><td colSpan="5">{loading ? '자동 처리 현황을 불러오는 중입니다.' : '표시할 후보 상태가 없습니다.'}</td></tr> : <>{scopedRequests.map((request) => <AutomationRequestRow key={request.id} request={request} acceptingId={acceptingId} onRetryGrading={retryGrading} onRetryEmail={retryEmail} />)}{candidateRows.map((candidate) => <AutomationCandidateRow key={`${candidate.examId}:${candidate.candidateId}`} candidate={candidate} acceptingId={acceptingId} onRecover={recoverCandidate} />)}</>}</tbody></table></div></div></section>;
+}
+
+function AutomationExamFilter({ exams, value, onChange }) {
+  return <div className="automation-exam-filter"><label htmlFor="automation-exam-scope">시험 범위<select id="automation-exam-scope" value={value} onChange={(event) => onChange(event.target.value)}><option value="ALL">전체 시험</option>{exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.title || '시험 정보 없음'} · {exam.date || formatDate(exam.scheduledAt || exam.startAt || exam.examDate || exam.createdAt)}</option>)}</select></label><span>{value === 'ALL' ? '모든 시험의 자동 처리 상태' : '선택한 시험의 자동 처리 상태'}</span></div>;
+}
+
+function AutomationQueueSummary({ summary = {}, examTitle = '전체 시험' }) {
+  const progress = Math.max(0, Math.min(100, Number(summary.progress) || 0));
+  return <section className="data-panel automation-summary"><div className="automation-summary-heading"><div><span className="workspace-eyebrow">AUTOMATION MONITOR</span><h2>{examTitle} 자동 처리 진행률</h2><p>{summary.total ?? 0}건 · 처리 중 {summary.processing ?? 0}건 · 실패 {summary.failed ?? 0}건 · 결시 {summary.absent ?? 0}건 · 제외 {summary.excluded ?? 0}건</p></div><strong>{progress}%</strong></div><div className="automation-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress} aria-label={`${examTitle} 자동 처리 진행률`}><span style={{ width: `${progress}%` }} /></div></section>;
+}
+
+function AutomationRequestRow({ request, acceptingId, onRetryGrading, onRetryEmail }) {
+  const status = effectiveStatus(request);
+  const reason = localizeAutomationFailure(request.automationFailureReason || request.resultEmailFailureReason || request.errorMessage);
+  return <tr><td>{request.organizationName || '조직 정보 없음'}</td><td>{formatDate(request.requestedAt || request.updatedAt)}</td><td><strong>{request.candidateName || '응시자 정보 없음'}</strong><br /><span className="form-hint">{request.examTitle || '시험 정보 없음'}</span></td><td><span className={`ai-request-status automation-${status.toLowerCase()}`}>{statusLabel[status] ?? status}</span>{request.retryCount ? <><br /><span className="form-hint">재시도 {request.retryCount}회{request.nextRetryAt ? ` · 다음 ${formatDate(request.nextRetryAt)}` : ''}</span></> : null}{reason ? <><br /><span className="form-error">{reason}</span></> : null}</td><td>{status === 'EMAIL_FAILED' ? <button className="secondary-button compact-button" type="button" onClick={() => onRetryEmail(request)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} 메일 재발송</button> : recoveryStatus(status) && status !== 'EMAIL_FAILED' ? <button className="primary-button compact-button" type="button" onClick={() => onRetryGrading(request)} disabled={acceptingId === request.id}>{acceptingId === request.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 다시 채점</button> : <span className="form-hint">{status === 'PENDING' ? '자동 처리 대기' : '복구 작업 없음'}</span>}</td></tr>;
+}
+
+function AutomationCandidateRow({ candidate, acceptingId, onRecover }) {
+  const status = String(candidate.status || 'WAITING').toUpperCase();
+  const reason = localizeAutomationFailure(candidate.failureReason || candidate.email?.failureReason || '');
+  const recoveryId = `${candidate.examId}:${candidate.candidateId}`;
+  const emailFailure = status === 'EMAIL_FAILED' || candidate.email?.status === 'FAILED';
+  return <tr className="automation-candidate-row"><td>{candidate.organizationName || '조직 정보 없음'}</td><td>{candidate.updatedAt ? formatDate(candidate.updatedAt) : '-'}</td><td><strong>{candidate.candidateName || '응시자 정보 없음'}</strong><br /><span className="form-hint">{candidate.examTitle || '시험 정보 없음'}</span></td><td><span className={`ai-request-status automation-${status.toLowerCase()}`}>{statusLabel[status] ?? status}</span>{reason && <><br /><span className="form-error">{reason}</span></>}</td><td>{recoveryStatus(status) ? <button className={`${emailFailure ? 'secondary' : 'primary'}-button compact-button`} type="button" onClick={() => onRecover(candidate)} disabled={acceptingId === recoveryId}>{acceptingId === recoveryId ? <LoaderCircle className="spin" size={14} /> : emailFailure ? <RefreshCw size={14} /> : <RotateCcw size={14} />} {emailFailure ? '메일 재발송' : '다시 채점'}</button> : <span className="form-hint">복구 작업 없음</span>}</td></tr>;
 }

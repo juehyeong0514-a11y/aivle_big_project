@@ -12,19 +12,21 @@ const isManagerRole = (role) => role === "MANAGER" || role === "SUPERVISOR";
 const sessionTtlMs = 8 * 60 * 60 * 1000;
 const applicantSessionTtlMs = 4 * 60 * 60 * 1000;
 const hashToken = (token) => createHash("sha256").update(token).digest("hex");
-const scheduledExamEndsAt = (exam) => {
+export const scheduledExamEndsAt = (exam) => {
   const schedule = String(exam.date ?? "").trim().match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
   const durationMinutes = Number.parseInt(String(exam.duration ?? "").match(/\d+/)?.[0] ?? "", 10);
   if (!schedule || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
   const [, year, month, day, hour, minute] = schedule;
-  const startsAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  const hourNumber = Number(hour);
+  const minuteNumber = Number(minute);
+  if (monthNumber < 1 || monthNumber > 12 || dayNumber < 1 || dayNumber > new Date(Date.UTC(yearNumber, monthNumber, 0)).getUTCDate() || hourNumber > 23 || minuteNumber > 59) return undefined;
+  const startsAt = new Date(Date.UTC(yearNumber, monthNumber - 1, dayNumber, hourNumber - 9, minuteNumber));
   if (
     Number.isNaN(startsAt.getTime())
-    || startsAt.getFullYear() !== Number(year)
-    || startsAt.getMonth() !== Number(month) - 1
-    || startsAt.getDate() !== Number(day)
-    || startsAt.getHours() !== Number(hour)
-    || startsAt.getMinutes() !== Number(minute)
+    || !Number.isFinite(startsAt.getTime())
   ) return undefined;
   return new Date(startsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
 };
@@ -60,6 +62,15 @@ const isValidPassword = (value) => {
   return trimmed.length >= 8 && /[A-Za-z]/.test(trimmed) && /\d/.test(trimmed) && /[^A-Za-z0-9]/.test(trimmed);
 };
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]);
+const safeAutomationFailure = (status, reason = "") => {
+  const normalizedStatus = String(status ?? "").toUpperCase();
+  const normalizedReason = String(reason ?? "").toUpperCase();
+  if (normalizedReason.includes("ORGANIZATION_MISMATCH")) return { code: "ORGANIZATION_MISMATCH", message: "Organization data mismatch requires manual review." };
+  if (normalizedReason.includes("NEVER_STARTED")) return { code: "NEVER_STARTED", message: "Candidate did not start the exam before cutoff." };
+  if (normalizedStatus.includes("EMAIL") || normalizedReason.includes("EMAIL")) return { code: "EMAIL_DELIVERY_FAILED", message: "Result email delivery failed; manual resend is available." };
+  if (normalizedStatus.includes("GRADING") || normalizedStatus === "FAILED" || normalizedReason.includes("AI")) return { code: "AI_GRADING_FAILED", message: "Automatic AI grading failed; manual retry is available." };
+  return { code: "AUTOMATION_FAILED", message: "Automatic exam processing requires manual review." };
+};
 const sendSendGridEmail = async ({ to, subject, html, text }) => {
   const apiKey = process.env.SENDGRID_API_KEY;
   const fromEmail = process.env.SENDGRID_FROM_EMAIL;
@@ -451,7 +462,7 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, mobileAiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, mobileAiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier, emailSender = sendSendGridEmail, automationClock = () => Date.now(), automationIntervalMs = 60_000, startAutomation = true, startAutomationScheduler: startAutomationSchedulerOption } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
   const loginFailures = new Map();
@@ -513,6 +524,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.locals.aiProctor = aiProctor;
   app.locals.mobileAiProctor = mobileAiProctor;
+  app.locals.store = store;
   const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://localhost:5174").split(",").map((origin) => origin.trim()).filter(Boolean));
   const executionAllowedHosts = resolveCodeExecutionAllowedHosts();
   let normalizedCodeExecutionUrl = "";
@@ -632,7 +644,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const organization = store.organizations.find((candidate) => candidate.id === item.organizationId);
     const candidate = store.candidates.find((candidate) => candidate.id === item.candidateId);
     const exam = store.exams.find((exam) => exam.id === item.examId);
-    return { ...item, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
+    const automation = store.candidateAutomationStates.find((state) => state.examId === item.examId && state.candidateId === item.candidateId);
+    const delivery = store.resultEmailDeliveries.find((state) => state.examId === item.examId && state.candidateId === item.candidateId);
+    const automationStatus = automation?.status ?? (delivery?.status === "SENT" ? "EMAIL_SENT" : delivery?.status === "FAILED" ? "EMAIL_FAILED" : item.status);
+    const failure = safeAutomationFailure(automationStatus, automation?.reason ?? delivery?.status);
+    const { errorMessage: _errorMessage, ...safeItem } = item;
+    const isFailure = ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(automationStatus);
+    const enriched = { ...safeItem, automationStatus, failureCode: isFailure ? failure.code : "", failureReason: isFailure ? failure.message : "", automationFailureCode: isFailure ? failure.code : "", automationFailureReason: isFailure ? failure.message : "", resultEmailStatus: delivery?.status ?? (item.resultEmailedAt ? "SENT" : ""), resultEmailedAt: delivery?.sentAt ?? item.resultEmailedAt, resultEmailFailureCode: delivery?.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "", resultEmailFailureReason: delivery?.status === "FAILED" ? failure.message : "", nextRetryAt: delivery?.nextAttemptAt ?? item.nextRetryAt, emailRetryable: delivery ? delivery.status !== "SENT" && Number(delivery.retryCount ?? 0) <= 3 : true, managerRetryable: Boolean(item.autoTriggered && ["FAILED", "GRADING_FAILED", "EMAIL_FAILED"].includes(automationStatus)) };
+    // Always project the sanitized item. Legacy/manual requests can still carry
+    // provider errorMessage values, so never return the raw source object here.
+    return { ...enriched, organizationName: organization?.name ?? "알 수 없는 조직", candidateName: candidate?.name ?? "알 수 없는 응시자", examTitle: exam?.title ?? "알 수 없는 시험" };
   };
   const formatComplexity = (value) => {
     if (!value) return "";
@@ -876,6 +897,193 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "FAILED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload ?? null, response: error.rawResponse ? { rawText: error.rawResponse } : null, errorMessage: error.message, durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() });
       throw error;
     }
+  };
+  const automationRetryDelaysMs = [60_000, 300_000, 900_000];
+  const automationMaxRetries = 3;
+  let automationRunPromise;
+  const automationTimestamp = () => new Date(automationClock()).toISOString();
+  const automationAssignment = (examId, candidateId) => store.assignments.find((item) => item.examId === examId && item.candidateId === candidateId);
+  const automationIsExcluded = (assignment, examinee) => assignment?.status === "FORCE_TERMINATED"
+    || assignment?.resultStatus === "DISQUALIFIED"
+    || examinee?.status === "FORCE_TERMINATED";
+  const automationMarkDeliveryFailure = async ({ examId, candidateId, delivery, error }) => {
+    const nextRetryCount = Number(delivery?.retryCount ?? 0) + 1;
+    const terminal = nextRetryCount > automationMaxRetries;
+    return store.upsertResultEmailDelivery(examId, candidateId, {
+      status: terminal ? "FAILED" : "RETRY_WAITING",
+      attempts: Number(delivery?.attempts ?? 0),
+      retryCount: nextRetryCount,
+      nextAttemptAt: terminal ? null : new Date(automationClock() + automationRetryDelaysMs[nextRetryCount - 1]).toISOString(),
+      lastError: String(error?.message ?? error ?? "Email delivery failed").slice(0, 500),
+      failedAt: automationTimestamp()
+    });
+  };
+  const sendAutomationResultEmail = async ({ exam, candidate, gradingRequest }) => {
+    if (!gradingRequest?.result) return undefined;
+    if (!candidate || !isValidEmail(candidate.email)) return store.upsertResultEmailDelivery(exam.id, candidate?.id ?? gradingRequest.candidateId, { status: "FAILED", retryCount: automationMaxRetries + 1, attempts: 0, lastError: "Candidate email address is invalid", failedAt: automationTimestamp() });
+    let delivery = store.resultEmailDeliveries.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    const now = automationClock();
+    if (delivery?.status === "SENT") return delivery;
+    if (delivery?.status === "FAILED" && Number(delivery.retryCount ?? 0) > automationMaxRetries) return delivery;
+    if (delivery?.nextAttemptAt && Date.parse(delivery.nextAttemptAt) > now) return delivery;
+    delivery = await store.upsertResultEmailDelivery(exam.id, candidate.id, {
+      status: "SENDING",
+      attempts: Number(delivery?.attempts ?? 0) + 1,
+      gradingRequestId: gradingRequest.id,
+      startedAt: delivery?.startedAt ?? automationTimestamp(),
+      lastAttemptAt: automationTimestamp()
+    });
+    const { subject, html, text } = buildAiResultEmailContent({ candidate, exam, result: gradingRequest.result });
+    try {
+      const sent = await emailSender({ to: candidate.email, subject, html, text, exam, candidate, gradingRequest });
+      if (!sent) throw new Error("SendGrid email service is not configured");
+      delivery = await store.updateResultEmailDelivery(exam.id, candidate.id, {
+        status: "SENT",
+        sentAt: automationTimestamp(),
+        nextAttemptAt: null,
+        lastError: ""
+      });
+      await store.updateAiGradingRequest(gradingRequest.id, { resultEmailedAt: delivery.sentAt, resultEmailCount: (gradingRequest.resultEmailCount ?? 0) + 1, resultEmailDeliveryId: delivery.id });
+      return delivery;
+    } catch (error) {
+      return automationMarkDeliveryFailure({ examId: exam.id, candidateId: candidate.id, delivery, error });
+    }
+  };
+  const ensureAutomationGrading = async (exam, candidate, submission) => {
+    const assignment = automationAssignment(exam.id, candidate.id);
+    if (!assignment || automationIsExcluded(assignment, store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id)) || !submission || submission.status !== "SUBMITTED") return { status: "SKIPPED" };
+    let gradingRequest = [...store.aiGradingRequests]
+      .filter((item) => item.examId === exam.id && item.candidateId === candidate.id)
+      .sort((a, b) => Date.parse(b.requestedAt ?? "") - Date.parse(a.requestedAt ?? ""))[0];
+    if (gradingRequest?.status === "COMPLETED") {
+      await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: gradingRequest.result, aiGradedAt: gradingRequest.completedAt ?? gradingRequest.result?.gradedAt });
+      const delivery = await sendAutomationResultEmail({ exam, candidate, gradingRequest });
+      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : "EMAIL_PENDING", gradingRequest, delivery };
+    }
+    if (gradingRequest?.status === "FAILED" && (Number(gradingRequest.retryCount ?? 0) >= 3 || (gradingRequest.nextRetryAt && Date.parse(gradingRequest.nextRetryAt) > automationClock()))) return { status: "GRADING_FAILED", gradingRequest };
+    if (!gradingRequest || !["PENDING", "PROCESSING", "FAILED"].includes(gradingRequest.status)) {
+      gradingRequest = {
+        id: randomUUID(),
+        organizationId: exam.organizationId,
+        examId: exam.id,
+        candidateId: candidate.id,
+        requestedBy: "system-automation",
+        requestedAt: automationTimestamp(),
+        acceptedAt: automationTimestamp(),
+        acceptedBy: "system-automation",
+        status: "PROCESSING",
+        autoTriggered: true,
+        retryCount: 0
+      };
+      await store.addAiGradingRequest(gradingRequest);
+    } else if (gradingRequest.status !== "PROCESSING") {
+      gradingRequest = await store.updateAiGradingRequest(gradingRequest.id, { status: "PROCESSING", acceptedAt: automationTimestamp(), acceptedBy: "system-automation", autoTriggered: true });
+    }
+    try {
+      await executeAiGrading(gradingRequest);
+      gradingRequest = store.aiGradingRequests.find((item) => item.id === gradingRequest.id) ?? gradingRequest;
+      if (gradingRequest.status !== "COMPLETED") return { status: gradingRequest.status === "FAILED" ? "GRADING_FAILED" : "GRADING_PENDING", gradingRequest };
+      const delivery = await sendAutomationResultEmail({ exam, candidate, gradingRequest });
+      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : "EMAIL_PENDING", gradingRequest, delivery };
+    } catch (error) {
+      const retryCount = Number(gradingRequest.retryCount ?? 0) + 1;
+      await store.updateAiGradingRequest(gradingRequest.id, { status: "FAILED", failedAt: automationTimestamp(), errorMessage: String(error?.message ?? error).slice(0, 500), autoTriggered: true, retryCount, nextRetryAt: retryCount >= automationMaxRetries ? null : new Date(automationClock() + automationRetryDelaysMs[retryCount - 1]).toISOString() });
+      return { status: "GRADING_FAILED", gradingRequest: store.aiGradingRequests.find((item) => item.id === gradingRequest.id), error };
+    }
+  };
+  const finalizeAutomationCandidate = async (exam, invitation, now) => {
+    const candidate = store.candidates.find((item) => item.id === invitation.candidateId);
+    const assignment = automationAssignment(exam.id, invitation.candidateId);
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === invitation.candidateId);
+    if (!candidate || !assignment) return { status: "SKIPPED" };
+    const organizationIds = [exam.organizationId, invitation.organizationId, assignment.organizationId, candidate.organizationId].filter(Boolean);
+    if (organizationIds.some((organizationId) => organizationId !== exam.organizationId)) {
+      await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "EXCLUDED", reason: "ORGANIZATION_MISMATCH", finalizedAt: automationTimestamp(), lastError: "Candidate, assignment, invitation, and exam organizations must match" });
+      return { status: "EXCLUDED", reason: "ORGANIZATION_MISMATCH" };
+    }
+    if (automationIsExcluded(assignment, examinee)) {
+      await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "EXCLUDED", reason: "TERMINAL_EXCLUSION", finalizedAt: automationTimestamp() });
+      return { status: "EXCLUDED" };
+    }
+    const questions = store.questions.filter((question) => question.examId === exam.id);
+    const codingQuestions = questions.filter((question) => question.type === "CODING");
+    let submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    const started = Boolean(invitation.verifiedAt || submission?.status === "DRAFT" || submission?.status === "SUBMITTED");
+    if (!started && !invitation.submittedAt && assignment.status !== "SUBMITTED") {
+      await store.updateAssignment(assignment.id, { status: "ABSENT", score: null, resultStatus: "ABSENT", absentAt: now });
+      await store.updateInvitation(invitation.id, { absentAt: now });
+      await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "ABSENT", finalizedAt: now, reason: "NEVER_STARTED" });
+      return { status: "ABSENT" };
+    }
+    if (!invitation.submittedAt && assignment.status !== "SUBMITTED") {
+      if (codingQuestions.length) {
+        submission = await store.saveCodingSubmission({
+          id: submission?.id ?? randomUUID(),
+          examId: exam.id,
+          organizationId: exam.organizationId,
+          candidateId: candidate.id,
+          answers: normalizeCodingAnswers(submission?.answers ?? {}, questions),
+          runResults: normalizeRunResults(submission?.runResults ?? {}, questions),
+          status: "SUBMITTED",
+          submittedAt: now,
+          updatedAt: now,
+          autoFinalized: true
+        });
+      }
+      const correctCount = questions.filter((question) => question.type !== "CODING" && submission?.answers?.[question.id] === question.answer).length;
+      const score = codingQuestions.length ? null : Math.round((correctCount / Math.max(1, questions.length)) * 100);
+      await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now, autoFinalizedAt: now });
+      await store.updateInvitation(invitation.id, { submittedAt: now, autoFinalizedAt: now });
+      if (examinee) await store.updateExaminee(examinee.id, { status: "SUBMITTED", statusText: "AUTO_FINALIZED", currentProb: "AUTO_FINALIZED" });
+    }
+    if (!codingQuestions.length) {
+      await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "FINALIZED", finalizedAt: now });
+      return { status: "FINALIZED" };
+    }
+    const grading = await ensureAutomationGrading(exam, candidate, submission ?? store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id));
+    const stateStatus = grading.status === "GRADED" ? "COMPLETED" : grading.status === "EMAIL_FAILED" ? "EMAIL_FAILED" : grading.status === "EMAIL_PENDING" ? "EMAIL_PENDING" : grading.status === "GRADING_FAILED" ? "GRADING_FAILED" : "GRADING";
+    await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: stateStatus, finalizedAt: now, gradingRequestId: grading.gradingRequest?.id, lastError: grading.error?.message ?? grading.gradingRequest?.errorMessage ?? "" });
+    return grading;
+  };
+  const runExamAutomation = async (examOrId, now = automationClock()) => {
+    const exam = typeof examOrId === "string" ? store.exams.find((item) => item.id === examOrId) : examOrId;
+    if (!exam) return undefined;
+    const cutoffAt = scheduledExamEndsAt(exam);
+    if (!cutoffAt) return { examId: exam.id, status: "UNSCHEDULED", cutoffAt: null };
+    const cutoffMs = Date.parse(cutoffAt);
+    let examState = await store.upsertExamAutomationState(exam.id, { cutoffAt });
+    if (now < cutoffMs) return { ...examState, status: "PENDING", cutoffAt };
+    if (examState.status === "COMPLETED" && !store.candidateAutomationStates.some((item) => item.examId === exam.id && ["EMAIL_PENDING", "GRADING", "GRADING_FAILED", "EMAIL_FAILED"].includes(item.status))) return examState;
+    const claimed = await store.claimExamAutomation(exam.id, { now, leaseMs: 5 * 60_000 });
+    if (!claimed) return store.examAutomationStates.find((item) => item.examId === exam.id) ?? examState;
+    const processingLeaseUntil = claimed.processingLeaseUntil;
+    examState = await store.updateExamAutomationState(exam.id, { cutoffAt, lastRunAt: automationTimestamp() });
+    const invitations = store.invitations.filter((item) => item.examId === exam.id);
+    const results = [];
+    for (const invitation of invitations) results.push(await finalizeAutomationCandidate(exam, invitation, new Date(cutoffMs).toISOString()));
+    const states = store.candidateAutomationStates.filter((item) => item.examId === exam.id);
+    const pending = states.filter((item) => ["PENDING", "GRADING", "EMAIL_PENDING"].includes(item.status)).length;
+    const failures = states.filter((item) => ["GRADING_FAILED", "EMAIL_FAILED"].includes(item.status)).length;
+    examState = await store.updateExamAutomationState(exam.id, {
+      status: pending ? "PROCESSING" : "COMPLETED",
+      completedAt: pending ? null : automationTimestamp(),
+      processingLeaseUntil: pending ? processingLeaseUntil : null,
+      candidateCount: invitations.length,
+      finalizedCount: states.filter((item) => ["COMPLETED", "FINALIZED", "ABSENT", "EXCLUDED", "EMAIL_FAILED", "GRADING_FAILED"].includes(item.status)).length,
+      failureCount: failures,
+      lastError: failures ? "One or more automatic-processing steps failed" : ""
+    });
+    return { ...examState, results };
+  };
+  const runAutomation = async () => {
+    if (automationRunPromise) return automationRunPromise;
+    automationRunPromise = (async () => {
+      const now = automationClock();
+      const results = [];
+      for (const exam of store.exams) results.push(await runExamAutomation(exam, now));
+      return results;
+    })().finally(() => { automationRunPromise = undefined; });
+    return automationRunPromise;
   };
   const verifyAiApiKey = aiKeyVerifier ?? (async ({ provider, apiKey }) => {
     const checks = {
@@ -1803,6 +2011,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const limit = Math.min(Math.max(Number.parseInt(request.query.limit, 10) || 100, 1), 500);
     return response.json(store.aiInvocationLogs.slice(0, limit));
   });
+  app.get("/api/admin/ai-invocation-logs/automation-summary", authenticate, requireRole("ADMIN"), (_request, response) => response.json(automationAggregateSummary()));
   app.post("/api/admin/ai-settings/verify-key", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const provider = typeof request.body.provider === "string" ? request.body.provider.trim() : "";
@@ -1898,7 +2107,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
-  app.get("/api/admin/ai-grading-requests", authenticate, requireRole("ADMIN"), (_request, response) => response.json(store.aiGradingRequests.map(publicAiGradingRequest)));
+  app.get("/api/admin/ai-grading-requests", authenticate, requireRole("ADMIN"), (_request, response) => {
+    return response.json(store.aiGradingRequests.map(publicAiGradingRequest));
+  });
   app.patch("/api/admin/ai-grading-requests/:id", authenticate, requireRole("ADMIN"), async (request, response, next) => {
     try {
       const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
@@ -2128,12 +2339,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const { subject, html, text } = buildAiResultEmailContent({ candidate, exam, result: gradingRequest.result });
       let deliveryStatus;
       try {
-        deliveryStatus = await sendSendGridEmail({ to: candidate.email, subject, html, text }) ? "SENT" : "PREVIEW";
-      } catch {
+        deliveryStatus = await emailSender({ to: candidate.email, subject, html, text, exam, candidate, gradingRequest }) ? "SENT" : "PREVIEW";
+      } catch (error) {
+        await store.upsertResultEmailDelivery(gradingRequest.examId, gradingRequest.candidateId, { status: "FAILED", attempts: Number(store.resultEmailDeliveries.find((item) => item.examId === gradingRequest.examId && item.candidateId === gradingRequest.candidateId)?.attempts ?? 0) + 1, lastError: String(error?.message ?? "Result email delivery failed").slice(0, 500), failedAt: new Date().toISOString() });
         return response.status(502).json({ message: "결과 메일 전송에 실패했습니다." });
       }
       if (deliveryStatus === "PREVIEW" && (process.env.NODE_ENV === "production" || process.env.SENDGRID_API_KEY || process.env.SENDGRID_FROM_EMAIL)) return response.status(503).json({ message: "SendGrid 이메일 서비스가 아직 설정되지 않았습니다." });
       const updated = await store.updateAiGradingRequest(gradingRequest.id, { resultEmailedAt: new Date().toISOString(), resultEmailCount: (gradingRequest.resultEmailCount ?? 0) + 1 });
+      await store.upsertResultEmailDelivery(gradingRequest.examId, gradingRequest.candidateId, { status: "SENT", attempts: Number(store.resultEmailDeliveries.find((item) => item.examId === gradingRequest.examId && item.candidateId === gradingRequest.candidateId)?.attempts ?? 0) + 1, retryCount: 0, sentAt: updated.resultEmailedAt, nextAttemptAt: null, lastError: "", gradingRequestId: gradingRequest.id });
+      const automationState = store.candidateAutomationStates.find((item) => item.examId === gradingRequest.examId && item.candidateId === gradingRequest.candidateId);
+      if (automationState && automationState.status === "EMAIL_FAILED") await store.updateCandidateAutomationState(gradingRequest.examId, gradingRequest.candidateId, { status: "COMPLETED", lastError: "" });
       return response.json(publicAiGradingRequest(updated));
     } catch (error) {
       return next(error);
@@ -3156,6 +3371,121 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       examTitle: store.exams.find((exam) => exam.id === warning.examId)?.title ?? "시험"
     })));
   });
+  const automationProjection = (examId) => {
+    const exam = store.exams.find((item) => item.id === examId);
+    const cutoffAt = scheduledExamEndsAt(exam ?? {});
+    const examState = store.examAutomationStates.find((item) => item.examId === examId) ?? { examId, status: cutoffAt ? "PENDING" : "UNSCHEDULED", cutoffAt: cutoffAt ?? null };
+    const { lastError: _examLastError, errorMessage: _examErrorMessage, reason: _examReason, ...safeExamState } = examState;
+    const examFailure = safeAutomationFailure(examState.status, examState.reason ?? examState.lastError);
+    const examFailed = ["FAILED", "GRADING_FAILED", "EMAIL_FAILED"].includes(String(examState.status ?? "").toUpperCase());
+    const candidates = store.candidateAutomationStates.filter((item) => item.examId === examId).map((item) => {
+      const candidate = store.candidates.find((candidateItem) => candidateItem.id === item.candidateId);
+      const delivery = store.resultEmailDeliveries.find((deliveryItem) => deliveryItem.examId === examId && deliveryItem.candidateId === item.candidateId);
+      const failure = safeAutomationFailure(item.status, item.reason ?? delivery?.status);
+      const { lastError: _lastError, errorMessage: _errorMessage, reason: _rawReason, ...safeState } = item;
+      return { ...safeState, candidateName: candidate?.name ?? "", candidateEmail: candidate?.email ?? "", failureCode: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(item.status) ? failure.code : "", failureReason: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(item.status) ? failure.message : "", email: delivery ? { status: delivery.status, attempts: delivery.attempts ?? 0, retryCount: delivery.retryCount ?? 0, nextAttemptAt: delivery.nextAttemptAt ?? null, failureCode: delivery.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "", failureReason: delivery.status === "FAILED" ? "Result email delivery failed; manual resend is available." : "", sentAt: delivery.sentAt ?? null } : null };
+    });
+    const deliveries = store.resultEmailDeliveries.filter((item) => item.examId === examId).map((item) => ({ id: item.id, examId: item.examId, candidateId: item.candidateId, status: item.status, attempts: item.attempts ?? 0, retryCount: item.retryCount ?? 0, nextAttemptAt: item.nextAttemptAt ?? null, failureCode: item.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "", failureReason: item.status === "FAILED" ? "Result email delivery failed; manual resend is available." : "", sentAt: item.sentAt ?? null, candidateName: store.candidates.find((candidate) => candidate.id === item.candidateId)?.name ?? "" }));
+    return { exam: exam ? { id: exam.id, title: exam.title, organizationId: exam.organizationId, cutoffAt } : null, state: { ...safeExamState, failureCode: examFailed ? examFailure.code : "", failureReason: examFailed ? examFailure.message : "" }, candidates, deliveries };
+  };
+  const automationAggregateSummary = () => {
+    const states = store.candidateAutomationStates;
+    const status = (item) => String(item.status ?? "").toUpperCase();
+    const deliveries = store.resultEmailDeliveries;
+    const completed = states.filter((item) => ["COMPLETED", "FINALIZED"].includes(status(item))).length;
+    const absent = states.filter((item) => status(item) === "ABSENT").length;
+    const excluded = states.filter((item) => status(item) === "EXCLUDED").length;
+    const processing = states.filter((item) => ["PENDING", "PROCESSING", "FINALIZING", "GRADING", "EMAIL_PENDING", "EMAIL_SENDING"].includes(status(item))).length;
+    const failed = states.filter((item) => ["FAILED", "GRADING_FAILED", "EMAIL_FAILED"].includes(status(item))).length;
+    const emailSent = deliveries.filter((item) => item.status === "SENT").length;
+    const emailFailed = new Set(deliveries.filter((item) => item.status === "FAILED").map((item) => `${item.examId}:${item.candidateId}`));
+    states.filter((item) => status(item) === "EMAIL_FAILED").forEach((item) => emailFailed.add(`${item.examId}:${item.candidateId}`));
+    const total = states.length;
+    const candidates = states.map((item) => {
+      const failure = safeAutomationFailure(item.status, item.reason ?? item.lastError);
+      const candidate = store.candidates.find((candidateItem) => candidateItem.id === item.candidateId);
+      const { lastError: _lastError, errorMessage: _errorMessage, reason: _rawReason, ...safeState } = item;
+      return { ...safeState, candidateName: candidate?.name ?? "", candidateEmail: candidate?.email ?? "", failureCode: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(status(item)) ? failure.code : "", failureReason: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(status(item)) ? failure.message : "" };
+    });
+    return { total, completed, absent, excluded, processing, failed, emailSent, emailFailed: emailFailed.size, progress: total ? Math.round((completed + absent + excluded) / total * 100) : 0, candidates };
+  };
+  const automationCandidateMembership = (examId, candidateId) => {
+    const exam = store.exams.find((item) => item.id === examId);
+    const assignment = store.assignments.find((item) => item.examId === examId && item.candidateId === candidateId);
+    const candidate = store.candidates.find((item) => item.id === candidateId);
+    const invitation = store.invitations.find((item) => item.examId === examId && item.candidateId === candidateId);
+    const organizationIds = [exam?.organizationId, assignment?.organizationId, invitation?.organizationId, candidate?.organizationId].filter(Boolean);
+    return Boolean(exam && assignment && candidate && invitation && organizationIds.every((organizationId) => organizationId === exam.organizationId));
+  };
+  const recoverAutomation = async (examId, candidateId) => {
+    const exam = store.exams.find((item) => item.id === examId);
+    if (!exam) return undefined;
+    if (candidateId) {
+      if (!automationCandidateMembership(examId, candidateId)) return undefined;
+    }
+    const deliveries = store.resultEmailDeliveries.filter((item) => item.examId === examId && (!candidateId || item.candidateId === candidateId));
+    for (const delivery of deliveries) {
+      if (delivery.status !== "SENT") await store.updateResultEmailDelivery(examId, delivery.candidateId, { status: "RETRY_WAITING", retryCount: 0, nextAttemptAt: null, lastError: "" });
+    }
+    const requests = store.aiGradingRequests.filter((item) => item.examId === examId && (!candidateId || item.candidateId === candidateId) && item.autoTriggered && item.status === "FAILED");
+    for (const request of requests) await store.updateAiGradingRequest(request.id, { status: "PENDING", retryCount: 0, nextRetryAt: undefined, errorMessage: "", failedAt: undefined });
+    const state = store.examAutomationStates.find((item) => item.examId === examId);
+    if (state) await store.updateExamAutomationState(examId, { status: "PROCESSING", processingLeaseId: null, processingLeaseUntil: null, lastRecoveryAt: automationTimestamp(), lastError: "" });
+    return runExamAutomation(exam, automationClock());
+  };
+  const automationAccess = (request, examId) => {
+    const exam = store.exams.find((item) => item.id === examId);
+    if (!exam) return { exam: null, allowed: false };
+    return { exam, allowed: request.user.role === "ADMIN" || managerOrganizationIds(request.user, store.organizations).includes(exam.organizationId) };
+  };
+  app.get("/api/manager/exams/:examId/automation-status", authenticate, requireManager, (request, response) => {
+    const access = automationAccess(request, request.params.examId);
+    if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 상태를 조회할 권한이 없습니다." });
+    return response.json(automationProjection(request.params.examId));
+  });
+  app.get("/api/admin/exams/:examId/automation-status", authenticate, requireRole("ADMIN"), (request, response) => {
+    if (!store.exams.some((exam) => exam.id === request.params.examId)) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    return response.json(automationProjection(request.params.examId));
+  });
+  app.get("/api/manager/automation-status", authenticate, requireManager, (request, response) => {
+    const examId = typeof request.query.examId === "string" ? request.query.examId : "";
+    const access = automationAccess(request, examId);
+    if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 상태를 조회할 권한이 없습니다." });
+    return response.json(automationProjection(examId));
+  });
+  app.get("/api/admin/automation-status", authenticate, requireRole("ADMIN"), (request, response) => {
+    const examId = typeof request.query.examId === "string" ? request.query.examId : "";
+    if (!store.exams.some((exam) => exam.id === examId)) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+    return response.json(automationProjection(examId));
+  });
+  app.post("/api/manager/exams/:examId/automation/retry", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const access = automationAccess(request, request.params.examId);
+      if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 복구 권한이 없습니다." });
+      if (!request.body || typeof request.body !== "object" || Array.isArray(request.body)) return response.status(400).json({ message: "Automation recovery request body is required." });
+      const candidateId = typeof request.body?.candidateId === "string" ? request.body.candidateId : undefined;
+      if (candidateId && !automationCandidateMembership(request.params.examId, candidateId)) return response.status(404).json({ message: "해당 시험의 응시자를 찾을 수 없습니다." });
+      const result = await recoverAutomation(request.params.examId, candidateId);
+      return response.json({ ...automationProjection(request.params.examId), run: result });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/admin/exams/:examId/automation/retry", authenticate, requireRole("ADMIN"), async (request, response, next) => {
+    try {
+      if (!store.exams.some((exam) => exam.id === request.params.examId)) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!request.body || typeof request.body !== "object" || Array.isArray(request.body)) return response.status(400).json({ message: "Automation recovery request body is required." });
+      const candidateId = typeof request.body?.candidateId === "string" ? request.body.candidateId : undefined;
+      if (candidateId && !automationCandidateMembership(request.params.examId, candidateId)) return response.status(404).json({ message: "해당 시험의 응시자를 찾을 수 없습니다." });
+      const result = await recoverAutomation(request.params.examId, candidateId);
+      return response.json({ ...automationProjection(request.params.examId), run: result });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/manager/results", authenticate, requireManager, (request, response) => {
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
     const examId = typeof request.query.examId === "string" ? request.query.examId : "";
@@ -3169,7 +3499,26 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }).map((assignment) => {
       const candidate = store.candidates.find((item) => item.id === assignment.candidateId);
       const exam = store.exams.find((item) => item.id === assignment.examId);
-      return { ...assignment, candidateName: candidate?.name ?? "응시자", candidateEmail: candidate?.email ?? "", examTitle: exam?.title ?? "시험", organizationId: candidate?.organizationId };
+      const automation = store.candidateAutomationStates.find((item) => item.examId === assignment.examId && item.candidateId === assignment.candidateId);
+      const delivery = store.resultEmailDeliveries.find((item) => item.examId === assignment.examId && item.candidateId === assignment.candidateId);
+      const automationStatus = automation?.status ?? assignment.aiGradingStatus ?? "NOT_PROCESSED";
+      const failure = safeAutomationFailure(automationStatus, automation?.reason ?? delivery?.status);
+      const isFailure = ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(automationStatus);
+      const { lastError: _assignmentLastError, errorMessage: _assignmentErrorMessage, ...safeAssignment } = assignment;
+      return {
+        ...safeAssignment,
+        candidateName: candidate?.name ?? "응시자",
+        candidateEmail: candidate?.email ?? "",
+        examTitle: exam?.title ?? "시험",
+        organizationId: candidate?.organizationId,
+        automationStatus,
+        automationFailureCode: isFailure ? failure.code : "",
+        automationFailureReason: isFailure ? failure.message : "",
+        resultEmailStatus: delivery?.status ?? "NOT_SCHEDULED",
+        resultEmailFailureCode: delivery?.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "",
+        resultEmailFailureReason: delivery?.status === "FAILED" ? "Result email delivery failed; manual resend is available." : "",
+        resultEmailNextAttemptAt: delivery?.nextAttemptAt ?? null
+      };
     });
     response.json(rows);
   });
@@ -3209,10 +3558,37 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
 
+  let automationTimer;
+  let automationStarted = false;
+  const startAutomationScheduler = () => {
+    if (automationStarted) return;
+    automationStarted = true;
+    void runAutomation().catch((error) => console.error("automatic exam processing startup catch-up failed", error));
+    if (Number.isFinite(automationIntervalMs) && automationIntervalMs > 0) {
+      automationTimer = setInterval(() => void runAutomation().catch((error) => console.error("automatic exam processing tick failed", error)), automationIntervalMs);
+      automationTimer.unref?.();
+    }
+  };
+  const stopAutomationScheduler = () => {
+    if (automationTimer) clearInterval(automationTimer);
+    automationTimer = undefined;
+    automationStarted = false;
+  };
+  app.locals.automation = {
+    runNow: runAutomation,
+    runExam: runExamAutomation,
+    getStatus: automationProjection,
+    start: startAutomationScheduler,
+    stop: stopAutomationScheduler,
+    isStarted: () => automationStarted
+  };
+  if ((startAutomationSchedulerOption ?? startAutomation) === true) startAutomationScheduler();
+
   app.use((error, _request, response, _next) => {
-    console.error(error);
     const statusCode = error instanceof SyntaxError && error.status === 400 ? 400 : Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 500;
-    const message = statusCode === 500 ? "서버 오류가 발생했습니다." : typeof error?.message === "string" ? error.message : "요청을 처리하지 못했습니다.";
+    if (statusCode >= 500) console.error(error);
+    else console.warn("request rejected", statusCode);
+    const message = statusCode === 500 ? "서버 오류가 발생했습니다." : error instanceof SyntaxError && statusCode === 400 ? "요청 본문 JSON이 올바르지 않습니다." : typeof error?.message === "string" ? error.message : "요청을 처리하지 못했습니다.";
     response.status(statusCode).json({ message });
   });
   return app;
