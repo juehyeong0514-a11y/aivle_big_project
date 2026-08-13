@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Cpu, RefreshCw, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
-import { filterInvocationLogs, localizeAutomationFailure, paginateInvocationLogs } from '../automationUi.mjs';
+import { filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs } from '../automationUi.mjs';
 
 const statusLabel = { COMPLETED: '생성 완료', FAILED: '호출 실패', BLOCKED: '조건 확인 필요', PROCESSING: '호출 중', FINALIZING: '응시 마감 처리 중', EMAIL_FAILED: '결과 메일 실패', GRADING_FAILED: 'AI 채점 실패' };
 const kindLabel = { REFERENCE_ANSWER: '모범답안 생성', GRADING: 'AI 채점' };
@@ -51,9 +51,10 @@ export default function AiInvocationLogsTab() {
   useEffect(() => { setAllPage(1); }, [allStatus, allQuery]);
   const filteredAllLogs = filterInvocationLogs(allLogs, { status: allStatus, query: allQuery });
   const pagedAllLogs = paginateInvocationLogs(filteredAllLogs, allPage, 20);
+  const logView = invocationLogView(showAll);
   const openAllButton = <button className="secondary-button compact-button" type="button" onClick={loadAll} disabled={allLoading}>{allLoading ? '전체 기록 불러오는 중' : '전체 기록 보기'}</button>;
 
-  return <section className="workspace-shell">
+  return <section className={`workspace-shell${logView === 'all' ? ' ai-log-history-open' : ''}`}>
     <div className="workspace-heading"><div><span className="workspace-eyebrow">AI 호출 감사</span><h1>AI 호출 기록</h1><p>실제 AI 호출의 프롬프트, 원본 응답과 실패 사유를 최신 20건 기준으로 확인합니다.</p></div><div className="candidate-action-row"><button className="secondary-button" type="button" onClick={load} disabled={loading}><RefreshCw size={16} /> 새로고침</button>{openAllButton}</div></div>
     {message && <div className="workspace-alert error">{message}</div>}
     <div className="data-panel ai-log-list"><div className="ai-log-list-heading"><strong>최신 AI 호출 20건</strong><span>{logs.length}건 표시 · API 키는 기록하지 않습니다.</span></div>{loading ? <p className="empty-state">호출 기록을 불러오는 중입니다.</p> : logs.length ? logs.map((log) => <InvocationLogRow key={log.id} log={log} onSelect={setSelected} />) : <p className="empty-state">아직 기록된 AI 호출이 없습니다.</p>}</div>
