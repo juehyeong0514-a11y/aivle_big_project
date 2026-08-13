@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams } from './automationUi.mjs';
+import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams } from './automationUi.mjs';
+
+test('full invocation history replaces the latest list instead of rendering both panels', () => {
+  assert.equal(invocationLogView(false), 'latest');
+  assert.equal(invocationLogView(true), 'all');
+});
 
 test('automation helpers derive candidate states, recovery actions, and aggregate progress', () => {
   const waiting = automationStateFor({}, { status: 'PENDING' });

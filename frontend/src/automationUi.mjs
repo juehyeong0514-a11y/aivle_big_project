@@ -56,6 +56,8 @@ export const paginateInvocationLogs = (logs, page = 1, pageSize = 20) => {
   return { items: safeLogs.slice((currentPage - 1) * safePageSize, currentPage * safePageSize), page: currentPage, pageSize: safePageSize, total: safeLogs.length, totalPages };
 };
 
+export const invocationLogView = (showAll) => showAll ? 'all' : 'latest';
+
 const automationExamTimestamp = (exam) => {
   const value = exam?.scheduledAt || exam?.startAt || exam?.examDate || exam?.date || exam?.createdAt || exam?.updatedAt;
   const timestamp = value ? Date.parse(String(value).replace(/\./g, '-')) : NaN;
