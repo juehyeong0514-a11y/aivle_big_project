@@ -318,7 +318,6 @@ export default function ManagerExamDetailPage() {
     setMessageType(type);
   };
 
-<<<<<<< Updated upstream
   const startEditingExamTitle = () => {
     setExamTitleDraft(exam.title);
     setIsEditingExamTitle(true);
@@ -338,7 +337,9 @@ export default function ManagerExamDetailPage() {
       showMessage(apiErrorMessage(reason, "시험 제목을 수정하지 못했습니다."), "error");
     } finally {
       setIsSavingExamTitle(false);
-=======
+    }
+  };
+
   const reviewIdentityVerificationRequest = async (requestId, status) => {
     setReviewingIdentityRequestId(requestId);
     try {
@@ -349,7 +350,6 @@ export default function ManagerExamDetailPage() {
       showMessage(apiErrorMessage(reason, "대체 신원확인 요청을 처리하지 못했습니다."), "error");
     } finally {
       setReviewingIdentityRequestId("");
->>>>>>> Stashed changes
     }
   };
 
