@@ -2933,3 +2933,39 @@ h1, h2, h3, h4, h5, h6 {
 .floating-action-bar.static {
   position: static;
 }
+
+/* 응시자 일괄 작업: 요약은 왼쪽, 두 실행 버튼은 오른쪽 한 줄에 정렬 */
+#invitation-management .floating-action-bar-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 20px;
+}
+#invitation-management .candidate-selection-summary {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+#invitation-management .candidate-selection-summary > strong {
+  color: var(--accent-primary);
+  font-size: 16px;
+}
+#invitation-management .floating-action-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+#invitation-management .floating-action-buttons > button {
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  #invitation-management .floating-action-bar-content {
+    grid-template-columns: 1fr;
+    row-gap: 12px;
+  }
+  #invitation-management .floating-action-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

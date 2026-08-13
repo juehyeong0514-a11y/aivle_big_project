@@ -998,13 +998,15 @@ export default function ManagerExamDetailPage() {
         )}
         <div className="floating-action-bar static">
           <div className="floating-action-bar-content">
-            <span>{selectedCandidateIds.length}명 선택됨</span>
-            <div className="floating-action-buttons">
+            <div className="candidate-selection-summary">
+              <strong>{selectedCandidateIds.length}명 선택됨</strong>
               {selectedCandidateIds.length > 0 && (
                 <span className="action-hint">
                   <CheckSquare size={14} /> 배정 해제해도 응시자 등록 정보는 삭제되지 않습니다.
                 </span>
               )}
+            </div>
+            <div className="floating-action-buttons">
               <button className="primary-button" type="button" onClick={sendInvitations} disabled={selectedCandidateIds.length === 0}><Mail size={16} /> 선택 대상자 배정 및 초대</button>
               <button className="danger-button" type="button" disabled={!selectedAssignedCount} onClick={removeAssignments}><Trash2 size={16} /> 선택 대상자 배정 해제</button>
             </div>
