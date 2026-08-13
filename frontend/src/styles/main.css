@@ -1531,10 +1531,13 @@ h1, h2, h3, h4, h5, h6 {
 .monitoring-detection-overlay { position: absolute; z-index: 2; inset: 0; pointer-events: none; }
 .monitoring-detection-box { position: absolute; box-sizing: border-box; border: 2px solid #22c55e; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 23, 42, .55), inset 0 0 0 1px rgba(15, 23, 42, .35); }
 .monitoring-detection-box b { position: absolute; top: -2px; left: -2px; max-width: max(100%, 90px); overflow: hidden; padding: 2px 5px; border-radius: 2px 2px 2px 0; color: #fff; background: #16a34a; font-size: 9px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.monitoring-detection-box.edge-right b { right: -2px; left: auto; border-radius: 2px 2px 0; }
 .monitoring-detection-box.detection-cell-phone { border-color: #ef4444; }
 .monitoring-detection-box.detection-cell-phone b { background: #dc2626; }
 .monitoring-detection-box.detection-book { border-color: #f59e0b; }
 .monitoring-detection-box.detection-book b { background: #d97706; }
+.mobile-proctor-detection-overlay { z-index: 4; }
+.mobile-proctor-ai-time { position: absolute; z-index: 5; right: 12px; bottom: 12px; padding: 4px 8px; border-radius: 4px; color: #e2e8f0; background: rgba(15, 23, 42, .78); font-size: 11px; font-weight: 700; }
 .monitoring-status-row { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-bottom: 12px; color: var(--text-secondary); font-size: 13px; }
 .monitoring-status-row strong { color: var(--text-primary); }
 .monitoring-status-row small { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 11px; }
@@ -1588,6 +1591,12 @@ h1, h2, h3, h4, h5, h6 {
 .monitoring-live-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .monitoring-live-tool-heading strong, .monitoring-live-warning-panel strong { color: var(--text-primary); font-size: 14px; }
 .monitoring-live-tool-heading time { color: var(--text-muted); font-size: 11px; }
+.monitoring-ai-source-summary { padding: 8px 0; border-top: 1px solid var(--border-default); }
+.monitoring-ai-source-summary:first-of-type { padding-top: 0; border-top: 0; }
+.monitoring-ai-source-summary > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.monitoring-ai-source-summary > div:first-child strong { color: var(--text-primary); font-size: 12px; }
+.monitoring-ai-source-summary time, .monitoring-ai-source-summary small { color: var(--text-muted); font-size: 10px; }
+.monitoring-ai-source-summary p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; }
 .monitoring-live-tool-heading button { border: 0; padding: 0; color: var(--accent-primary); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer; }
 .monitoring-live-tool-panel > p, .monitoring-live-warning-panel p { margin: 0 0 10px; overflow: hidden; color: var(--text-secondary); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .monitoring-live-tool-panel > small { color: var(--text-muted); font-size: 11px; }

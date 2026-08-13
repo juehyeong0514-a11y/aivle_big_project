@@ -69,6 +69,13 @@ test("updates an exam schedule across invitations and removes the exam graph", a
   const paired = await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: device.token }) });
   assert.equal(paired.status, 200);
   const deviceToken = (await paired.json()).deviceToken;
+  const reusedPairing = await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: device.token }) });
+  assert.equal(reusedPairing.status, 409);
+  const replacementDevice = await fetch(`${baseUrl}/api/applicant/auxiliary-devices`, { method: "POST", headers: applicantHeaders });
+  assert.equal(replacementDevice.status, 201);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/mobile-devices/${deviceToken}/status`)).json(), { ended: true });
+  assert.equal((await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: device.token }) })).status, 404);
+  assert.equal((await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: (await replacementDevice.json()).token }) })).status, 200);
 
   const adminLogin = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "admin@aivle.com", password: "123", role: "ADMIN" }) });
   const admin = await adminLogin.json();
@@ -386,10 +393,15 @@ test("requires email verification before manager signup and rate-limits invalid 
 });
 
 test("governs organization approval, manager scope, and invitations reusable before submission", async (context) => {
+  const requestedAiUrls = [];
+  const fetchAiResult = async (url) => {
+    requestedAiUrls.push(url);
+    return { ok: true, status: 200, json: async () => ({ model: "fake-yolo", latencyMs: 5, personCount: 1, detections: [{ label: "cell phone", confidence: .9, bbox: [.1, .1, .3, .4] }], events: [{ type: "CELL_PHONE_DETECTED", confidence: .9, message: "감지" }] }) };
+  };
   const { baseUrl, directory, server } = await startServer({ aiProctorOptions: {
     endpoint: "http://ai-proctor.test",
-    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ model: "fake-yolo", latencyMs: 5, personCount: 1, detections: [{ label: "cell phone", confidence: .9, bbox: [.1, .1, .3, .4] }], events: [{ type: "CELL_PHONE_DETECTED", confidence: .9, message: "감지" }] }) })
-  } });
+    fetchImpl: fetchAiResult
+  }, mobileAiProctorOptions: { endpoint: "http://mobile-ai-proctor.test" } });
   context.after(() => server.close());
   const login = async (email, role, password = "123") => {
     const response = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, role }) });
@@ -553,6 +565,25 @@ test("governs organization approval, manager scope, and invitations reusable bef
   }
   assert.equal(aiWarnings.length, 1);
   assert.equal(aiWarnings[0].type, "CELL_PHONE_DETECTED");
+  assert.equal(requestedAiUrls.some((url) => url === "http://ai-proctor.test/detect"), true);
+  const mobileDevice = await fetch(`${baseUrl}/api/applicant/auxiliary-devices`, { method: "POST", headers: { Authorization: `Bearer ${applicantToken}` } });
+  assert.equal(mobileDevice.status, 201);
+  const pairedMobileDevice = await fetch(`${baseUrl}/api/mobile-devices/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: (await mobileDevice.json()).token }) });
+  assert.equal(pairedMobileDevice.status, 200);
+  const { deviceToken } = await pairedMobileDevice.json();
+  const uploadMobileSnapshot = () => fetch(`${baseUrl}/api/mobile-devices/${deviceToken}/snapshot`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==", sourceAspectRatio: 16 / 9 }) });
+  assert.equal((await uploadMobileSnapshot()).status, 204);
+  assert.equal((await uploadMobileSnapshot()).status, 429);
+  let mobileStatus = null;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    mobileStatus = await (await fetch(`${baseUrl}/api/mobile-devices/${deviceToken}/status`)).json();
+    if (mobileStatus.ai) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(mobileStatus.ai?.model, "fake-yolo");
+  assert.equal(mobileStatus.ai?.detections[0]?.label, "cell phone");
+  assert.equal(mobileStatus.ai?.sourceAspectRatio, 16 / 9);
+  assert.equal(requestedAiUrls.some((url) => url === "http://mobile-ai-proctor.test/detect"), true);
   const supervisorWarnings = await fetch(`${baseUrl}/api/supervisor/warnings?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
   assert.equal((await supervisorWarnings.json()).some((item) => item.source === "AI" && item.confidence === .9), true);
   const applicantExam = await fetch(`${baseUrl}/api/applicant/exam`, { headers: { Authorization: `Bearer ${applicantToken}` } });

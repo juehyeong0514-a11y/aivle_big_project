@@ -37,6 +37,7 @@ $backendCommand = @"
 `$Host.UI.RawUI.WindowTitle = 'Aivle Backend'
 Set-Location -LiteralPath '$backend'
 `$env:AI_PROCTOR_URL = 'http://127.0.0.1:8001'
+`$env:AI_MOBILE_PROCTOR_URL = 'http://127.0.0.1:8001'
 `$env:AI_PROCTOR_API_KEY = 'local-ai-secret'
 `$env:AI_PROCTOR_CONFIDENCE = '0.55'
 `$env:AI_PROCTOR_CONSECUTIVE_HITS = '2'

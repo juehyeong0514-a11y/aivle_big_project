@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ShieldCheck, Camera } from 'lucide-react';
 import { api, apiErrorMessage } from '../api/client';
 import { startMobileLiveMonitoring } from '../applicant/mobileLiveMonitoring';
+import { mirrorDetectionBox, normalizeAiMonitoring, projectDetectionBoxToCover } from '../supervisor/aiMonitoring.mjs';
 
 export default function MobileProctoringPage() {
   const [searchParams] = useSearchParams();
@@ -15,6 +16,8 @@ export default function MobileProctoringPage() {
   const [deviceReady, setDeviceReady] = useState(false);
   const [examEnded, setExamEnded] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [aiMonitoring, setAiMonitoring] = useState(null);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState(9 / 16);
 
   useEffect(() => {
     setDeviceReady(false);
@@ -54,7 +57,9 @@ export default function MobileProctoringPage() {
       if (!deviceToken) return;
       api.get('/mobile-devices/' + deviceToken + '/status')
         .then(({ data }) => {
-          if (!active || !data.ended) return;
+          if (!active) return;
+          setAiMonitoring(normalizeAiMonitoring({ ai: data.ai }));
+          if (!data.ended) return;
           stopMonitoringRef.current?.();
           stopMonitoringRef.current = null;
           streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -62,16 +67,28 @@ export default function MobileProctoringPage() {
           setIsStarted(false);
           setExamEnded(true);
           setErrorMsg('');
+          setAiMonitoring(null);
         })
         .catch(() => {});
     };
     checkExamStatus();
-    const timer = window.setInterval(checkExamStatus, 3000);
+    const timer = window.setInterval(checkExamStatus, 1500);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
   }, [deviceReady, examEnded, isStarted]);
+
+  useEffect(() => {
+    if (!isStarted) return undefined;
+    const updatePreviewAspectRatio = () => {
+      const video = mobileVideoRef.current;
+      if (video?.clientWidth && video.clientHeight) setPreviewAspectRatio(video.clientWidth / video.clientHeight);
+    };
+    updatePreviewAspectRatio();
+    window.addEventListener('resize', updatePreviewAspectRatio);
+    return () => window.removeEventListener('resize', updatePreviewAspectRatio);
+  }, [isStarted]);
 
   const startFrontCamera = async () => {
     try {
@@ -100,7 +117,7 @@ export default function MobileProctoringPage() {
       if (!deviceToken) throw new Error('보조 카메라 연결 정보를 찾을 수 없습니다.');
       streamRef.current = stream;
       stopMonitoringRef.current?.();
-      stopMonitoringRef.current = startMobileLiveMonitoring(deviceToken, stream);
+      stopMonitoringRef.current = startMobileLiveMonitoring(deviceToken, stream, mobileVideoRef.current);
       setIsStarted(true);
     } catch (err) {
       console.error("NotReadableError caught:", err);
@@ -155,6 +172,8 @@ export default function MobileProctoringPage() {
                 muted
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transform: 'scaleX(-1)' }}
               />
+              {isStarted && aiMonitoring?.detections.length ? <MobileDetectionOverlay detections={aiMonitoring.detections} sourceAspectRatio={aiMonitoring.sourceAspectRatio} targetAspectRatio={previewAspectRatio} /> : null}
+              {isStarted && aiMonitoring?.analyzedAt && <time className="mobile-proctor-ai-time" dateTime={aiMonitoring.analyzedAt}>AI 분석 {new Date(aiMonitoring.analyzedAt).toLocaleTimeString('ko-KR')}</time>}
 
               {!isStarted && (
                 <div style={{
@@ -197,4 +216,13 @@ export default function MobileProctoringPage() {
       </div>
     </div>
   );
+}
+
+function MobileDetectionOverlay({ detections, sourceAspectRatio, targetAspectRatio }) {
+  return <div className="monitoring-detection-overlay mobile-proctor-detection-overlay" aria-label={`AI 객체 탐지 ${detections.length}건`}>{detections.map((detection) => {
+    const projected = projectDetectionBoxToCover(detection.bbox, sourceAspectRatio, targetAspectRatio);
+    if (!projected) return null;
+    const [x1, y1, x2, y2] = mirrorDetectionBox(projected);
+    return <span className={'monitoring-detection-box detection-' + detection.label.replace(/\s+/g, '-') + (x1 > .65 ? ' edge-right' : '')} key={detection.id} style={{ left: `${x1 * 100}%`, top: `${y1 * 100}%`, width: `${(x2 - x1) * 100}%`, height: `${(y2 - y1) * 100}%` }}><b>{detection.displayLabel} {Math.round(detection.confidence * 100)}%</b></span>;
+  })}</div>;
 }

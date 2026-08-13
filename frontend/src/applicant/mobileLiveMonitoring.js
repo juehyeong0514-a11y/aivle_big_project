@@ -1,27 +1,19 @@
 import { api } from '../api/client';
 
-export const startMobileLiveMonitoring = (deviceToken, stream) => {
+export const startMobileLiveMonitoring = (deviceToken, stream, previewVideo) => {
   let active = true;
   let activePeer = null;
   let answering = false;
 
   const uploadSnapshot = () => {
-    if (!active || !stream.getVideoTracks().some((track) => track.readyState === 'live')) return;
-    const video = document.createElement('video');
-    video.srcObject = stream;
-    video.muted = true;
-    void video.play().then(() => window.setTimeout(() => {
-      if (!active) return;
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 180;
-      const context = canvas.getContext('2d');
-      if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        void api.put('/mobile-devices/' + deviceToken + '/snapshot', { image: canvas.toDataURL('image/jpeg', .55) });
-      }
-      video.srcObject = null;
-    }, 250)).catch(() => {});
+    if (!active || !previewVideo?.videoWidth || !previewVideo.clientWidth || !stream.getVideoTracks().some((track) => track.readyState === 'live')) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = Math.max(180, Math.min(568, Math.round(canvas.width * previewVideo.videoHeight / previewVideo.videoWidth)));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+    void api.put('/mobile-devices/' + deviceToken + '/snapshot', { image: canvas.toDataURL('image/jpeg', .55), sourceAspectRatio: previewVideo.videoWidth / previewVideo.videoHeight });
   };
 
   const answerOffer = async ({ id, offer }) => {
@@ -58,7 +50,7 @@ export const startMobileLiveMonitoring = (deviceToken, stream) => {
       answering = false;
     }
   }, 1200);
-  const snapshotTimer = window.setInterval(uploadSnapshot, 10000);
+  const snapshotTimer = window.setInterval(uploadSnapshot, 3000);
   uploadSnapshot();
 
   return () => {

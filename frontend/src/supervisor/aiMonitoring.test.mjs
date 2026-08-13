@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { aiDetectionLabel, aiEventLabel, normalizeAiMonitoring, warningSourceLabel } from './aiMonitoring.mjs';
+import { aiDetectionLabel, aiEventLabel, mirrorDetectionBox, normalizeAiMonitoring, warningSourceLabel } from './aiMonitoring.mjs';
 
 test('labels warning sources and AI events', () => {
   assert.equal(warningSourceLabel('AI'), 'AI');
@@ -16,4 +16,8 @@ test('normalizes missing and partially invalid AI data safely', () => {
   assert.equal(value.events.length, 1);
   assert.equal(value.detections.length, 1);
   assert.deepEqual(value.detections[0].bbox, [.1, .2, .6, .9]);
+});
+
+test('mirrors a detection box for the mobile front-camera preview', () => {
+  assert.deepEqual(mirrorDetectionBox([.1, .2, .4, .7]), [.6, .2, .9, .7]);
 });

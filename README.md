@@ -125,6 +125,7 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1
 | 변수 | 기본값 | 용도 |
 | --- | --- | --- |
 | `AI_PROCTOR_URL` | 없음 | AI 감독 서비스 기본 주소 |
+| `AI_MOBILE_PROCTOR_URL` | `AI_PROCTOR_URL` | 휴대폰 보조 카메라 전용 AI 서비스 주소. 미설정 시 기본 AI 서버 공유 |
 | `AI_PROCTOR_API_KEY` | 없음 | 서비스 간 Bearer 인증 키 |
 | `AI_PROCTOR_CONFIDENCE` | `0.55` | 이벤트 확정 최소 신뢰도 |
 | `AI_PROCTOR_CONSECUTIVE_HITS` | `2` | 경고 전 연속 감지 횟수 |
@@ -134,6 +135,8 @@ powershell -ExecutionPolicy Bypass -File .\start-local.ps1
 | `OMP_NUM_THREADS` | 없음 | `1` 권장, 저사양 인스턴스의 스레드별 버퍼 메모리 절감 |
 
 - `AI_PROCTOR_URL` 미설정 또는 서비스 중단 시 AI 분석만 생략
+- 시연 시 동일한 `ai-proctor-service`를 하나 더 배포하고 `AI_MOBILE_PROCTOR_URL`에 주소를 지정하면 정면·휴대폰 추론이 서로 대기하지 않음
+- Render 무료 서비스를 두 개 사용할 경우 시연 종료 후 두 서비스를 수동 중지해 무료 인스턴스 시간을 관리
 - 시험, 스냅샷, WebRTC 기능은 계속 동작
 - [ai-proctor-service/README.md](ai-proctor-service/README.md)를 참고한 별도 프로세스 또는 웹 서비스 배포
 - 배포 전 `python export_onnx.py`로 `yolo11n.onnx` 생성 필요
