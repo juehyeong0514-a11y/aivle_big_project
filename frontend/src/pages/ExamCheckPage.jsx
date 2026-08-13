@@ -16,6 +16,7 @@ import useTestShortcuts from '../applicant/useTestShortcuts';
 
 export default function ExamCheckPage() {
   const navigate = useNavigate();
+  const identityAttemptIdRef = useRef(globalThis.crypto?.randomUUID?.() ?? `precheck-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   // Ctrl + Alt + M 으로만 열리는 임시 인증 버튼
   const testShortcutsEnabled = useTestShortcuts();
@@ -78,9 +79,9 @@ export default function ExamCheckPage() {
       .then(({ data }) => setExamSession(data))
       .catch((reason) => setErrorMsg(apiErrorMessage(reason, '초대받은 시험 세션을 확인할 수 없습니다.')));
 
-    api.get('/applicant/identity-verification-request', { headers: candidateAuthHeaders() })
-      .then(({ data }) => setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' }))
-      .catch(() => {});
+    api.post('/applicant/identity-verification-attempt', { attemptId: identityAttemptIdRef.current }, { headers: candidateAuthHeaders() })
+      .then(() => setAlternativeVerification({ status: 'NONE', message: '' }))
+      .catch((reason) => setErrorMsg(apiErrorMessage(reason, '대체 신원확인 준비에 실패했습니다.')));
     return undefined;
   }, []);
 
@@ -115,7 +116,7 @@ export default function ExamCheckPage() {
 
   useEffect(() => {
     if (alternativeVerification.status !== 'PENDING') return undefined;
-    const interval = window.setInterval(() => api.get('/applicant/identity-verification-request', { headers: candidateAuthHeaders() })
+    const interval = window.setInterval(() => api.get('/applicant/identity-verification-request', { headers: candidateAuthHeaders(), params: { attemptId: identityAttemptIdRef.current } })
       .then(({ data }) => setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' }))
       .catch(() => {}), 3000);
     return () => window.clearInterval(interval);
@@ -252,9 +253,10 @@ export default function ExamCheckPage() {
   };
 
   const requestAlternativeVerification = async () => {
+    if (requestingAlternativeVerification || alternativeVerification.status === 'PENDING') return;
     setRequestingAlternativeVerification(true);
     try {
-      const { data } = await api.post('/applicant/identity-verification-request', { reason: '신분증 또는 대체 문서를 제시할 수 없어 매니저 확인을 요청합니다.' }, { headers: candidateAuthHeaders() });
+      const { data } = await api.post('/applicant/identity-verification-request', { attemptId: identityAttemptIdRef.current, reason: '신분증 또는 대체 문서를 제시할 수 없어 매니저 확인을 요청합니다.' }, { headers: candidateAuthHeaders() });
       setAlternativeVerification({ status: data.status, message: data.reviewerNote || '' });
       setErrorMsg('');
     } catch (error) {

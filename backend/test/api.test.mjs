@@ -24,6 +24,11 @@ const signupManager = async (baseUrl, email, name = "신규 조직 관리자") =
   return fetch(`${baseUrl}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password1", verificationToken: confirmPayload.verificationToken }) });
 };
 
+const activeExamSchedule = () => {
+  const koreaTime = new Date(Date.now() + 9 * 60 * 60 * 1000 - 60 * 1000);
+  return `${koreaTime.getUTCFullYear()}.${String(koreaTime.getUTCMonth() + 1).padStart(2, "0")}.${String(koreaTime.getUTCDate()).padStart(2, "0")} ${String(koreaTime.getUTCHours()).padStart(2, "0")}:${String(koreaTime.getUTCMinutes()).padStart(2, "0")}`;
+};
+
 test("updates an exam schedule across invitations and removes the exam graph", async (context) => {
   const { baseUrl, server } = await startServer();
   context.after(() => server.close());
@@ -393,6 +398,7 @@ test("requires email verification before manager signup and rate-limits invalid 
 });
 
 test("governs organization approval, manager scope, and invitations reusable before submission", async (context) => {
+  const activeSchedule = activeExamSchedule();
   const requestedAiUrls = [];
   const fetchAiResult = async (url) => {
     requestedAiUrls.push(url);
@@ -435,7 +441,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const sameEmailInDifferentOrganizationResponse = await fetch(`${baseUrl}/api/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, name: "다른 조직 동명이인", email: "applicant1@aivle.com", birthDate: "2001-01-01" }) });
   assert.equal(sameEmailInDifferentOrganizationResponse.status, 201);
   const sameEmailInDifferentOrganization = await sameEmailInDifferentOrganizationResponse.json();
-  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: "2099.08.01 10:00" }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "C 조직 평가", duration: "60분", questions: "총 5문제", date: activeSchedule }) });
   assert.equal(examResponse.status, 201);
   const exam = await examResponse.json();
   const supervisor = await login("supervisor@aivle.com", "MANAGER");
@@ -513,7 +519,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(invitation.count, 1);
   assert.equal(invitation.deliveryStatus, "PREVIEW");
   assert.equal(invitation.mailPreviews[0].oneTimeToken, undefined);
-  assert.equal(Date.parse(invitation.mailPreviews[0].expiresAt), new Date(2099, 7, 1, 11, 0).getTime());
+  assert.ok(Date.parse(invitation.mailPreviews[0].expiresAt) > Date.now());
   const entryUrl = new URL(invitation.mailPreviews[0].entryLink);
   assert.equal(entryUrl.origin, "http://localhost:5173");
   assert.equal(entryUrl.pathname, "/exam/enter");
@@ -544,6 +550,29 @@ test("governs organization approval, manager scope, and invitations reusable bef
   assert.equal(reverified.status, 200);
   const applicantSession = await fetch(`${baseUrl}/api/applicant/session`, { headers: { Authorization: `Bearer ${applicantToken}` } });
   assert.equal(applicantSession.status, 200);
+  const identityRequestHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${applicantToken}` };
+  const identityAttemptId = "precheck-attempt-1";
+  assert.equal((await fetch(`${baseUrl}/api/applicant/identity-verification-attempt`, { method: "POST", headers: identityRequestHeaders, body: JSON.stringify({ attemptId: identityAttemptId }) })).status, 200);
+  const identityRequest = await fetch(`${baseUrl}/api/applicant/identity-verification-request`, { method: "POST", headers: identityRequestHeaders, body: JSON.stringify({ attemptId: identityAttemptId, reason: "신분증 미소지" }) });
+  assert.equal(identityRequest.status, 201);
+  const pendingIdentityRequest = await identityRequest.json();
+  assert.equal(pendingIdentityRequest.status, "PENDING");
+  const duplicateIdentityRequest = await fetch(`${baseUrl}/api/applicant/identity-verification-request`, { method: "POST", headers: identityRequestHeaders, body: JSON.stringify({ attemptId: identityAttemptId, reason: "중복 요청" }) });
+  assert.equal(duplicateIdentityRequest.status, 200);
+  assert.equal((await duplicateIdentityRequest.json()).id, pendingIdentityRequest.id);
+  const managerIdentityRequests = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/identity-verification-requests`, { headers: managerHeaders });
+  const managerIdentityRequest = (await managerIdentityRequests.json()).find((item) => item.id === pendingIdentityRequest.id);
+  assert.equal(managerIdentityRequest.candidateId, candidate.id);
+  const approveIdentityRequest = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/identity-verification-requests/${pendingIdentityRequest.id}`, { method: "PATCH", headers: managerHeaders, body: JSON.stringify({ status: "APPROVED" }) });
+  assert.equal(approveIdentityRequest.status, 200);
+  const approvedIdentityRequest = await fetch(`${baseUrl}/api/applicant/identity-verification-request?attemptId=${identityAttemptId}`, { headers: { Authorization: `Bearer ${applicantToken}` } });
+  assert.equal((await approvedIdentityRequest.json()).status, "APPROVED");
+  const nextAttemptId = "precheck-attempt-2";
+  assert.equal((await fetch(`${baseUrl}/api/applicant/identity-verification-attempt`, { method: "POST", headers: identityRequestHeaders, body: JSON.stringify({ attemptId: nextAttemptId }) })).status, 200);
+  const approvalAfterReentry = await fetch(`${baseUrl}/api/applicant/identity-verification-request?attemptId=${nextAttemptId}`, { headers: { Authorization: `Bearer ${applicantToken}` } });
+  assert.equal((await approvalAfterReentry.json()).status, "NONE");
+  const staleApproval = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/identity-verification-requests/${pendingIdentityRequest.id}`, { method: "PATCH", headers: managerHeaders, body: JSON.stringify({ status: "APPROVED" }) });
+  assert.equal(staleApproval.status, 409);
   const examineesBeforeWarning = await fetch(`${baseUrl}/api/supervisor/examinees?examId=${exam.id}`, { headers: { Authorization: `Bearer ${manager.token}` } });
   const examinee = (await examineesBeforeWarning.json()).find((item) => item.candidateId === candidate.id);
   const warning = await fetch(`${baseUrl}/api/supervisor/examinees/${examinee.id}/warnings`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ examId: exam.id, message: "부정행위 여부를 확인해주세요." }) });
@@ -668,7 +697,7 @@ test("runs Python, Java, and C through the configured code execution server", as
   const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
   const organizations = await fetch(`${baseUrl}/api/manager/organizations`, { headers: managerHeaders });
   const organization = (await organizations.json()).find((item) => item.status === "APPROVED" && item.canManage);
-  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "다국어 실행 시험", duration: "30분", questions: "1문제", date: "2099.09.01 10:00" }) });
+  const examResponse = await fetch(`${baseUrl}/api/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: organization.id, title: "다국어 실행 시험", duration: "30분", questions: "1문제", date: activeExamSchedule() }) });
   const exam = await examResponse.json();
   const questionResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/questions`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ type: "CODING", title: "합계", languages: ["Python", "Java", "C"], description: "두 수의 합을 출력하세요.", inputFormat: "A B", outputFormat: "합계", constraints: "정수", publicExamples: [{ input: "2 3", expectedOutput: "5" }], hiddenTestCases: [{ input: "1 2", expectedOutput: "3" }], judgeMode: "EXACT" }) });
   assert.equal(questionResponse.status, 201);

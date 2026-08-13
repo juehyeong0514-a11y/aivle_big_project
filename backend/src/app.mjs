@@ -12,10 +12,9 @@ const isManagerRole = (role) => role === "MANAGER" || role === "SUPERVISOR";
 const sessionTtlMs = 8 * 60 * 60 * 1000;
 const applicantSessionTtlMs = 4 * 60 * 60 * 1000;
 const hashToken = (token) => createHash("sha256").update(token).digest("hex");
-export const scheduledExamEndsAt = (exam) => {
+export const scheduledExamStartsAt = (exam) => {
   const schedule = String(exam.date ?? "").trim().match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})\s+(\d{1,2}):(\d{2})$/);
-  const durationMinutes = Number.parseInt(String(exam.duration ?? "").match(/\d+/)?.[0] ?? "", 10);
-  if (!schedule || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
+  if (!schedule) return undefined;
   const [, year, month, day, hour, minute] = schedule;
   const yearNumber = Number(year);
   const monthNumber = Number(month);
@@ -28,7 +27,17 @@ export const scheduledExamEndsAt = (exam) => {
     Number.isNaN(startsAt.getTime())
     || !Number.isFinite(startsAt.getTime())
   ) return undefined;
-  return new Date(startsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
+  return startsAt.toISOString();
+};
+export const scheduledExamEndsAt = (exam) => {
+  const startsAt = scheduledExamStartsAt(exam);
+  const durationMinutes = Number.parseInt(String(exam.duration ?? "").match(/\d+/)?.[0] ?? "", 10);
+  if (!startsAt || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
+  return new Date(Date.parse(startsAt) + durationMinutes * 60 * 1000).toISOString();
+};
+export const shouldWaitForExamStart = (candidate, exam, now = Date.now()) => {
+  const startsAt = scheduledExamStartsAt(exam);
+  return candidate?.isTestCandidate !== true && Boolean(startsAt) && now < Date.parse(startsAt);
 };
 const managerOrganizationIds = (user, organizations) => organizations
   .filter((organization) => user.approvalStatus === "APPROVED" && organization.status === "APPROVED" && (organization.managerIds?.includes(user.id) || user.organizationIds?.includes(organization.id)))
@@ -1471,18 +1480,39 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     reviewedAt: item.reviewedAt ?? null,
     reviewerNote: item.reviewerNote ?? ""
   });
+  const identityAttemptId = (request) => typeof request.body?.attemptId === "string"
+    ? request.body.attemptId.trim().slice(0, 100)
+    : typeof request.query?.attemptId === "string" ? request.query.attemptId.trim().slice(0, 100) : "";
+  app.post("/api/applicant/identity-verification-attempt", authenticateApplicant, async (request, response, next) => {
+    try {
+      const { candidate, exam } = request.applicantSession;
+      const attemptId = identityAttemptId(request);
+      if (!attemptId) return response.status(400).json({ message: "사전 점검 시도 정보를 확인할 수 없습니다." });
+      const existing = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+      if (existing && existing.attemptId !== attemptId && ["PENDING", "APPROVED"].includes(existing.status)) {
+        await store.updateIdentityVerificationRequest(existing.id, { status: "EXPIRED", reviewedAt: new Date().toISOString(), reviewerNote: "사전 점검 페이지 이탈로 만료됨" });
+      }
+      return response.json({ status: "NONE", attemptId });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/applicant/identity-verification-request", authenticateApplicant, (request, response) => {
     const { candidate, exam } = request.applicantSession;
-    const item = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
+    const attemptId = identityAttemptId(request);
+    const item = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id && entry.attemptId === attemptId);
     return response.json(item ? publicIdentityVerificationRequest(item) : { status: "NONE" });
   });
   app.post("/api/applicant/identity-verification-request", authenticateApplicant, async (request, response, next) => {
     try {
       const { candidate, exam } = request.applicantSession;
+      const attemptId = identityAttemptId(request);
+      if (!attemptId) return response.status(400).json({ message: "사전 점검 시도 정보를 확인할 수 없습니다." });
       const existing = store.identityVerificationRequests.find((entry) => entry.examId === exam.id && entry.candidateId === candidate.id);
-      if (existing?.status === "APPROVED") return response.json(publicIdentityVerificationRequest(existing));
+      if (existing?.attemptId === attemptId && existing.status === "APPROVED") return response.json(publicIdentityVerificationRequest(existing));
+      if (existing?.attemptId === attemptId && existing.status === "PENDING") return response.json(publicIdentityVerificationRequest(existing));
       const reason = typeof request.body?.reason === "string" ? request.body.reason.trim().slice(0, 500) : "";
-      const patch = { status: "PENDING", reason, requestedAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, reviewerNote: "" };
+      const patch = { attemptId, status: "PENDING", reason, requestedAt: new Date().toISOString(), reviewedAt: null, reviewedBy: null, reviewerNote: "" };
       const saved = existing
         ? await store.updateIdentityVerificationRequest(existing.id, patch)
         : await store.addIdentityVerificationRequest({ id: randomUUID(), organizationId: exam.organizationId, examId: exam.id, candidateId: candidate.id, ...patch });
@@ -1537,7 +1567,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const exam = store.exams.find((item) => item.id === request.params.examId && organizationIds.includes(item.organizationId));
     if (!exam) return response.status(404).json({ message: "Exam not found or not authorized." });
     return response.json(store.identityVerificationRequests
-      .filter((item) => item.examId === exam.id)
+      .filter((item) => item.examId === exam.id && item.status !== "EXPIRED")
       .map((item) => {
         const candidate = store.candidates.find((entry) => entry.id === item.candidateId);
         return { ...publicIdentityVerificationRequest(item), candidateId: item.candidateId, candidateName: candidate?.name ?? "Candidate", candidateNumber: candidate?.candidateNumber ?? "" };
@@ -1551,6 +1581,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const status = request.body?.status;
       const reviewerNote = typeof request.body?.reviewerNote === "string" ? request.body.reviewerNote.trim().slice(0, 1000) : "";
       if (!exam || !item) return response.status(404).json({ message: "Identity verification request not found." });
+      if (item.status !== "PENDING") return response.status(409).json({ message: "현재 대기 중인 요청만 처리할 수 있습니다." });
       if (!["APPROVED", "REJECTED"].includes(status)) return response.status(400).json({ message: "Choose APPROVED or REJECTED." });
       const updated = await store.updateIdentityVerificationRequest(item.id, { status, reviewerNote, reviewedAt: new Date().toISOString(), reviewedBy: request.user.id });
       return response.json(publicIdentityVerificationRequest(updated));
@@ -1755,15 +1786,27 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     return response.sendStatus(204);
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
-    const { exam, invitation } = request.applicantSession;
+    const { candidate, exam, invitation } = request.applicantSession;
     const termination = applicantTermination(invitation);
+    const startsAt = scheduledExamStartsAt(exam);
+    if (!termination && shouldWaitForExamStart(candidate, exam)) {
+      return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${store.questions.filter((question) => question.examId === exam.id).length}문제`, date: exam.date }, questions: [], termination: null, waiting: true, startsAt });
+    }
     const questions = termination ? [] : store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions, termination });
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions, termination, waiting: false, startsAt });
   });
+  const rejectBeforeExamStart = (applicantSession, response) => {
+    const { candidate, exam } = applicantSession;
+    const startsAt = scheduledExamStartsAt(exam);
+    if (!shouldWaitForExamStart(candidate, exam)) return false;
+    response.status(425).json({ message: "시험 시작 전에는 문제를 조회하거나 답안을 작성할 수 없습니다.", startsAt });
+    return true;
+  };
   app.post("/api/applicant/exam/run", authenticateApplicant, async (request, response, next) => {
     let releaseExecutionSlot;
     try {
       const { exam, invitation } = request.applicantSession;
+      if (rejectBeforeExamStart(request.applicantSession, response)) return;
       if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 코드를 실행할 수 없습니다." });
       const questionId = typeof request.body.questionId === "string" ? request.body.questionId : "";
       const language = typeof request.body.language === "string" ? request.body.language : "";
@@ -1788,6 +1831,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/applicant/exam/progress", authenticateApplicant, (request, response) => {
+    if (rejectBeforeExamStart(request.applicantSession, response)) return;
     const { candidate, exam, invitation } = request.applicantSession;
     if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 답안을 조회할 수 없습니다." });
     const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
@@ -1795,6 +1839,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.put("/api/applicant/exam/progress", authenticateApplicant, async (request, response, next) => {
     try {
+      if (rejectBeforeExamStart(request.applicantSession, response)) return;
       const { invitation, candidate, exam } = request.applicantSession;
       if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 답안을 수정할 수 없습니다." });
       if (invitation.submittedAt) return response.status(409).json({ message: "이미 제출한 시험의 답안은 수정할 수 없습니다." });
@@ -1821,6 +1866,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.post("/api/applicant/exam/submit", authenticateApplicant, async (request, response, next) => {
     try {
+      if (rejectBeforeExamStart(request.applicantSession, response)) return;
       const { invitation, candidate, exam } = request.applicantSession;
       if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 제출할 수 없습니다." });
       const answers = request.body.answers && typeof request.body.answers === "object" ? request.body.answers : {};
