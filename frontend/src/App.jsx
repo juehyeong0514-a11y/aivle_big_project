@@ -41,7 +41,7 @@ function Layout({ children }) {
   return (
     <div className="app-wrapper">
       {!isMobilePage && !isInvitePage && !isExamSessionPage && <Header />}
-      {children}
+      <div className="app-content">{children}</div>
       {!isExamSessionPage && <Footer />}
     </div>
   );

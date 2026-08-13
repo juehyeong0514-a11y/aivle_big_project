@@ -65,7 +65,7 @@ export default function HomePage() {
   };
 
   return (
-    <div style={{ backgroundColor: '#f8fafc', minHeight: 'calc(100vh - 64px)', padding: '2.5rem 0' }}>
+    <div className="home-page">
       <main className={`container ${activeTab === 'LIVE_MONITORING' ? 'container-monitoring' : ''}`} style={{ maxWidth: activeTab === 'LIVE_MONITORING' ? '1800px' : '1200px', margin: '0 auto', padding: '0 2rem' }}>
         <Suspense fallback={<div className="workspace-loading">화면을 불러오는 중입니다...</div>}>
 
