@@ -78,7 +78,16 @@ export default function ReportsTab() {
     setMessage('');
     api.get(`/manager/exams/${encodeURIComponent(selectedExamId)}/results/${encodeURIComponent(selectedCandidateId)}`, { headers: authHeaders() })
       .then(({ data }) => {
-        setDetail(data);
+        const forceTerminated = Boolean(data.result?.forceTermination);
+        setDetail(forceTerminated ? {
+          ...data,
+          result: {
+            ...data.result,
+            status: '\uAC15\uC81C \uC885\uB8CC\u00B7\uD0C8\uB77D',
+            score: '-',
+            submittedAt: data.result.forceTermination.terminatedAt
+          }
+        } : data);
         setActiveQuestionId(data.questions[0]?.id || '');
         setReview({ reviewStatus: data.result.reviewStatus, reviewNote: data.result.reviewNote });
       })
@@ -176,7 +185,8 @@ export default function ReportsTab() {
   const activeQuestion = detail?.questions.find((question) => question.id === activeQuestionId);
   const codeAnswer = activeQuestion && detail?.codingSubmission?.answers?.[activeQuestion.id];
   const runResult = activeQuestion && detail?.codingSubmission?.runResults?.[activeQuestion.id];
-  const selectedAiRequest = latestAiRequestFor(aiRequests, selectedCandidateId);
+  const isDetailForceTerminated = Boolean(detail?.result?.forceTermination);
+  const selectedAiRequest = isDetailForceTerminated ? null : latestAiRequestFor(aiRequests, selectedCandidateId);
 
   return (
     <section className="workspace-shell">
@@ -200,8 +210,10 @@ export default function ReportsTab() {
           {results.map((result) => {
             const examinee = examinees.find((item) => item.candidateId === result.candidateId);
             const aiRequest = latestAiRequestFor(aiRequests, result.candidateId);
-            const isSubmitted = Boolean(result.submittedAt) || result.status === 'SUBMITTED';
-            return <tr key={result.id} className={selectedCandidateId === result.candidateId ? 'active-result-row' : ''}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td>{result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status}</td><td>{result.score ?? '-'}</td><td>{result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{<div className="ai-result-actions">{aiRequest?.status === 'COMPLETED' ? <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button> : aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}<button className="ai-email-send-button" type="button" disabled={aiRequest?.status !== 'COMPLETED' || sendingEmailRequestId === aiRequest?.id} title={aiRequest?.status !== 'COMPLETED' ? 'AI 분석이 완료되면 메일을 발송할 수 있습니다.' : aiRequest.resultEmailedAt ? `최근 발송: ${new Date(aiRequest.resultEmailedAt).toLocaleString('ko-KR')}` : '응시자에게 AI 분석 결과 메일을 발송합니다.'} onClick={() => aiRequest?.status === 'COMPLETED' && sendResultEmail(aiRequest)}>{sendingEmailRequestId === aiRequest?.id ? <LoaderCircle className="spin" size={14} /> : aiRequest?.resultEmailedAt ? <MailCheck size={14} /> : <Mail size={14} />} {sendingEmailRequestId === aiRequest?.id ? '발송 중...' : aiRequest?.resultEmailedAt ? '재발송' : '메일 발송'}</button></div>}</td></tr>;
+            const isForceTerminated = result.status === 'FORCE_TERMINATED' || result.resultStatus === 'DISQUALIFIED' || examinee?.status === 'FORCE_TERMINATED';
+            const isSubmitted = !isForceTerminated && (Boolean(result.submittedAt) || result.status === 'SUBMITTED');
+            const resultStatusLabel = isForceTerminated ? '강제 종료·탈락' : result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status;
+            return <tr key={result.id} className={(selectedCandidateId === result.candidateId ? 'active-result-row ' : '') + (isForceTerminated ? 'force-terminated-result-row' : '')}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{isForceTerminated ? '시험 종료' : examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td><span className={isForceTerminated ? 'result-status-danger' : ''}>{resultStatusLabel}</span></td><td>{isForceTerminated ? '-' : result.score ?? '-'}</td><td>{isForceTerminated ? (result.forceTerminatedAt ? new Date(result.forceTerminatedAt).toLocaleString('ko-KR') : '-') : result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td>{isForceTerminated ? <button className="secondary-button compact-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><FileText size={14} /> 종료 기록 보기</button> : <div className="ai-result-actions">{aiRequest?.status === 'COMPLETED' ? <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button> : aiRequest ? <span className={`ai-request-status ${aiRequest.status.toLowerCase()}`}>{aiStatusLabels[aiRequest.status] ?? aiRequest.status}</span> : <button className="secondary-button compact-button" type="button" disabled={!isSubmitted || requestingCandidateId === result.candidateId} title={isSubmitted ? 'AI 결과 분석 요청' : '제출 완료 후 요청할 수 있습니다.'} onClick={() => requestAiAnalysis(result.candidateId)}>{requestingCandidateId === result.candidateId ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />} AI 분석 요청</button>}<button className="ai-email-send-button" type="button" disabled={aiRequest?.status !== 'COMPLETED' || sendingEmailRequestId === aiRequest?.id} title={aiRequest?.status !== 'COMPLETED' ? 'AI 분석이 완료되면 메일을 발송할 수 있습니다.' : aiRequest.resultEmailedAt ? `최근 발송: ${new Date(aiRequest.resultEmailedAt).toLocaleString('ko-KR')}` : '응시자에게 AI 분석 결과 메일을 발송합니다.'} onClick={() => aiRequest?.status === 'COMPLETED' && sendResultEmail(aiRequest)}>{sendingEmailRequestId === aiRequest?.id ? <LoaderCircle className="spin" size={14} /> : aiRequest?.resultEmailedAt ? <MailCheck size={14} /> : <Mail size={14} />} {sendingEmailRequestId === aiRequest?.id ? '발송 중...' : aiRequest?.resultEmailedAt ? '재발송' : '메일 발송'}</button></div>}</td></tr>;
           })}
         </tbody></table>
         {!organizationId && <p className="empty-state">결과를 조회할 조직을 선택해주세요.</p>}
@@ -219,6 +231,7 @@ export default function ReportsTab() {
           <ResultMetric label="감독 경고" value={`${detail.warnings.length}건`} />
           <ResultMetric label="AI 결과 분석" value={selectedAiRequest ? (aiStatusLabels[selectedAiRequest.status] ?? selectedAiRequest.status) : '요청 전'} />
         </div>
+        {detail.result.forceTermination && <section className="force-termination-record"><h3>강제 종료 기록</h3><dl><div><dt>최종 결과</dt><dd>탈락</dd></div><div><dt>종료 일시</dt><dd>{new Date(detail.result.forceTermination.terminatedAt).toLocaleString('ko-KR')}</dd></div><div><dt>처리 감독관</dt><dd>{detail.result.forceTermination.actorName}</dd></div><div><dt>종료 사유</dt><dd>{detail.result.forceTermination.reason}</dd></div><div><dt>상세 사유</dt><dd>{detail.result.forceTermination.detail}</dd></div><div><dt>종료 당시 문제</dt><dd>{detail.result.forceTermination.currentProb}</dd></div></dl></section>}
         <div className="result-detail-grid">
           <section className="result-code-section">
             <div className="section-title-row"><div><h3>문제별 작성 코드</h3><p>채점 서버 연결 전에는 브라우저 실행 결과를 함께 표시합니다.</p></div><TerminalSquare size={19} /></div>

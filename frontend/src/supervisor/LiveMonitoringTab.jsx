@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Clock3, Monitor, PanelLeftClose, PanelLeftOpen, Radio, Search, Video, X } from 'lucide-react';
+import { AlertTriangle, Building2, Clock3, Monitor, PanelLeftClose, PanelLeftOpen, Radio, Search, ShieldX, Video, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { createMonitoringRefreshGate } from './monitoringRefreshGate.mjs';
 import { normalizeAiMonitoring, projectDetectionBoxToCover, warningSourceLabel } from './aiMonitoring.mjs';
@@ -21,6 +21,11 @@ export default function LiveMonitoringTab() {
   const [liveExaminee, setLiveExaminee] = useState(null);
   const [warningLogExaminee, setWarningLogExaminee] = useState(null);
   const [liveError, setLiveError] = useState('');
+  const [forceTerminationTarget, setForceTerminationTarget] = useState(null);
+  const [forceTerminationReason, setForceTerminationReason] = useState('');
+  const [forceTerminationDetail, setForceTerminationDetail] = useState('');
+  const [forceTerminationName, setForceTerminationName] = useState('');
+  const [forceTerminationBusy, setForceTerminationBusy] = useState(false);
   const [frontLiveReady, setFrontLiveReady] = useState(false);
   const [auxiliaryLiveReady, setAuxiliaryLiveReady] = useState(false);
   const [screenLiveReady, setScreenLiveReady] = useState(false);
@@ -29,6 +34,7 @@ export default function LiveMonitoringTab() {
   const [microphoneLiveLevel, setMicrophoneLiveLevel] = useState(0);
   const [microphoneLiveSpeaking, setMicrophoneLiveSpeaking] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [loadMessage, setLoadMessage] = useState('');
   const frontLiveRef = useRef(null);
   const auxiliaryLiveRef = useRef(null);
   const screenLiveRef = useRef(null);
@@ -164,6 +170,40 @@ export default function LiveMonitoringTab() {
       window.alert('[전송 완료] ' + examinee.name + '님에게 ' + data.message);
     } catch (error) {
       window.alert(apiErrorMessage(error, '경고를 전송하지 못했습니다.'));
+    }
+  };
+
+  const openForceTermination = (examinee) => {
+    setForceTerminationTarget(examinee);
+    setForceTerminationReason('');
+    setForceTerminationDetail('');
+    setForceTerminationName('');
+  };
+
+  const closeForceTermination = () => {
+    if (forceTerminationBusy) return;
+    setForceTerminationTarget(null);
+  };
+
+  const forceTerminate = async () => {
+    if (!forceTerminationTarget || forceTerminationName.trim() !== forceTerminationTarget.name || !forceTerminationReason || !forceTerminationDetail.trim()) return;
+    setForceTerminationBusy(true);
+    setLoadMessage('');
+    try {
+      await api.post('/supervisor/examinees/' + encodeURIComponent(forceTerminationTarget.id) + '/force-terminate', {
+        examId: selectedExamId,
+        reason: forceTerminationReason,
+        detail: forceTerminationDetail,
+        candidateName: forceTerminationName
+      }, { headers: authHeaders() });
+      setForceTerminationTarget(null);
+      closeLive();
+      setLoadError('');
+      setLoadMessage('응시자를 강제 종료하고 탈락 처리했습니다.');
+    } catch (error) {
+      setLoadError(apiErrorMessage(error, '시험 강제 종료 처리에 실패했습니다.'));
+    } finally {
+      setForceTerminationBusy(false);
     }
   };
 
@@ -476,6 +516,7 @@ export default function LiveMonitoringTab() {
       </div>
 
       {loadError && <div className="workspace-alert error">{loadError}</div>}
+      {loadMessage && <div className="workspace-alert">{loadMessage}</div>}
       <div className="data-panel monitoring-scope-panel" aria-label="관제 대상 선택">
         <div className="monitoring-scope-title"><span className="workspace-eyebrow">관제 대상</span><strong>조직과 시험 선택</strong></div>
         <label><span>조직</span>
@@ -590,7 +631,7 @@ export default function LiveMonitoringTab() {
             </section>
             <section className="monitoring-live-tool-panel monitoring-live-warning-panel">
               <div><strong>응시자 경고</strong><p>라이브 화면을 확인하면서 응시자에게 경고 메시지를 전송합니다.</p></div>
-              <button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(currentLiveExaminee)}>경고 메시지 발송</button>
+              <div className="monitoring-live-warning-actions"><button className="btn-secondary warning-action" type="button" onClick={() => sendWarning(currentLiveExaminee)}>경고 메시지 발송</button><button className="btn-danger warning-action" type="button" disabled={['SUBMITTED', 'FORCE_TERMINATED'].includes(currentLiveExaminee.status) || !currentLiveExaminee.candidateId} title={!currentLiveExaminee.candidateId ? '응시자 계정과 연결된 관제 세션에서만 강제 종료할 수 있습니다.' : undefined} onClick={() => openForceTermination(currentLiveExaminee)}><ShieldX size={14} /> 시험 강제 종료</button></div>
             </section>
           </div>
         </section>
@@ -607,6 +648,17 @@ export default function LiveMonitoringTab() {
             <button className="icon-button" type="button" onClick={closeWarningLog} aria-label="AI 감시 전체 로그 닫기"><X size={18} /></button>
           </div>
           {warningsFor(warningLogExaminee.id).length ? <ol className="monitoring-warning-log-list">{warningsFor(warningLogExaminee.id).map((warning) => <li key={warning.id}><div><span className={'monitoring-source-badge source-' + String(warning.source ?? 'UNKNOWN').toLowerCase()}>{warningSourceLabel(warning.source)}</span><strong>{warning.source === 'SUPERVISOR' ? `발송메시지 - ${warning.message}` : warning.message}</strong></div><time dateTime={warning.createdAt}>{new Date(warning.createdAt).toLocaleString('ko-KR')}</time></li>)}</ol> : <p className="empty-state">기록된 감시 로그가 없습니다.</p>}
+        </section>
+      </div>}
+      {forceTerminationTarget && <div className="monitoring-live-modal" role="dialog" aria-modal="true" aria-labelledby="force-termination-title">
+        <button className="monitoring-live-backdrop" type="button" onClick={closeForceTermination} aria-label="시험 강제 종료 창 닫기" />
+        <section className="data-panel force-termination-panel">
+          <div className="panel-heading"><div><h2 id="force-termination-title"><ShieldX size={20} /> 시험 강제 종료</h2><p>{forceTerminationTarget.name} 응시자를 즉시 탈락 처리합니다.</p></div><button className="icon-button" type="button" onClick={closeForceTermination} aria-label="시험 강제 종료 창 닫기"><X size={18} /></button></div>
+          <div className="force-termination-warning"><strong>이 작업은 응시자를 즉시 탈락 처리합니다.</strong><p>시험은 종료되고 다시 접속할 수 없습니다.<br />계속하려면 응시자 이름 <b>{forceTerminationTarget.name}</b>을 입력하세요.</p></div>
+          <label>종료 사유<select value={forceTerminationReason} onChange={(event) => setForceTerminationReason(event.target.value)}><option value="">종료 사유를 선택하세요</option><option>부정행위 확인</option><option>감독 지시 불응</option><option>신원 불일치</option><option>기타</option></select></label>
+          <label>상세 사유<textarea value={forceTerminationDetail} onChange={(event) => setForceTerminationDetail(event.target.value)} placeholder="강제 종료 사유를 입력하세요." maxLength={1000} /></label>
+          <label>응시자 이름 확인<input value={forceTerminationName} onChange={(event) => setForceTerminationName(event.target.value)} placeholder={forceTerminationTarget.name} autoComplete="off" /></label>
+          <div className="force-termination-actions"><button className="secondary-button" type="button" onClick={closeForceTermination} disabled={forceTerminationBusy}>취소</button><button className="btn-danger" type="button" onClick={forceTerminate} disabled={forceTerminationBusy || forceTerminationName.trim() !== forceTerminationTarget.name || !forceTerminationReason || !forceTerminationDetail.trim()}>{forceTerminationBusy ? '처리 중...' : '시험 강제 종료 및 탈락 처리'}</button></div>
         </section>
       </div>}
       {selectedExamId && <section className="data-panel monitoring-candidate-panel" aria-labelledby="monitoring-candidate-list-title">

@@ -770,6 +770,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!apiKey) throw new Error("등록된 중앙 AI API 키가 없습니다.");
       const submission = store.codingSubmissions.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
       if (!submission) throw new Error("AI 채점에 사용할 코딩 시험 제출 내역이 없습니다.");
+      const activeAssignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+      if (activeAssignment?.status === "FORCE_TERMINATED" || activeAssignment?.resultStatus === "DISQUALIFIED") {
+        await store.updateAiGradingRequest(request.id, { status: "CANCELLED", cancelledAt: new Date().toISOString(), cancellationReason: "응시자 강제 종료·탈락" });
+        return;
+      }
       const questions = store.questions.filter((item) => item.examId === request.examId && item.type === "CODING").map((item) => {
         const aiAnalysis = item.aiAnalysis ?? { rubrics: item.rubric ?? [] };
         const answer = submission.answers?.[item.id];
@@ -859,6 +864,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const grading = normalizeAiGradingResult(rawGrading);
       const result = { ...grading, provider: aiConfig.provider, model: aiConfig.model, connectionId: aiConfig.connectionId, connectionName: aiConfig.connectionName, gradedAt: new Date().toISOString() };
       await store.addAiInvocationLog({ id: randomUUID(), kind: "GRADING", status: "COMPLETED", actorId: request.acceptedBy, actorName: actor?.name ?? "관리자", examId: request.examId, candidateId: request.candidateId, provider: aiConfig.provider, model: aiConfig.model, connectionName: aiConfig.connectionName, prompt: promptPayload, response: rawGrading, durationMs: Date.now() - startedAt, createdAt: result.gradedAt });
+      const latestAssignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
+      if (latestAssignment?.status === "FORCE_TERMINATED" || latestAssignment?.resultStatus === "DISQUALIFIED") {
+        await store.updateAiGradingRequest(request.id, { status: "CANCELLED", cancelledAt: new Date().toISOString(), cancellationReason: "응시자 강제 종료·탈락" });
+        return;
+      }
       await store.updateAiGradingRequest(request.id, { status: "COMPLETED", completedAt: result.gradedAt, result, originalAiResult: undefined, manuallyEditedAt: undefined, manuallyEditedBy: undefined });
       const assignment = store.assignments.find((item) => item.examId === request.examId && item.candidateId === request.candidateId);
       if (assignment) await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: result, aiGradedAt: result.gradedAt });
@@ -1089,6 +1099,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (accessToken && !request.header("authorization")) request.headers.authorization = "Bearer " + accessToken;
     return authenticateApplicant(request, response, next);
   };
+  const applicantTermination = (invitation) => invitation?.forceTermination
+    ? { terminatedAt: invitation.forceTermination.terminatedAt, outcome: "DISQUALIFIED" }
+    : null;
   const recordMediaDisconnectWarnings = async (examinee, nextMediaStatus) => {
     const previousMediaStatus = examinee.mediaStatus ?? {};
     const disconnectedLabels = {
@@ -1105,14 +1118,20 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!recentlyRecorded) await store.addWarning({ id: randomUUID(), examineeId: examinee.id, examId: examinee.examId, organizationId: examinee.organizationId, message, source: "SYSTEM", createdAt: new Date().toISOString() });
     }
   };
-  const disconnectApplicantMedia = async ({ candidate, exam, recordWarnings = true }) => {
-    const updatedAt = new Date().toISOString();
+  const clearApplicantLiveConnections = ({ candidate, exam }) => {
     for (const [id, liveSession] of liveSessions) {
       if (liveSession.examId === exam.id && liveSession.candidateId === candidate.id) liveSessions.delete(id);
     }
     for (const device of auxiliaryDevices.values()) {
       if (device.examId !== exam.id || device.candidateId !== candidate.id) continue;
       device.deviceToken = null;
+    }
+  };
+  const disconnectApplicantMedia = async ({ candidate, exam, recordWarnings = true, clearSnapshots = true }) => {
+    const updatedAt = new Date().toISOString();
+    clearApplicantLiveConnections({ candidate, exam });
+    for (const device of auxiliaryDevices.values()) {
+      if (device.examId !== exam.id || device.candidateId !== candidate.id) continue;
       await store.updateAuxiliaryDevice(device.token, { deviceToken: null });
     }
     const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
@@ -1121,8 +1140,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (recordWarnings) await recordMediaDisconnectWarnings(examinee, disconnectedMediaStatus);
       await store.updateExaminee(examinee.id, {
         mediaStatus: disconnectedMediaStatus,
-        monitoringSnapshot: null,
-        auxiliarySnapshot: null
+        ...(clearSnapshots ? { monitoringSnapshot: null, auxiliarySnapshot: null } : {})
       });
     }
   };
@@ -1153,7 +1171,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.get("/api/applicant/session", authenticateApplicant, (request, response) => {
     const { invitation, candidate, exam } = request.applicantSession;
     const questionCount = store.questions.filter((question) => question.examId === exam.id).length;
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt, skipPrecheck: candidate.isTestCandidate === true });
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt, termination: applicantTermination(invitation), skipPrecheck: candidate.isTestCandidate === true });
+  });
+  app.get("/api/applicant/termination", authenticateApplicant, (request, response) => {
+    const { invitation } = request.applicantSession;
+    return response.json({ termination: applicantTermination(invitation) });
   });
   app.get("/api/applicant/notices", authenticateApplicant, (request, response) => {
     const { exam } = request.applicantSession;
@@ -1197,7 +1219,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.put("/api/applicant/media-status", authenticateApplicant, async (request, response, next) => {
     try {
-      const { candidate, exam } = request.applicantSession;
+      const { candidate, exam, invitation } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 카메라 상태를 변경할 수 없습니다." });
       const media = request.body.media && typeof request.body.media === "object" ? request.body.media : {};
       let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       const mediaStatus = {
@@ -1368,7 +1391,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.post("/api/applicant/auxiliary-devices", authenticateApplicant, async (request, response, next) => {
     try {
-      const { candidate, exam } = request.applicantSession;
+      const { candidate, exam, invitation } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(410).json({ message: "강제 종료된 시험은 보조 카메라를 연결할 수 없습니다." });
       for (const [existingToken, existingDevice] of auxiliaryDevices) {
         if (existingDevice.examId === exam.id && existingDevice.candidateId === candidate.id) auxiliaryDevices.delete(existingToken);
       }
@@ -1392,7 +1416,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/applicant/auxiliary-devices/:token", authenticateApplicant, (request, response) => {
-    const { candidate, exam } = request.applicantSession;
+    const { candidate, exam, invitation } = request.applicantSession;
+    if (applicantTermination(invitation)) return response.status(410).json({ message: "강제 종료된 시험은 보조 카메라를 연결할 수 없습니다." });
     const device = auxiliaryDevices.get(request.params.token);
     if (!device || device.examId !== exam.id || device.candidateId !== candidate.id || device.expiresAt <= Date.now()) return response.status(404).json({ message: "보조 카메라 연결 요청을 찾을 수 없습니다." });
     return response.json({ connected: Boolean(device.deviceToken) });
@@ -1402,6 +1427,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const token = typeof request.body.token === "string" ? request.body.token : "";
       const device = auxiliaryDevices.get(token);
       if (!device || device.expiresAt <= Date.now()) return response.status(404).json({ message: "만료되었거나 올바르지 않은 보조 카메라 QR 코드입니다." });
+      const invitation = store.invitations.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      if (invitation?.forceTerminatedAt) return response.status(410).json({ message: "강제 종료된 시험은 보조 카메라를 연결할 수 없습니다." });
       if (device.deviceToken) return response.status(409).json({ message: "이미 연결된 보조 카메라 QR 코드입니다. PC에서 새 QR 코드를 생성해주세요." });
       device.deviceToken = randomUUID();
       device.pairedAt = Date.now();
@@ -1446,6 +1473,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (device.lastSnapshotAt && receivedAt - device.lastSnapshotAt < 2500) return response.status(429).json({ message: "보조 카메라 화면 전송 간격이 너무 짧습니다." });
       device.lastSnapshotAt = receivedAt;
       const examinee = store.examinees.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      const invitation = store.invitations.find((item) => item.examId === device.examId && item.candidateId === device.candidateId);
+      if (invitation?.forceTerminatedAt || examinee?.status === "FORCE_TERMINATED") return response.status(410).json({ message: "강제 종료된 시험은 카메라를 전송할 수 없습니다." });
       if (examinee) {
         const updatedAt = new Date().toISOString();
         await store.updateExaminee(examinee.id, {
@@ -1485,7 +1514,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.put("/api/applicant/monitoring-snapshot", authenticateApplicant, async (request, response, next) => {
     try {
-      const { candidate, exam } = request.applicantSession;
+      const { candidate, exam, invitation } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 카메라를 전송할 수 없습니다." });
       const image = typeof request.body.image === "string" ? request.body.image : "";
       if (!image.startsWith("data:image/") || image.length > 120000) return response.status(400).json({ message: "모니터링 화면 형식이 올바르지 않습니다." });
       let examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
@@ -1503,26 +1533,30 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/applicant/live-offers", authenticateApplicant, (request, response) => {
-    const { candidate, exam } = request.applicantSession;
+    const { candidate, exam, invitation } = request.applicantSession;
+    if (applicantTermination(invitation)) return response.status(410).json({ message: "시험이 종료되어 라이브 연결을 사용할 수 없습니다." });
     const session = [...liveSessions.values()].find((item) => item.source === "candidate" && item.examId === exam.id && item.candidateId === candidate.id && !item.answer && Date.now() - item.createdAt < 30000);
     return response.json(session ? { id: session.id, offer: session.offer } : null);
   });
   app.post("/api/applicant/live-offers/:id/answer", authenticateApplicant, (request, response) => {
-    const { candidate, exam } = request.applicantSession;
+    const { candidate, exam, invitation } = request.applicantSession;
+    if (applicantTermination(invitation)) return response.status(410).json({ message: "시험이 종료되어 라이브 연결을 사용할 수 없습니다." });
     const session = liveSessions.get(request.params.id);
     if (!session || session.source !== "candidate" || session.examId !== exam.id || session.candidateId !== candidate.id || typeof request.body.answer?.sdp !== "string") return response.status(404).json({ message: "라이브 연결 요청을 찾을 수 없습니다." });
     session.answer = request.body.answer;
     return response.sendStatus(204);
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
-    const { exam } = request.applicantSession;
-    const questions = store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions });
+    const { exam, invitation } = request.applicantSession;
+    const termination = applicantTermination(invitation);
+    const questions = termination ? [] : store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
+    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions, termination });
   });
   app.post("/api/applicant/exam/run", authenticateApplicant, async (request, response, next) => {
     let releaseExecutionSlot;
     try {
       const { exam, invitation } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 코드를 실행할 수 없습니다." });
       const questionId = typeof request.body.questionId === "string" ? request.body.questionId : "";
       const language = typeof request.body.language === "string" ? request.body.language : "";
       const source = typeof request.body.source === "string" ? request.body.source.trim() : "";
@@ -1546,13 +1580,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
   });
   app.get("/api/applicant/exam/progress", authenticateApplicant, (request, response) => {
-    const { candidate, exam } = request.applicantSession;
+    const { candidate, exam, invitation } = request.applicantSession;
+    if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 답안을 조회할 수 없습니다." });
     const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     return response.json({ answers: submission?.answers ?? {}, runResults: submission?.runResults ?? {}, updatedAt: submission?.updatedAt ?? null, status: submission?.status ?? "DRAFT" });
   });
   app.put("/api/applicant/exam/progress", authenticateApplicant, async (request, response, next) => {
     try {
       const { invitation, candidate, exam } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 답안을 수정할 수 없습니다." });
       if (invitation.submittedAt) return response.status(409).json({ message: "이미 제출한 시험의 답안은 수정할 수 없습니다." });
       const questions = store.questions.filter((question) => question.examId === exam.id);
       const answers = request.body.answers && typeof request.body.answers === "object" ? request.body.answers : {};
@@ -1569,6 +1605,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         submittedAt: null,
         updatedAt: now
       });
+      if (!submission || submission.status === "FORCE_TERMINATED") return response.status(409).json({ message: "시험이 종료되어 답안을 수정할 수 없습니다." });
       return response.json({ updatedAt: submission.updatedAt, status: submission.status });
     } catch (error) {
       return next(error);
@@ -1577,6 +1614,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/applicant/exam/submit", authenticateApplicant, async (request, response, next) => {
     try {
       const { invitation, candidate, exam } = request.applicantSession;
+      if (applicantTermination(invitation)) return response.status(409).json({ message: "시험이 종료되어 제출할 수 없습니다." });
       const answers = request.body.answers && typeof request.body.answers === "object" ? request.body.answers : {};
       const questions = store.questions.filter((question) => question.examId === exam.id);
       if (questions.length === 0) return response.status(409).json({ message: "시험 문제가 아직 등록되지 않았습니다." });
@@ -1586,7 +1624,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (codingQuestions.length) {
         const runResults = request.body.runResults && typeof request.body.runResults === "object" ? request.body.runResults : {};
         const existingSubmission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-        await store.saveCodingSubmission({
+        const submission = await store.saveCodingSubmission({
           id: existingSubmission?.id ?? randomUUID(),
           examId: exam.id,
           organizationId: exam.organizationId,
@@ -1597,12 +1635,15 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           submittedAt: now,
           updatedAt: now
         });
+        if (!submission || submission.status === "FORCE_TERMINATED") return response.status(409).json({ message: "시험이 종료되어 제출할 수 없습니다." });
       }
       const correctCount = questions.filter((question) => question.type !== "CODING" && answers[question.id] === question.answer).length;
       const score = codingQuestions.length ? null : Math.round((correctCount / questions.length) * 100);
       const assignment = store.assignments.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
-      if (assignment) await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now });
-      await store.updateInvitation(invitation.id, { submittedAt: now });
+      const updatedAssignment = assignment ? await store.updateAssignment(assignment.id, { status: "SUBMITTED", score, resultStatus: codingQuestions.length ? "PENDING_REVIEW" : "SUBMITTED", submittedAt: now }) : null;
+      if (updatedAssignment?.status === "FORCE_TERMINATED" || updatedAssignment?.resultStatus === "DISQUALIFIED") return response.status(409).json({ message: "시험이 종료되어 제출할 수 없습니다." });
+      const updatedInvitation = await store.updateInvitation(invitation.id, { submittedAt: now });
+      if (updatedInvitation?.forceTerminatedAt) return response.status(409).json({ message: "시험이 종료되어 제출할 수 없습니다." });
       const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
       await disconnectApplicantMedia({ candidate, exam, recordWarnings: false });
       if (examinee) {
@@ -2061,8 +2102,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const candidateId = typeof request.body.candidateId === "string" ? request.body.candidateId : "";
       const exam = store.exams.find((item) => item.id === examId);
       const candidate = store.candidates.find((item) => item.id === candidateId);
+      const assignment = store.assignments.find((item) => item.examId === examId && item.candidateId === candidateId);
       const canManage = exam && candidate && exam.organizationId === candidate.organizationId && managerOrganizationIds(request.user, store.organizations).includes(exam.organizationId);
-      if (!canManage || !store.assignments.some((item) => item.examId === examId && item.candidateId === candidateId)) return response.status(403).json({ message: "해당 응시자의 AI 채점 요청 권한이 없습니다." });
+      if (!canManage || !assignment) return response.status(403).json({ message: "해당 응시자의 AI 채점 요청 권한이 없습니다." });
+      if (assignment.status === "FORCE_TERMINATED" || assignment.resultStatus === "DISQUALIFIED") return response.status(409).json({ message: "강제 종료·탈락 응시자는 AI 분석을 요청할 수 없습니다." });
       if (store.aiGradingRequests.some((item) => item.examId === examId && item.candidateId === candidateId && ["PENDING", "PROCESSING"].includes(item.status))) return response.status(409).json({ message: "이미 처리 대기 중인 AI 채점 요청입니다." });
       const gradingRequest = { id: randomUUID(), organizationId: exam.organizationId, examId, candidateId, requestedBy: request.user.id, requestedAt: new Date().toISOString(), status: "PENDING" };
       await store.addAiGradingRequest(gradingRequest);
@@ -2076,6 +2119,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     try {
       const gradingRequest = store.aiGradingRequests.find((item) => item.id === request.params.id);
       if (!gradingRequest || !managerOrganizationIds(request.user, store.organizations).includes(gradingRequest.organizationId)) return response.status(404).json({ message: "AI 채점 요청을 찾을 수 없습니다." });
+      const assignment = store.assignments.find((item) => item.examId === gradingRequest.examId && item.candidateId === gradingRequest.candidateId);
+      if (assignment?.status === "FORCE_TERMINATED" || assignment?.resultStatus === "DISQUALIFIED") return response.status(409).json({ message: "강제 종료·탈락 응시자에게는 결과를 발송할 수 없습니다." });
       if (gradingRequest.status !== "COMPLETED") return response.status(409).json({ message: "AI 분석이 완료된 요청만 결과를 발송할 수 있습니다." });
       const candidate = store.candidates.find((item) => item.id === gradingRequest.candidateId);
       const exam = store.exams.find((item) => item.id === gradingRequest.examId);
@@ -2964,6 +3009,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   });
   app.get("/api/invitations/:token", (request, response) => {
     const invitation = invitationForToken(store.invitations, request.params.token);
+    if (invitation?.forceTerminatedAt) return response.status(410).json({ message: "강제 종료된 시험은 다시 응시할 수 없습니다." });
     if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
     if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
     const exam = store.exams.find((candidate) => candidate.id === invitation.examId);
@@ -2975,6 +3021,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   app.post("/api/invitations/:token/verify", async (request, response, next) => {
     try {
       const invitation = invitationForToken(store.invitations, request.params.token);
+      if (invitation?.forceTerminatedAt) return response.status(410).json({ message: "강제 종료된 시험은 다시 응시할 수 없습니다." });
       const candidate = invitation && store.candidates.find((item) => item.id === invitation.candidateId);
       if (invitation?.submittedAt) return response.status(410).json({ message: "제출이 완료된 시험의 초대 링크입니다." });
       if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) < new Date()) return response.status(410).json({ message: "만료되었거나 이미 사용된 초대 링크입니다." });
@@ -3065,6 +3112,34 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return next(error);
     }
   });
+  app.post("/api/supervisor/examinees/:id/force-terminate", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const organizationIds = managerOrganizationIds(request.user, store.organizations);
+      const examId = typeof request.body.examId === "string" ? request.body.examId : "";
+      const reason = typeof request.body.reason === "string" ? request.body.reason.trim() : "";
+      const detail = typeof request.body.detail === "string" ? request.body.detail.trim().slice(0, 1000) : "";
+      const candidateName = typeof request.body.candidateName === "string" ? request.body.candidateName.trim() : "";
+      const allowedReasons = new Set(["부정행위 확인", "감독 지시 불응", "신원 불일치", "기타"]);
+      const examinee = store.examinees.find((item) => item.id === request.params.id && organizationIds.includes(item.organizationId) && (!examId || item.examId === examId));
+      if (!examinee) return response.status(404).json({ message: "강제 종료할 응시자를 찾을 수 없습니다." });
+      if (["SUBMITTED", "FORCE_TERMINATED"].includes(examinee.status)) return response.status(409).json({ message: "이미 종료된 시험입니다." });
+      if (!allowedReasons.has(reason) || !detail || candidateName !== examinee.name) return response.status(400).json({ message: "종료 사유, 상세 사유와 응시자 이름을 확인해주세요." });
+      const exam = store.exams.find((item) => item.id === examinee.examId);
+      const candidate = store.candidates.find((item) => item.id === examinee.candidateId);
+      const invitation = store.invitations.find((item) => item.examId === examinee.examId && item.candidateId === examinee.candidateId);
+      const assignment = store.assignments.find((item) => item.examId === examinee.examId && item.candidateId === examinee.candidateId);
+      if (!exam || !candidate || !invitation || !assignment) return response.status(409).json({ message: "시험 응시 상태를 확인할 수 없습니다." });
+      if (invitation.submittedAt || assignment.submittedAt || assignment.status === "SUBMITTED") return response.status(409).json({ message: "이미 종료된 시험입니다." });
+      const terminatedAt = new Date().toISOString();
+      const termination = { reason, detail, actorId: request.user.id, actorName: request.user.name ?? "감독자", terminatedAt, currentProb: examinee.currentProb ?? "시험 진행 중" };
+      const result = await store.forceTerminateCandidate({ examId: examinee.examId, candidateId: examinee.candidateId, termination });
+      if (!result) return response.status(409).json({ message: "시험 강제 종료 처리에 실패했습니다." });
+      clearApplicantLiveConnections({ candidate, exam });
+      return response.json({ status: "FORCE_TERMINATED", message: "응시자를 강제 종료하고 탈락 처리했습니다." });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/supervisor/warnings", authenticate, requireManager, (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     const organizationIds = managerOrganizationIds(request.user, store.organizations);
@@ -3111,10 +3186,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     return response.json({
       candidate: { id: candidate.id, name: candidate.name, email: candidate.email, candidateNumber: candidate.candidateNumber },
       exam: { id: exam.id, title: exam.title },
-      result: { status: assignment.status, score: assignment.score ?? null, resultStatus: assignment.resultStatus ?? "NOT_SUBMITTED", submittedAt: assignment.submittedAt ?? null, reviewStatus: assignment.reviewStatus ?? "NOT_REVIEWED", reviewNote: assignment.reviewNote ?? "", reviewedAt: assignment.reviewedAt ?? null },
+      result: { status: assignment.status, score: assignment.score ?? null, resultStatus: assignment.resultStatus ?? "NOT_SUBMITTED", submittedAt: assignment.submittedAt ?? null, reviewStatus: assignment.reviewStatus ?? "NOT_REVIEWED", reviewNote: assignment.reviewNote ?? "", reviewedAt: assignment.reviewedAt ?? null, forceTermination: assignment.forceTermination ?? null },
       codingSubmission: submission ? { answers: submission.answers, runResults: submission.runResults, status: submission.status, submittedAt: submission.submittedAt, updatedAt: submission.updatedAt } : null,
       questions,
-      warnings
+      warnings,
+      evidence: examinee ? { monitoringSnapshot: examinee.monitoringSnapshot ?? null, auxiliarySnapshot: examinee.auxiliarySnapshot ?? null, forceTermination: examinee.forceTermination ?? null } : null
     });
   });
   app.patch("/api/manager/exams/:examId/results/:candidateId/review", authenticate, requireManager, async (request, response, next) => {

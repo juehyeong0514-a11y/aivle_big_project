@@ -7,6 +7,12 @@ import { seedData } from "./seed.mjs";
 const scrypt = promisify(scryptCallback);
 
 const clone = (value) => structuredClone(value);
+const restoreRecord = (target, snapshot) => {
+  for (const key of Object.keys(target)) {
+    if (!Object.hasOwn(snapshot, key)) delete target[key];
+  }
+  Object.assign(target, snapshot);
+};
 const replaceRetryableErrors = new Set(["EPERM", "EBUSY", "EACCES"]);
 const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 
@@ -515,9 +521,71 @@ const save = async () => {
     updateExaminee: async (id, patch) => {
       const examinee = data.examinees.find((candidate) => candidate.id === id);
       if (!examinee) return undefined;
+      if (examinee.status === "FORCE_TERMINATED") return examinee;
       Object.assign(examinee, patch);
       await queuedSave();
       return examinee;
+    },
+    forceTerminateCandidate: async ({ examId, candidateId, termination }) => {
+      const invitation = data.invitations.find((item) => item.examId === examId && item.candidateId === candidateId);
+      const assignment = data.assignments.find((item) => item.examId === examId && item.candidateId === candidateId);
+      const examinee = data.examinees.find((item) => item.examId === examId && item.candidateId === candidateId);
+      if (!invitation || !assignment || !examinee) return undefined;
+      if (invitation.submittedAt || assignment.submittedAt || assignment.status === "SUBMITTED") return undefined;
+      const invitationBefore = clone(invitation);
+      const assignmentBefore = clone(assignment);
+      const examineeBefore = clone(examinee);
+      const submission = data.codingSubmissions.find((item) => item.examId === examId && item.candidateId === candidateId);
+      const submissionBefore = submission && clone(submission);
+      const gradingRequests = data.aiGradingRequests
+        .filter((item) => item.examId === examId && item.candidateId === candidateId && ["PENDING", "PROCESSING"].includes(item.status))
+        .map((item) => ({ item, before: clone(item) }));
+      const devices = data.auxiliaryDevices
+        .filter((item) => item.examId === examId && item.candidateId === candidateId)
+        .map((item) => ({ item, before: clone(item) }));
+      const nextTermination = { ...termination, outcome: "DISQUALIFIED" };
+      const warning = {
+        id: randomUUID(),
+        examineeId: examinee.id,
+        examId,
+        organizationId: examinee.organizationId,
+        type: "FORCE_TERMINATED",
+        message: "감독자에 의해 시험이 강제 종료되었습니다. 결과: 탈락",
+        source: "SUPERVISOR",
+        termination: nextTermination,
+        createdAt: termination.terminatedAt
+      };
+      Object.assign(invitation, { forceTerminatedAt: termination.terminatedAt, forceTermination: nextTermination });
+      Object.assign(assignment, { status: "FORCE_TERMINATED", score: null, resultStatus: "DISQUALIFIED", submittedAt: null, forceTerminatedAt: termination.terminatedAt, forceTermination: nextTermination });
+      for (const { item: gradingRequest } of gradingRequests) {
+        Object.assign(gradingRequest, { status: "CANCELLED", cancelledAt: termination.terminatedAt, cancellationReason: "응시자 강제 종료·탈락" });
+      }
+      if (submission) Object.assign(submission, { status: "FORCE_TERMINATED", submittedAt: null, forceTerminatedAt: termination.terminatedAt, forceTermination: nextTermination });
+      Object.assign(examinee, {
+        status: "FORCE_TERMINATED",
+        statusText: "강제 종료·탈락",
+        currentProb: `${examinee.currentProb ?? "시험 진행 중"}에서 강제 종료`,
+        mediaStatus: { webcam: false, microphone: false, screen: false, auxiliaryCamera: false, updatedAt: termination.terminatedAt },
+        forceTermination: nextTermination
+      });
+      for (const { item: device } of devices) {
+        device.deviceToken = null;
+      }
+      data.warnings.unshift(warning);
+      try {
+        await queuedSave();
+      } catch (error) {
+        restoreRecord(invitation, invitationBefore);
+        restoreRecord(assignment, assignmentBefore);
+        restoreRecord(examinee, examineeBefore);
+        if (submission && submissionBefore) restoreRecord(submission, submissionBefore);
+        for (const { item, before } of gradingRequests) restoreRecord(item, before);
+        for (const { item, before } of devices) restoreRecord(item, before);
+        const warningIndex = data.warnings.findIndex((item) => item.id === warning.id);
+        if (warningIndex >= 0) data.warnings.splice(warningIndex, 1);
+        throw error;
+      }
+      return { invitation, assignment, examinee, warning };
     },
     addQuestion: async (question) => {
       data.questions.push(question);
@@ -560,12 +628,15 @@ const save = async () => {
     updateAssignment: async (id, patch) => {
       const assignment = data.assignments.find((candidate) => candidate.id === id);
       if (!assignment) return undefined;
+      if (assignment.status === "FORCE_TERMINATED" || assignment.resultStatus === "DISQUALIFIED") return assignment;
       Object.assign(assignment, patch);
       await queuedSave();
       return assignment;
     },
     saveCodingSubmission: async (submission) => {
+      const assignment = data.assignments.find((item) => item.examId === submission.examId && item.candidateId === submission.candidateId);
       const existing = data.codingSubmissions.find((candidate) => candidate.examId === submission.examId && candidate.candidateId === submission.candidateId);
+      if (assignment?.status === "FORCE_TERMINATED" || assignment?.resultStatus === "DISQUALIFIED") return existing;
       if (existing) Object.assign(existing, submission);
       else data.codingSubmissions.push(submission);
       await queuedSave();
@@ -578,6 +649,7 @@ const save = async () => {
     updateInvitation: async (id, patch) => {
       const invitation = data.invitations.find((candidate) => candidate.id === id);
       if (!invitation) return undefined;
+      if (invitation.forceTerminatedAt) return invitation;
       Object.assign(invitation, patch);
       await queuedSave();
       return invitation;

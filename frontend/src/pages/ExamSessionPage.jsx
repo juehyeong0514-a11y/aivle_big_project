@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Send } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Send, ShieldX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
@@ -32,13 +32,24 @@ export default function ExamSessionPage() {
   const [submissionError, setSubmissionError] = useState('');
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [activeWarning, setActiveWarning] = useState(null);
+  const [termination, setTermination] = useState(null);
   const warningIdsRef = useRef(new Set());
   const warningsInitializedRef = useRef(false);
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
 
   useEffect(() => {
     const skipPrecheck = localStorage.getItem('candidateSkipPrecheck') === 'true';
-    if (!skipPrecheck && (!hasActiveLiveStream('webcam') || !hasActiveLiveStream('screen'))) navigate('/exam/check', { replace: true });
+    if (skipPrecheck || (hasActiveLiveStream('webcam') && hasActiveLiveStream('screen'))) return;
+    api.get('/applicant/termination', { headers: candidateAuthHeaders(), params: { poll: Date.now() } })
+      .then(({ data }) => {
+        if (data.termination) {
+          stopLiveMonitoring();
+          setTermination(data.termination);
+          return;
+        }
+        navigate('/exam/check', { replace: true });
+      })
+      .catch(() => navigate('/exam/check', { replace: true }));
   }, [navigate]);
 
   useEffect(() => {
@@ -57,6 +68,23 @@ export default function ExamSessionPage() {
     };
     window.addEventListener('pagehide', disconnectMonitoring);
     return () => window.removeEventListener('pagehide', disconnectMonitoring);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const checkTermination = () => api.get('/applicant/termination', { headers: candidateAuthHeaders(), params: { poll: Date.now() } })
+      .then(({ data }) => {
+        if (!active || !data.termination) return;
+        stopLiveMonitoring();
+        setTermination(data.termination);
+      })
+      .catch(() => {});
+    checkTermination();
+    const timer = window.setInterval(checkTermination, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -170,6 +198,7 @@ export default function ExamSessionPage() {
     }
   };
 
+  if (termination) return <ForceTerminatedPage termination={termination} />;
   if (submitted) return <ResultPage submitted={submitted} navigate={navigate} />;
   if (error) return <ErrorPage error={error} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
@@ -208,6 +237,10 @@ function ExamWarningModal({ warning, dismiss }) {
 function ResultPage({ submitted, navigate }) {
   const awaitingReview = submitted.gradingStatus === 'PENDING_REVIEW';
   return <main className="container"><div className="card exam-session-result"><CheckCircle2 size={34} color="#16a34a" /><h1>시험 제출 완료</h1><p>{awaitingReview ? '작성 코드와 실행 결과가 저장되었습니다. 운영자 검토 후 결과가 확정됩니다.' : `${submitted.totalCount}문제 중 ${submitted.correctCount}문제를 맞혔습니다.`}</p>{!awaitingReview && <strong>점수 {submitted.score}점</strong>}<button className="btn-primary" onClick={() => navigate('/')}>처음으로 돌아가기</button></div></main>;
+}
+
+function ForceTerminatedPage({ termination }) {
+  return <main className="container"><div className="card exam-session-result force-terminated-result"><ShieldX size={42} color="var(--status-error)" /><h1>시험이 강제 종료되었습니다</h1><p>감독자에 의해 시험이 종료되어 더 이상 응시할 수 없습니다.</p><p>관련 문의는 시험 담당자에게 해주세요.</p><dl><div><dt>처리 결과</dt><dd>탈락</dd></div><div><dt>종료 시각</dt><dd>{termination.terminatedAt ? new Date(termination.terminatedAt).toLocaleString('ko-KR') : '-'}</dd></div></dl></div></main>;
 }
 
 function ErrorPage({ error, navigate }) {

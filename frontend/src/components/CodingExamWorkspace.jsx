@@ -87,6 +87,15 @@ export function CodingExamWorkspace({ answers, exam, questions, remainingTime, r
   const workspaceRef = useRef(null);
   const editorPaneRef = useRef(null);
   const lineNumberRef = useRef(null);
+  const saveProgressRef = useRef(saveProgress);
+  useEffect(() => {
+    saveProgressRef.current = saveProgress;
+  }, [saveProgress]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => saveProgressRef.current(), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
   const question = questions[activeIndex] ?? questions[0];
   const isCodingQuestion = question.type === 'CODING';
   const configuredLanguages = question.languages?.filter((item) => codingLanguages.includes(item)) ?? [];
