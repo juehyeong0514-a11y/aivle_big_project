@@ -3,7 +3,7 @@ export const CODING_DRAFT_VERSION = 1;
 export const CODING_STEPS = [
   { id: "basics", title: "기본 정보", description: "문제 제목과 사용 언어" },
   { id: "content", title: "문제 내용", description: "설명, 입출력 형식과 제한" },
-  { id: "tests", title: "테스트 및 채점", description: "공개 예제, 숨김 테스트와 채점 방식" },
+  { id: "tests", title: "테스트 및 채점", description: "공개 예제, 비공개 채점 케이스와 채점 방식" },
   { id: "ai", title: "AI 분석 설정", description: "선택 사항", optional: true },
   { id: "review", title: "검토 및 등록", description: "누락 확인과 AI 답안" },
 ];
@@ -11,6 +11,22 @@ export const CODING_STEPS = [
 const text = (value) => String(value ?? "").trim();
 const completeCases = (cases) => Array.isArray(cases) && cases.length > 0
   && cases.every((item) => text(item?.input) && text(item?.expectedOutput));
+
+export function hasMeaningfulCodingDraft(form) {
+  if (["title", "description", "inputFormat", "outputFormat", "constraints", "customJudgeCode"]
+    .some((field) => text(form?.[field]))) return true;
+  if ([...(form?.publicExamples ?? []), ...(form?.hiddenTestCases ?? [])]
+    .some((item) => text(item?.input) || text(item?.expectedOutput) || text(item?.explanation))) return true;
+  if (form?.judgeMode && form.judgeMode !== "EXACT") return true;
+  const analysis = form?.aiAnalysis ?? {};
+  return Boolean(
+    (analysis.algorithmRequirements?.length ?? 0)
+    || text(analysis.expectedTimeComplexity)
+    || text(analysis.expectedSpaceComplexity)
+    || text(analysis.solutionRequirements)
+    || text(analysis.prohibitedApproaches),
+  );
+}
 
 export function validateCodingProblem(form) {
   const errors = {};
@@ -21,7 +37,7 @@ export function validateCodingProblem(form) {
   if (!text(form?.outputFormat)) errors.outputFormat = "출력 형식을 입력해주세요.";
   if (!text(form?.constraints)) errors.constraints = "제한을 입력해주세요.";
   if (!completeCases(form?.publicExamples)) errors.publicExamples = "모든 공개 예제의 입력과 기대 출력을 입력해주세요.";
-  if (!completeCases(form?.hiddenTestCases)) errors.hiddenTestCases = "모든 숨김 테스트의 입력과 기대 출력을 입력해주세요.";
+  if (!completeCases(form?.hiddenTestCases)) errors.hiddenTestCases = "모든 비공개 채점 케이스의 입력과 기대 출력을 입력해주세요.";
   if (form?.judgeMode === "NUMERIC_TOLERANCE" && (form.numericTolerance === "" || Number(form.numericTolerance) < 0 || Number.isNaN(Number(form.numericTolerance)))) errors.numericTolerance = "0 이상의 허용 오차를 입력해주세요.";
   if (form?.judgeMode === "CUSTOM" && !text(form.customJudgeCode)) errors.customJudgeCode = "별도 채점 코드를 입력해주세요.";
   return errors;

@@ -5,13 +5,34 @@ export const REQUIREMENT_OPTIONS = {
   type: ["CODING", "MULTIPLE_CHOICE"],
 };
 export const CODING_LANGUAGE_OPTIONS = ["Python", "Java", "C", "JavaScript"];
+export const ALGORITHM_OPTIONS = [
+  ["ARRAY_TRAVERSAL", "배열 순회"],
+  ["SORTING", "정렬"],
+  ["HASH_MAP", "해시 맵"],
+  ["TWO_POINTERS", "투 포인터"],
+  ["DYNAMIC_PROGRAMMING", "동적 계획법"],
+  ["BFS_DFS", "BFS / DFS"],
+];
+export const TIME_COMPLEXITY_OPTIONS = ["", "O(1)", "O(log N)", "O(N)", "O(N log N)", "O(N²)", "O(2^N)"];
+export const SPACE_COMPLEXITY_OPTIONS = ["", "O(1)", "O(log N)", "O(N)", "O(N log N)", "O(N²)"];
+
+export function authoringConditionsToAiAnalysis(conditions = {}) {
+  return {
+    enabled: true,
+    algorithmRequirements: Array.isArray(conditions.algorithmRequirements) ? conditions.algorithmRequirements : [],
+    expectedTimeComplexity: text(conditions.expectedTimeComplexity),
+    expectedSpaceComplexity: text(conditions.expectedSpaceComplexity),
+    solutionRequirements: text(conditions.solutionRequirements),
+    prohibitedApproaches: text(conditions.prohibitedApproaches),
+  };
+}
 
 export function validateRequirements(requirements) {
   const errors = {};
   ["difficulty", "type", "scope"].forEach((field) => {
     if (!text(requirements?.[field])) errors[field] = "이 항목을 선택하거나 입력해 주세요.";
   });
-  if (text(requirements?.scope).length === 1) errors.scope = "출제 범위는 두 글자 이상 입력해 주세요.";
+  if (text(requirements?.scope).length === 1) errors.scope = "문제 주제나 요청사항을 두 글자 이상 입력해 주세요.";
   if (requirements?.type === "CODING" && (!Array.isArray(requirements.languages) || requirements.languages.length === 0)) errors.languages = "사용 언어를 하나 이상 선택해 주세요.";
   return errors;
 }
@@ -41,7 +62,12 @@ export function refineCandidate(candidate, feedback) {
 }
 
 export function candidateToProblem(candidate) {
-  if (candidate?.form && candidate?.requirements?.type) return { type: candidate.requirements.type, form: candidate.form };
+  if (candidate?.form && candidate?.requirements?.type) {
+    const form = candidate.requirements.type === "CODING"
+      ? { ...candidate.form, aiAnalysis: authoringConditionsToAiAnalysis(candidate.requirements.authoringConditions) }
+      : candidate.form;
+    return { type: candidate.requirements.type, form };
+  }
   const { requirements } = candidate;
   if (requirements.type === "MULTIPLE_CHOICE") return multipleChoiceProblem(candidate);
   return codingProblem(candidate);
@@ -87,6 +113,7 @@ function codingProblem(candidate) {
     form: {
       ...shared,
       ...selected,
+      aiAnalysis: authoringConditionsToAiAnalysis(requirements.authoringConditions),
       description: `${selected.description}\n\n출제 의도: ‘${requirements.scope}’ 범위를 활용하는 ${requirements.difficulty} ${candidate.label} 문제입니다.${revision}`,
     },
   };

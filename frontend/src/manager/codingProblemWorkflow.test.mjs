@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codingDraftKey, getCodingStepStates, parseCodingDraft, serializeCodingDraft, stepForError, validateCodingProblem } from "./codingProblemWorkflow.mjs";
+import { codingDraftKey, getCodingStepStates, hasMeaningfulCodingDraft, parseCodingDraft, serializeCodingDraft, stepForError, validateCodingProblem } from "./codingProblemWorkflow.mjs";
 
 const completeForm = () => ({
   title: "두 수의 합", languages: ["Python"], description: "두 수를 더합니다.", inputFormat: "두 정수", outputFormat: "합", constraints: "1 이상",
@@ -32,4 +32,19 @@ test("초안 키를 분리하고 첨부 파일 본문은 저장하지 않는다"
   assert.equal(parsed.omittedFileCount, 1);
   assert.deepEqual(parsed.form.aiAnalysis.referenceMaterials, []);
   assert.equal(parseCodingDraft("broken"), null);
+});
+
+test("공백과 기본값만 있는 초안은 복구 대상으로 보지 않는다", () => {
+  const blank = completeForm();
+  blank.title = "  ";
+  blank.description = "";
+  blank.inputFormat = "\n";
+  blank.outputFormat = "";
+  blank.constraints = "";
+  blank.publicExamples = [{ input: " ", expectedOutput: "", explanation: "" }];
+  blank.hiddenTestCases = [{ input: "", expectedOutput: "\n" }];
+  blank.aiAnalysis.referenceMaterials = [];
+  assert.equal(hasMeaningfulCodingDraft(blank), false);
+  assert.equal(hasMeaningfulCodingDraft({ ...blank, description: "작성 중인 설명" }), true);
+  assert.equal(hasMeaningfulCodingDraft({ ...blank, judgeMode: "IGNORE_WHITESPACE" }), true);
 });

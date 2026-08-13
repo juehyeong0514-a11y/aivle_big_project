@@ -10,6 +10,7 @@ import {
   FileUp,
   Mail,
   Pencil,
+  Plus,
   Save,
   Search,
   Send,
@@ -21,12 +22,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, apiErrorMessage, authHeaders } from "../api/client";
 import { getExamCandidateScope } from "./candidateScope.mjs";
 import {
-  CODING_STEPS,
   codingDraftKey,
-  getCodingStepStates,
+  hasMeaningfulCodingDraft,
   parseCodingDraft,
   serializeCodingDraft,
-  stepForError,
   validateCodingProblem,
 } from "./codingProblemWorkflow.mjs";
 import ProblemCreationChatbot from "./ProblemCreationChatbot.jsx";
@@ -60,6 +59,8 @@ const initialCodingProblem = () => ({
     customAlgorithmDraft: "",
     expectedTimeComplexity: "",
     expectedSpaceComplexity: "",
+    solutionRequirements: "",
+    prohibitedApproaches: "",
     learningMaterials: [{ title: "", url: "" }],
     referenceMaterials: [],
     referenceAnswer: {
@@ -101,7 +102,6 @@ const normalizeLearningMaterials = (value) => {
     .filter((material) => String(material.title ?? "").trim() || String(material.url ?? "").trim());
   return [...committed, { title: "", url: "" }];
 };
-const isHttpUrl = (value) => /^https?:\/\//i.test(String(value ?? "").trim());
 const normalizeAiValidation = (value) => {
   const sampleCount = Number(value?.sampleCount) === 5 ? 5 : 10;
   const status = ["NOT_RUN", "PROCESSING", "GENERATED", "FAILED"].includes(value?.status) ? value.status : "NOT_RUN";
@@ -170,31 +170,6 @@ const questionToForm = (question) => ({
   },
 });
 
-const aiRubricOptions = [
-  ["CORRECTNESS", "정답성"],
-  ["EDGE_CASE", "경계값 처리"],
-  ["TIME_COMPLEXITY", "시간복잡도"],
-  ["SPACE_COMPLEXITY", "공간복잡도"],
-  ["READABILITY", "코드 가독성"],
-  ["ERROR_HANDLING", "예외 처리"],
-  ["MODULARITY", "함수 분리"],
-];
-const aiMistakeOptions = [
-  ["EMPTY_INPUT", "빈 입력 처리 누락"],
-  ["DUPLICATE_VALUE", "중복값 처리 누락"],
-  ["NEGATIVE_VALUE", "음수 처리 누락"],
-  ["TIMEOUT", "시간복잡도 초과"],
-  ["TYPE_ERROR", "자료형 오류"],
-  ["OFF_BY_ONE", "인덱스 범위 오류"],
-];
-const aiAlgorithmOptions = [
-  ["ARRAY_TRAVERSAL", "배열 순회"],
-  ["SORTING", "정렬"],
-  ["HASH_MAP", "해시맵"],
-  ["TWO_POINTERS", "투 포인터"],
-  ["DYNAMIC_PROGRAMMING", "동적 계획법"],
-  ["BFS_DFS", "BFS·DFS"],
-];
 const normalizeBirthDate = (value) => {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
@@ -243,7 +218,6 @@ export default function ManagerExamDetailPage() {
   const [questionForm, setQuestionForm] = useState(initialCodingProblem);
   const [multipleChoiceForm, setMultipleChoiceForm] = useState(initialMultipleChoiceQuestion);
   const [questionType, setQuestionType] = useState("CODING");
-  const [activeQuestionStep, setActiveQuestionStep] = useState(0);
   const [editingQuestionId, setEditingQuestionId] = useState("");
   const [candidateForm, setCandidateForm] = useState({ name: "", email: "", birthDate: "" });
   const [candidateSearch, setCandidateSearch] = useState("");
@@ -377,7 +351,9 @@ export default function ManagerExamDetailPage() {
       selectedAdminCandidateIds.includes(candidate.id),
     );
 
-  const requestAiReferenceAnswer = async () => {
+  const requestAiReferenceAnswer = async (sourceForm = questionForm, isCurrent = () => true) => {
+    const requestForm = sourceForm;
+    if (!isCurrent()) return false;
     setQuestionForm((current) => ({
       ...current,
       aiAnalysis: {
@@ -392,8 +368,9 @@ export default function ManagerExamDetailPage() {
     }));
     try {
       const { data } = await api.post(`/manager/exams/${examId}/ai-reference-answer`, {
-        question: { ...questionForm, type: "CODING", numericTolerance: Number(questionForm.numericTolerance) },
+        question: { ...requestForm, type: "CODING", numericTolerance: Number(requestForm.numericTolerance) },
       }, headers);
+      if (!isCurrent()) return false;
       if (data.feasible === false) {
         setQuestionForm((current) => ({
           ...current,
@@ -410,7 +387,7 @@ export default function ManagerExamDetailPage() {
           },
         }));
         showMessage(data.feasibilityMessage ?? "현재 문제 조건으로는 모범 답안을 생성할 수 없습니다.", "error");
-        return;
+        return false;
       }
       setQuestionForm((current) => ({
         ...current,
@@ -420,8 +397,10 @@ export default function ManagerExamDetailPage() {
           referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "GENERATED", generatedAt: data.generatedAt ?? "", feasibilityMessage: "", errorMessage: "", warnings: data.warnings ?? [], provider: data.provider ?? "", model: data.model ?? "" },
         },
       }));
-      showMessage("6단계까지 입력한 내용을 바탕으로 AI 모범 답안을 생성했습니다.");
+      showMessage("입력한 문제 정보를 바탕으로 AI 모범 답안을 생성했습니다.");
+      return true;
     } catch (reason) {
+      if (!isCurrent()) return false;
       const errorMessage = apiErrorMessage(reason, reason?.message || "AI 모범 답안 생성에 실패했습니다.");
       setQuestionForm((current) => ({
         ...current,
@@ -431,6 +410,7 @@ export default function ManagerExamDetailPage() {
         },
       }));
       showMessage(errorMessage, "error");
+      return false;
     }
   };
 
@@ -453,7 +433,6 @@ export default function ManagerExamDetailPage() {
       setQuestionForm(initialCodingProblem());
       setMultipleChoiceForm(initialMultipleChoiceQuestion());
       setQuestionType("CODING");
-      setActiveQuestionStep(0);
       setEditingQuestionId("");
       showMessage(
         editingQuestionId
@@ -509,7 +488,6 @@ export default function ManagerExamDetailPage() {
     if (isCoding) setQuestionForm(questionToForm(question));
     else setMultipleChoiceForm({ prompt: question.prompt ?? "", options: question.options?.length ? question.options : ["", ""], answer: question.answer ?? "" });
     setEditingQuestionId(question.id);
-    setActiveQuestionStep(0);
     showMessage(`“${question.title}” 문제를 수정 중입니다.`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -519,7 +497,6 @@ export default function ManagerExamDetailPage() {
     setMultipleChoiceForm(initialMultipleChoiceQuestion());
     setQuestionType("CODING");
     setEditingQuestionId("");
-    setActiveQuestionStep(0);
     showMessage("새 코딩 문제 등록으로 전환했습니다.");
   };
 
@@ -901,8 +878,7 @@ export default function ManagerExamDetailPage() {
         examId={examId}
         message={message} messageType={messageType}
         questionType={questionType} setQuestionType={setQuestionType} questionForm={questionForm} setQuestionForm={setQuestionForm}
-        editingQuestionId={editingQuestionId}
-        activeQuestionStep={activeQuestionStep} setActiveQuestionStep={setActiveQuestionStep} createQuestion={createQuestion}
+        editingQuestionId={editingQuestionId} createQuestion={createQuestion}
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
         openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
@@ -1189,7 +1165,7 @@ export default function ManagerExamDetailPage() {
               </button>
             </header>
             <div className="exam-preview-notice">
-              응시자에게 표시되는 문제 내용과 공개 예제만 미리봅니다. 숨김 테스트와 모범 답안은 표시되지 않습니다.
+              응시자에게 표시되는 문제 내용과 공개 예제만 미리봅니다. 비공개 채점 케이스와 모범 답안은 표시되지 않습니다.
             </div>
             <div className="exam-preview-questions">
               {questions.map((question, index) => (
@@ -1239,7 +1215,29 @@ export default function ManagerExamDetailPage() {
   );
 }
 
-function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, activeQuestionStep, setActiveQuestionStep, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
+const CODING_EDITOR_TABS = [
+  { id: "problem", label: "문제 작성", fields: ["title", "languages", "description", "inputFormat", "outputFormat", "constraints"] },
+  { id: "tests", label: "테스트 및 채점", fields: ["publicExamples", "hiddenTestCases", "numericTolerance", "customJudgeCode"] },
+];
+
+const editorTabForField = (field) => CODING_EDITOR_TABS.find((tab) => tab.fields.includes(field))?.id ?? "problem";
+const referenceAnswerSignature = (form) => JSON.stringify({
+  title: form.title,
+  languages: form.languages,
+  description: form.description,
+  inputFormat: form.inputFormat,
+  outputFormat: form.outputFormat,
+  constraints: form.constraints,
+  publicExamples: form.publicExamples,
+  hiddenTestCases: form.hiddenTestCases,
+  judgeMode: form.judgeMode,
+  numericTolerance: form.numericTolerance,
+  customJudgeCode: form.customJudgeCode,
+  aiAnalysis: { ...form.aiAnalysis, referenceAnswer: undefined, validation: undefined },
+});
+
+
+function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
   const isCoding = questionType === "CODING";
   const updateForm = (field, value) => {
     setQuestionForm((current) => ({ ...current, [field]: value }));
@@ -1250,141 +1248,106 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       return next;
     });
   };
-  const updateAiAnalysis = (field, value) => setQuestionForm((current) => ({ ...current, aiAnalysis: { ...current.aiAnalysis, [field]: value } }));
-  const toggleAiCustomEnabled = (enabledField, enabled) => setQuestionForm((current) => ({
-    ...current,
-    aiAnalysis: {
-      ...current.aiAnalysis,
-      [enabledField]: enabled,
-    },
-  }));
-  const addAiCustomTextItem = (field, draftField, enabledField) => setQuestionForm((current) => {
-    const value = current.aiAnalysis[draftField].trim();
-    if (!value) return current;
-    return {
-      ...current,
-      aiAnalysis: {
-        ...current.aiAnalysis,
-        [field]: [...(current.aiAnalysis[field] ?? []), value],
-        [enabledField]: false,
-        [draftField]: "",
-      },
-    };
-  });
-  const updateAiCustomDraft = (field, value) => updateAiAnalysis(field, value);
-  const removeAiCustomTextItem = (field, index) => updateAiAnalysis(field, (questionForm.aiAnalysis[field] ?? []).filter((_, itemIndex) => itemIndex !== index));
-  const setCustomAlgorithmsEnabled = (enabled) => setQuestionForm((current) => ({
-    ...current,
-    aiAnalysis: {
-      ...current.aiAnalysis,
-      customAlgorithmsEnabled: enabled,
-      customAlgorithmDraft: "",
-    },
-  }));
-  const addCustomAlgorithm = () => setQuestionForm((current) => {
-    const name = current.aiAnalysis.customAlgorithmDraft.trim();
-    if (!name) return current;
-    return {
-      ...current,
-      aiAnalysis: {
-        ...current.aiAnalysis,
-        customAlgorithms: [...(current.aiAnalysis.customAlgorithms ?? []), { name, level: "RECOMMENDED" }],
-        customAlgorithmsEnabled: false,
-        customAlgorithmDraft: "",
-      },
-    };
-  });
-  const updateCustomAlgorithm = (index, field, value) => updateAiAnalysis("customAlgorithms", (questionForm.aiAnalysis.customAlgorithms ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
-  const removeCustomAlgorithm = (index) => updateAiAnalysis("customAlgorithms", (questionForm.aiAnalysis.customAlgorithms ?? []).filter((_, itemIndex) => itemIndex !== index));
-  const toggleAiAnalysisValue = (field, value) => setQuestionForm((current) => ({
-    ...current,
-    aiAnalysis: {
-      ...current.aiAnalysis,
-      [field]: current.aiAnalysis[field].includes(value)
-        ? current.aiAnalysis[field].filter((item) => item !== value)
-        : [...current.aiAnalysis[field], value],
-    },
-  }));
-  const toggleAlgorithm = (algorithm) => setQuestionForm((current) => {
-    const requirements = current.aiAnalysis.algorithmRequirements ?? [];
-    const isSelected = requirements.some((item) => item.algorithm === algorithm);
-    return {
-      ...current,
-      aiAnalysis: {
-        ...current.aiAnalysis,
-        algorithmRequirements: isSelected
-          ? requirements.filter((item) => item.algorithm !== algorithm)
-          : [...requirements, { algorithm, level: "RECOMMENDED" }],
-      },
-    };
-  });
-  const updateAlgorithmLevel = (algorithm, level) => setQuestionForm((current) => ({
-    ...current,
-    aiAnalysis: {
-      ...current.aiAnalysis,
-      algorithmRequirements: (current.aiAnalysis.algorithmRequirements ?? []).map((item) => item.algorithm === algorithm ? { ...item, level } : item),
-    },
-  }));
-  const updateLearningMaterial = (index, field, value) => updateAiAnalysis("learningMaterials", questionForm.aiAnalysis.learningMaterials.map((material, materialIndex) => materialIndex === index ? { ...material, [field]: value } : material));
-  const addLearningMaterial = () => setQuestionForm((current) => {
-    const materials = current.aiAnalysis.learningMaterials ?? [];
-    const lastMaterial = materials[materials.length - 1];
-    if (lastMaterial && !String(lastMaterial.title ?? "").trim() && !String(lastMaterial.url ?? "").trim()) return current;
-    return {
-      ...current,
-      aiAnalysis: {
-        ...current.aiAnalysis,
-        learningMaterials: [...materials, { title: "", url: "" }],
-      },
-    };
-  });
-  const removeLearningMaterial = (index) => updateAiAnalysis("learningMaterials", questionForm.aiAnalysis.learningMaterials.filter((_, materialIndex) => materialIndex !== index));
-  const uploadReferenceMaterial = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!/\.(txt|md|markdown|json|csv)$/i.test(file.name)) {
-      window.alert("텍스트, Markdown, JSON, CSV 파일만 첨부할 수 있습니다.");
-      return;
-    }
-    if (file.size > 250_000) {
-      window.alert("첨부 파일은 250KB 이하로 올려주세요.");
-      return;
-    }
-    updateAiAnalysis("referenceMaterials", [
-      ...questionForm.aiAnalysis.referenceMaterials,
-      { name: file.name, mimeType: file.type || "text/plain", content: await file.text() },
-    ]);
-  };
-  const removeReferenceMaterial = (index) => updateAiAnalysis("referenceMaterials", questionForm.aiAnalysis.referenceMaterials.filter((_, materialIndex) => materialIndex !== index));
   const [visibleErrors, setVisibleErrors] = useState({});
   const [draftOffer, setDraftOffer] = useState(null);
   const [draftStatus, setDraftStatus] = useState("idle");
   const [draftSavedAt, setDraftSavedAt] = useState("");
-  const [previewTab, setPreviewTab] = useState("applicant");
+  const [editorTab, setEditorTab] = useState("problem");
+  const [isAuthoringOpen, setIsAuthoringOpen] = useState(true);
+  const [aiDraftApplyNonce, setAiDraftApplyNonce] = useState(0);
+  const [aiAuthoringComplete, setAiAuthoringComplete] = useState(false);
+  const [generatedAnswerSignature, setGeneratedAnswerSignature] = useState("");
+  const generatedAnswerSignatureRef = useRef("");
   const draftKey = codingDraftKey(examId, editingQuestionId);
   const blockedDraftKeys = useRef(new Set());
   const draftBaselines = useRef(new Map());
   const currentQuestionForm = useRef(questionForm);
   currentQuestionForm.current = questionForm;
-  const stepStates = getCodingStepStates(questionForm);
+  const requestAiReferenceAnswerRef = useRef(requestAiReferenceAnswer);
+  requestAiReferenceAnswerRef.current = requestAiReferenceAnswer;
+  const activeAnswerRequestSignature = useRef("");
+  const handledAiDraftApplyNonce = useRef(0);
   const allErrors = validateCodingProblem(questionForm);
+  const hasValidationErrors = Object.keys(allErrors).length > 0;
+  const currentAnswerSignature = referenceAnswerSignature(questionForm);
+  const answerState = questionForm.aiAnalysis.referenceAnswer ?? { status: "NOT_RUN" };
+  const hasGeneratedSolutions = questionForm.languages.some((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
+  const answerOutdated = hasGeneratedSolutions
+    && Boolean(generatedAnswerSignature)
+    && generatedAnswerSignature !== currentAnswerSignature;
+  const referenceAnswerReady = answerState.status === "GENERATED"
+    && generatedAnswerSignature === currentAnswerSignature
+    && questionForm.languages.every((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
+
+  useEffect(() => {
+    if (editingQuestionId) setIsAuthoringOpen(true);
+  }, [editingQuestionId]);
 
   useEffect(() => {
     setVisibleErrors({});
+    setEditorTab("problem");
+    setAiAuthoringComplete(false);
     setDraftOffer(null);
+    const form = currentQuestionForm.current;
+    const existingSignature = form.aiAnalysis.referenceAnswer?.status === "GENERATED"
+      && form.languages.every((language) => String(form.referenceSolutions?.[language] ?? "").trim())
+      ? referenceAnswerSignature(form)
+      : "";
+    generatedAnswerSignatureRef.current = existingSignature;
+    setGeneratedAnswerSignature(existingSignature);
+    activeAnswerRequestSignature.current = "";
     draftBaselines.current.set(draftKey, JSON.stringify(currentQuestionForm.current));
     const parsed = parseCodingDraft(localStorage.getItem(draftKey));
-    if (parsed) {
+    if (parsed && hasMeaningfulCodingDraft(parsed.form)) {
       blockedDraftKeys.current.add(draftKey);
       setDraftOffer(parsed);
       setDraftSavedAt(parsed.savedAt);
+    } else if (parsed) {
+      localStorage.removeItem(draftKey);
+      blockedDraftKeys.current.delete(draftKey);
+      setDraftSavedAt("");
     }
   }, [draftKey]);
 
   useEffect(() => {
+    const appliedFromAi = aiDraftApplyNonce !== handledAiDraftApplyNonce.current;
+    if (!isCoding || !appliedFromAi) return undefined;
+    handledAiDraftApplyNonce.current = aiDraftApplyNonce;
+    if (hasValidationErrors || generatedAnswerSignatureRef.current === currentAnswerSignature) return undefined;
+    setQuestionForm((current) => ({
+      ...current,
+      referenceSolutions: Object.fromEntries(Object.keys(current.referenceSolutions ?? {}).map((language) => [language, ""])),
+      aiAnalysis: {
+        ...current.aiAnalysis,
+        referenceAnswer: { ...current.aiAnalysis.referenceAnswer, status: "NOT_RUN", errorMessage: "", feasibilityMessage: "" },
+      },
+    }));
+    const timer = window.setTimeout(async () => {
+      if (activeAnswerRequestSignature.current === currentAnswerSignature) return;
+      activeAnswerRequestSignature.current = currentAnswerSignature;
+      const succeeded = await requestAiReferenceAnswerRef.current(
+        currentQuestionForm.current,
+        () => referenceAnswerSignature(currentQuestionForm.current) === currentAnswerSignature
+          && activeAnswerRequestSignature.current === currentAnswerSignature,
+      );
+      if (succeeded) {
+        generatedAnswerSignatureRef.current = currentAnswerSignature;
+        setGeneratedAnswerSignature(currentAnswerSignature);
+      }
+      if (activeAnswerRequestSignature.current === currentAnswerSignature) activeAnswerRequestSignature.current = "";
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [aiDraftApplyNonce, currentAnswerSignature, hasValidationErrors, isCoding, setQuestionForm]);
+
+  useEffect(() => {
     if (!isCoding || blockedDraftKeys.current.has(draftKey)) return undefined;
     if (draftBaselines.current.get(draftKey) === JSON.stringify(questionForm)) return undefined;
+    if (!hasMeaningfulCodingDraft(questionForm)) {
+      localStorage.removeItem(draftKey);
+      setDraftSavedAt("");
+      setDraftStatus("idle");
+      return undefined;
+    }
     setDraftStatus("saving");
     const timer = window.setTimeout(() => {
       try {
@@ -1402,6 +1365,11 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   const restoreDraft = () => {
     setQuestionForm(questionToForm(draftOffer.form));
+    setAiAuthoringComplete(
+      draftOffer.form.aiAnalysis?.authoringSource === "AI_ASSISTANT"
+      || draftOffer.form.aiAnalysis?.referenceAnswer?.status === "GENERATED"
+      || Object.values(draftOffer.form.referenceSolutions ?? {}).some((source) => String(source ?? "").trim()),
+    );
     blockedDraftKeys.current.delete(draftKey);
     setDraftOffer(null);
     setDraftStatus("saved");
@@ -1412,9 +1380,6 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     setDraftOffer(null);
     setDraftSavedAt("");
     setDraftStatus("idle");
-  };
-  const goToStep = (step) => {
-    setActiveQuestionStep(step);
   };
   const toggleCodingLanguage = (language) => {
     toggleLanguage(language);
@@ -1436,7 +1401,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   };
   const focusError = (field) => {
     setVisibleErrors((current) => ({ ...current, [field]: allErrors[field] }));
-    setActiveQuestionStep(stepForError(field));
+    setEditorTab(editorTabForField(field));
     window.setTimeout(() => document.getElementById(`coding-field-${field}`)?.focus(), 0);
   };
   const submitQuestion = async (event) => {
@@ -1449,65 +1414,69 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       focusError(firstError);
       return false;
     }
+    if (!referenceAnswerReady) return false;
+    const wasEditing = Boolean(editingQuestionId);
     const saved = await createQuestion(event);
     if (saved) {
       localStorage.removeItem(draftKey);
       blockedDraftKeys.current.delete(draftKey);
       setDraftStatus("idle");
+      generatedAnswerSignatureRef.current = "";
+      setGeneratedAnswerSignature("");
+      setAiAuthoringComplete(false);
+      activeAnswerRequestSignature.current = "";
+      if (wasEditing) setIsAuthoringOpen(false);
     }
     return saved;
   };
   const errorFor = (field) => visibleErrors[field] ? <span className="coding-field-error" id={`coding-error-${field}`} role="alert">{visibleErrors[field]}</span> : null;
-  const requiredLabel = (label) => <>{label} <span className="required-mark">필수</span></>;
+  const requiredLabel = (label, field) => <span className="coding-field-label"><span>{label}</span>{visibleErrors[field] && <span className="required-mark">필수</span>}</span>;
+  const tabStatus = (tab) => {
+    if (tab.fields.some((field) => visibleErrors[field])) return "확인 필요";
+    if (!tab.fields.some((field) => allErrors[field])) return "완료";
+    return "작성 중";
+  };
+  const retryReferenceAnswer = async () => {
+    activeAnswerRequestSignature.current = currentAnswerSignature;
+    const succeeded = await requestAiReferenceAnswer(
+      currentQuestionForm.current,
+      () => referenceAnswerSignature(currentQuestionForm.current) === currentAnswerSignature,
+    );
+    if (succeeded) {
+      generatedAnswerSignatureRef.current = currentAnswerSignature;
+      setGeneratedAnswerSignature(currentAnswerSignature);
+    }
+    activeAnswerRequestSignature.current = "";
+  };
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form">
-    <div className="panel-heading"><div><h2>문제 및 미리보기</h2><p>단계별 완료 상태와 응시자 화면을 한곳에서 확인하세요.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
-    {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form })); setActiveQuestionStep(0); }} />}
+    <div className="panel-heading"><div><h2>문제 정보 편집</h2><p>직접 작성하거나 출제 도우미로 초안을 빠르게 채울 수 있습니다.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
     {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
-    <form onSubmit={submitQuestion} noValidate={isCoding}>
-      <>
-        <div className="coding-authoring-layout">
-          <div className="coding-workflow-header"><nav className="coding-step-navigation" aria-label="코딩 문제 작성 단계">{CODING_STEPS.map((step, index) => <button key={step.id} id={`coding-step-${index}`} type="button" aria-current={activeQuestionStep === index ? "step" : undefined} className={activeQuestionStep === index ? "active" : ""} onClick={() => goToStep(index)}><b>{index + 1}</b><span><strong>{step.title}</strong><small>{step.description}</small></span><em className={`coding-step-status ${stepStates[index]}`}>{({ complete: "완료", attention: "확인 필요", incomplete: "작성 중", optional: "선택" })[stepStates[index]]}</em></button>)}</nav></div>
-          <main className="coding-editor-column">
-            <header className="coding-step-heading"><div><span>STEP {activeQuestionStep + 1}</span><h3>{CODING_STEPS[activeQuestionStep].title}</h3><p>{CODING_STEPS[activeQuestionStep].description}</p></div>{CODING_STEPS[activeQuestionStep].optional && <em>선택 사항</em>}</header>
-            <div className="coding-step-panel" role="region" aria-labelledby={`coding-step-${activeQuestionStep}`}>
-              {activeQuestionStep === 0 && <><label>{requiredLabel("문제 제목")}<input id="coding-field-title" value={questionForm.title} aria-invalid={Boolean(visibleErrors.title)} aria-describedby={visibleErrors.title ? "coding-error-title" : undefined} onChange={(event) => updateForm("title", event.target.value)} placeholder="예: 두 수의 합" /></label>{errorFor("title")}<fieldset className="coding-language-field" id="coding-field-languages" tabIndex="-1"><legend>{requiredLabel("사용 언어")}</legend><div className="language-options">{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleCodingLanguage(language)} /> {language}</label>)}</div>{errorFor("languages")}</fieldset></>}
-              {activeQuestionStep === 1 && [["description", "문제 설명"], ["inputFormat", "입력 형식"], ["outputFormat", "출력 형식"], ["constraints", "제한"]].map(([field, label]) => <label key={field}>{requiredLabel(label)}<textarea id={`coding-field-${field}`} value={questionForm[field]} aria-invalid={Boolean(visibleErrors[field])} aria-describedby={visibleErrors[field] ? `coding-error-${field}` : undefined} onChange={(event) => updateForm(field, event.target.value)} />{errorFor(field)}</label>)}
-              {activeQuestionStep === 2 && <><TestCaseEditor collection="publicExamples" cases={questionForm.publicExamples} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.publicExamples} /><TestCaseEditor collection="hiddenTestCases" cases={questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.hiddenTestCases} /><details className="coding-advanced-settings" open={questionForm.judgeMode !== "EXACT"}><summary>채점 방식 설정 <span>{questionForm.judgeMode === "EXACT" ? "기본값 사용 중" : "고급 설정 사용 중"}</span></summary><div><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input id="coding-field-numericTolerance" type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} />{errorFor("numericTolerance")}</label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea id="coding-field-customJudgeCode" className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} />{errorFor("customJudgeCode")}</label>}</div></details></>}
-              {activeQuestionStep === 3 && <AiAnalysisEditor aiAnalysis={questionForm.aiAnalysis} updateAiAnalysis={updateAiAnalysis} toggleAiAnalysisValue={toggleAiAnalysisValue} toggleAiCustomEnabled={toggleAiCustomEnabled} addAiCustomTextItem={addAiCustomTextItem} updateAiCustomDraft={updateAiCustomDraft} removeAiCustomTextItem={removeAiCustomTextItem} setCustomAlgorithmsEnabled={setCustomAlgorithmsEnabled} addCustomAlgorithm={addCustomAlgorithm} updateCustomAlgorithm={updateCustomAlgorithm} removeCustomAlgorithm={removeCustomAlgorithm} toggleAlgorithm={toggleAlgorithm} updateAlgorithmLevel={updateAlgorithmLevel} updateLearningMaterial={updateLearningMaterial} addLearningMaterial={addLearningMaterial} removeLearningMaterial={removeLearningMaterial} uploadReferenceMaterial={uploadReferenceMaterial} removeReferenceMaterial={removeReferenceMaterial} />}
-              {activeQuestionStep === 4 && <ReviewAndRegister questionForm={questionForm} errors={allErrors} focusError={focusError} message={message} messageType={messageType} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
-            </div>
-          </main>
-          <DraftPreview questionForm={questionForm} previewTab={previewTab} setPreviewTab={setPreviewTab} />
-        </div>
-      </>
-      <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><span>{isCoding && <span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span>}</span><div>{isCoding && <button className="secondary-button" type="button" disabled={activeQuestionStep === 0} onClick={() => goToStep(activeQuestionStep - 1)}>이전</button>}{isCoding && activeQuestionStep < CODING_STEPS.length - 1 && <button className="secondary-button" type="button" onClick={() => goToStep(activeQuestionStep + 1)}>다음</button>}<button className="primary-button" type="submit"><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "문제 등록"}</button>{editingQuestionId && <button className="secondary-button" type="button" onClick={cancelQuestionEdit}>새 문제 등록</button>}</div></div></div>
-    </form>
-    <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 숨김 테스트 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
+    {isAuthoringOpen ? <form onSubmit={submitQuestion} noValidate={isCoding}>
+      <div className="coding-authoring-layout">
+        <main className="coding-editor-column">
+          <nav className="coding-editor-tabs" aria-label="문제 정보 편집 영역">
+            {CODING_EDITOR_TABS.map((tab) => { const status = tabStatus(tab); return <button key={tab.id} id={`coding-editor-tab-${tab.id}`} type="button" role="tab" aria-selected={editorTab === tab.id} className={editorTab === tab.id ? "active" : ""} onClick={() => setEditorTab(tab.id)}><strong>{tab.label}</strong><em className={status === "확인 필요" ? "attention" : status === "완료" ? "complete" : "incomplete"}>{status}</em></button>; })}
+          </nav>
+          <div className="coding-step-panel coding-editor-panel" role="tabpanel" aria-labelledby={`coding-editor-tab-${editorTab}`}>
+            {editorTab === "problem" && <><section className="coding-editor-section"><h4>제목 및 언어</h4><label>{requiredLabel("문제 제목", "title")}<input id="coding-field-title" value={questionForm.title} aria-invalid={Boolean(visibleErrors.title)} aria-describedby={visibleErrors.title ? "coding-error-title" : undefined} onChange={(event) => updateForm("title", event.target.value)} placeholder="예: 두 수의 합" />{errorFor("title")}</label><fieldset className="coding-language-field" id="coding-field-languages" tabIndex="-1"><legend>{requiredLabel("사용 언어", "languages")}</legend><div className="language-options">{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleCodingLanguage(language)} /> {language}</label>)}</div>{errorFor("languages")}</fieldset></section><section className="coding-editor-section"><h4>문제 본문</h4>{[["description", "문제 설명"], ["inputFormat", "입력 형식"], ["outputFormat", "출력 형식"], ["constraints", "제한"]].map(([field, label]) => <label key={field}>{requiredLabel(label, field)}<textarea id={`coding-field-${field}`} value={questionForm[field]} aria-invalid={Boolean(visibleErrors[field])} aria-describedby={visibleErrors[field] ? `coding-error-${field}` : undefined} onChange={(event) => updateForm(field, event.target.value)} />{errorFor(field)}</label>)}</section></>}
+            {editorTab === "tests" && <><TestCaseEditor collection="publicExamples" cases={questionForm.publicExamples} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.publicExamples} /><TestCaseEditor collection="hiddenTestCases" cases={questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.hiddenTestCases} /><details className="coding-advanced-settings" open={questionForm.judgeMode !== "EXACT"}><summary>채점 방식 설정 <span>{questionForm.judgeMode === "EXACT" ? "기본값 사용 중" : "고급 설정 사용 중"}</span></summary><div><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input id="coding-field-numericTolerance" type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} />{errorFor("numericTolerance")}</label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea id="coding-field-customJudgeCode" className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} />{errorFor("customJudgeCode")}</label>}</div></details></>}
+          </div>
+        </main>
+        <aside className="coding-ai-workspace" aria-label="출제 도우미">
+          <header><span>AUTHORING ASSISTANT</span><h3>출제 도우미</h3><p>조건만 정하면 시안 작성부터 답안 준비까지 이어집니다.</p></header>
+          {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} completed={aiAuthoringComplete} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
+          {editingQuestionId && <div className="coding-ai-edit-note">수정한 내용이 저장되면 최신 기준으로 답안을 다시 준비합니다.</div>}
+          <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={retryReferenceAnswer} answerOutdated={answerOutdated} />
+        </aside>
+      </div>
+      <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><div className="coding-bottom-statuses"><span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span><span className={`coding-answer-status ${referenceAnswerReady ? "ready" : answerState.status.toLowerCase()}`}>{answerState.status === "PROCESSING" ? "답안 준비 중" : referenceAnswerReady ? "답안 준비 완료" : answerOutdated ? "답안 다시 생성 필요" : answerState.status === "FAILED" || answerState.status === "BLOCKED" ? "답안 확인 필요" : "답안 준비 대기"}</span></div><div><button className="primary-button" type="submit" disabled={!hasValidationErrors && (!referenceAnswerReady || answerState.status === "PROCESSING")}><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "시험 문제 등록"}</button></div></div></div>
+    </form> : <div className="coding-new-question-prompt"><div><strong>수정 사항을 저장했습니다.</strong><p>다른 문제를 추가하려면 새 문제 등록을 시작해 주세요.</p></div><button className="primary-button" type="button" onClick={() => setIsAuthoringOpen(true)}><Plus size={16} /> 새 문제 등록</button></div>}
+    <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
   </section>;
 }
 
-function ReviewAndRegister({ questionForm, errors, focusError, message, messageType, requestAiReferenceAnswer }) {
-  const errorEntries = Object.entries(errors);
-  return <div className="coding-review">
-    {errorEntries.length > 0 && <div className="coding-error-summary" role="alert"><h4>확인할 항목</h4>{errorEntries.map(([field, message]) => <button type="button" key={field} onClick={() => focusError(field)}>{message}<span>수정하기 →</span></button>)}</div>}
-    {message && <div className={`ai-reference-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}
-    <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={requestAiReferenceAnswer} />
-  </div>;
-}
-
-const judgeModeLabel = (mode) => ({ EXACT: "정확히 일치", IGNORE_WHITESPACE: "공백·줄바꿈 무시", NUMERIC_TOLERANCE: "숫자 오차 허용", CUSTOM: "별도 채점 코드" })[mode] ?? mode;
-const draftText = (value) => String(value ?? "").trim() || "아직 작성되지 않음";
-
-function DraftPreview({ questionForm, previewTab, setPreviewTab }) {
-  return <aside className="coding-draft-preview" aria-label="현재 초안 미리보기">
-    <header><div><span>LIVE PREVIEW</span><h3>현재 초안</h3></div><Eye size={18} /></header>
-    <div className="coding-preview-tabs" role="tablist"><button type="button" role="tab" aria-selected={previewTab === "applicant"} className={previewTab === "applicant" ? "active" : ""} onClick={() => setPreviewTab("applicant")}>응시자 화면</button><button type="button" role="tab" aria-selected={previewTab === "check"} className={previewTab === "check" ? "active" : ""} onClick={() => setPreviewTab("check")}>작성 점검</button></div>
-    {previewTab === "applicant" ? <div className="coding-preview-content applicant"><div className="coding-preview-title"><small>코딩 문제</small><h4>{draftText(questionForm.title)}</h4><span>{questionForm.languages.length ? questionForm.languages.join(" · ") : "사용 언어 미선택"}</span></div><p>{draftText(questionForm.description)}</p><PreviewDetail title="입력 형식" content={draftText(questionForm.inputFormat)} /><PreviewDetail title="출력 형식" content={draftText(questionForm.outputFormat)} /><PreviewDetail title="제한" content={draftText(questionForm.constraints)} />{questionForm.publicExamples.map((example, index) => <section className="exam-preview-example" key={`draft-example-${index}`}><strong>예제 {index + 1}</strong><div><span>입력</span><pre>{draftText(example.input)}</pre></div><div><span>출력</span><pre>{draftText(example.expectedOutput)}</pre></div>{example.explanation && <p>{example.explanation}</p>}</section>)}</div> : <div className="coding-preview-content check"><dl><div><dt>필수 입력</dt><dd>{Object.keys(validateCodingProblem(questionForm)).length ? `${Object.keys(validateCodingProblem(questionForm)).length}개 확인 필요` : "완료"}</dd></div><div><dt>공개 예제</dt><dd>{questionForm.publicExamples.length}개</dd></div><div><dt>숨김 테스트</dt><dd>{questionForm.hiddenTestCases.length}개</dd></div><div><dt>채점 방식</dt><dd>{judgeModeLabel(questionForm.judgeMode)}</dd></div><div><dt>AI 분석</dt><dd>{questionForm.aiAnalysis.enabled ? "사용" : "사용 안 함"}</dd></div><div><dt>참고 파일</dt><dd>{questionForm.aiAnalysis.referenceMaterials.length}개</dd></div></dl><p>숨김 테스트, 모범 답안과 AI 분석 기준은 응시자에게 표시되지 않습니다.</p></div>}
-  </aside>;
-}
-
-function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
+function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answerOutdated }) {
   const answerState = questionForm.aiAnalysis.referenceAnswer ?? { status: "NOT_RUN", generatedAt: "" };
   const languages = questionForm.languages?.length ? questionForm.languages : [];
   const statusLabels = { NOT_RUN: "생성 전", PROCESSING: "생성 중", GENERATED: "생성 완료", BLOCKED: "조건 확인 필요", FAILED: "생성 실패" };
@@ -1515,17 +1484,18 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
   return <section className="ai-reference-answer-section">
     <div className="section-title-row">
       <div>
-        <h3>AI 생성 모범 답안</h3>
-        <p className="form-hint">1~6단계에서 입력한 문제 설명, 예제, 숨김 테스트, 채점 설정, AI 분석 기준을 바탕으로 생성합니다.</p>
+        <h3>모범 답안</h3>
+        <p className="form-hint">편집 폼을 수정한 경우 답안을 다시 생성해 주세요.</p>
       </div>
       <span className={`ai-validation-status ${answerState.status.toLowerCase()}`}>{statusLabels[answerState.status] ?? "생성 전"}</span>
     </div>
     <div className="ai-reference-answer-actions">
-      <button className="secondary-button" type="button" onClick={requestAiReferenceAnswer} disabled={!questionForm.aiAnalysis.enabled || answerState.status === "PROCESSING" || !questionForm.title.trim() || !questionForm.description.trim() || languages.length === 0}>
+      <button className="secondary-button" type="button" onClick={requestAiReferenceAnswer} disabled={answerState.status === "PROCESSING" || !questionForm.title.trim() || !questionForm.description.trim() || languages.length === 0}>
         <CheckSquare size={16} /> {answerState.status === "PROCESSING" ? "모범 답안 생성 중..." : hasGeneratedAnswer ? "모범 답안 다시 생성" : "모범 답안 생성"}
       </button>
-      <span className="form-hint">언어를 선택하고 문제 제목과 설명을 입력하면 생성할 수 있습니다.</span>
+      <span className="form-hint">AI 시안 적용 직후에는 자동 생성되며, 직접 수정한 뒤에는 다시 생성해야 합니다.</span>
     </div>
+    {answerOutdated && <div className="ai-reference-feasibility-warning caution" role="alert"><strong>문제에 수정사항이 있습니다.</strong><p>현재 모범 답안이 수정된 문제와 다를 수 있습니다. 내용을 확인한 뒤 모범 답안을 다시 생성해 주세요.</p></div>}
     {answerState.status === "BLOCKED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>현재 조건으로 모범 답안을 생성할 수 없습니다.</strong><p>{answerState.feasibilityMessage}</p>{answerState.warnings.length > 0 && <ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</div>}
     {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>모범 답안 생성에 실패했습니다.</strong><p>{answerState.errorMessage || "서버에서 실패 사유를 받지 못했습니다. 관리자 AI API 키와 모델 설정, 백엔드 로그를 확인해주세요."}</p></div>}
     {answerState.status === "GENERATED" && answerState.warnings.length > 0 && <div className="ai-reference-feasibility-warning caution"><strong>생성 전제 확인</strong><ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
@@ -1533,155 +1503,19 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer }) {
     {hasGeneratedAnswer ? <div className="ai-generated-answer-list">
       {languages.map((language) => {
         const source = String(questionForm.referenceSolutions?.[language] ?? "").trim();
-        return source ? <article className="ai-generated-answer" key={language}>
-          <div className="section-title-row"><strong>{language}</strong><span className="form-hint">AI가 생성한 모범 답안</span></div>
+        return source ? <details className="ai-generated-answer" key={language}>
+          <summary><strong>{language}</strong><span className="ai-language-success"><Check size={14} /> 생성 완료</span></summary>
           <pre>{source}</pre>
-        </article> : null;
+        </details> : null;
       })}
     </div> : <p className="empty-state">아직 생성된 모범 답안이 없습니다.</p>}
-    <p className="form-hint">생성된 답안은 출제자 검토와 AI 채점 참고용이며 응시자에게 공개되지 않습니다. 실제 점수는 숨김 테스트 결과를 기준으로 합니다.</p>
+    <p className="form-hint">생성된 답안은 출제자 검토와 AI 채점 참고용이며 응시자에게 공개되지 않습니다. 실제 점수는 비공개 채점 케이스 결과를 기준으로 합니다.</p>
   </section>;
-}
-
-function ComplexityOptionGroup({ title, name, value, onChange, options, disabled }) {
-  return <fieldset className="ai-option-group ai-complexity-group">
-    <legend>{title} <span className="text-muted">(선택)</span></legend>
-    <div className="ai-option-grid">
-      {options.map(([optionValue, label]) => <label className="ai-option" key={`${name}-${optionValue || "none"}`}>
-        <input type="radio" name={name} value={optionValue} checked={value === optionValue} onChange={() => onChange(optionValue)} disabled={disabled} />
-        {label}
-      </label>)}
-    </div>
-  </fieldset>;
-}
-
-function AiAnalysisEditor({ aiAnalysis, updateAiAnalysis, toggleAiAnalysisValue, toggleAiCustomEnabled, addAiCustomTextItem, updateAiCustomDraft, removeAiCustomTextItem, setCustomAlgorithmsEnabled, addCustomAlgorithm, updateCustomAlgorithm, removeCustomAlgorithm, toggleAlgorithm, updateAlgorithmLevel, updateLearningMaterial, addLearningMaterial, removeLearningMaterial, uploadReferenceMaterial, removeReferenceMaterial }) {
-  const optionGroup = (title, field, options, customField, customEnabledField, draftField, customLabel, customPlaceholder) => {
-    const selectedOptions = aiAnalysis[field] ?? [];
-    const customItems = aiAnalysis[customField] ?? [];
-    return <fieldset className="ai-option-group">
-      <legend>{title}</legend>
-      <div className="ai-option-grid">
-        {options.map(([value, label]) => (
-          <label key={value} className="ai-option">
-            <input type="checkbox" checked={aiAnalysis[field].includes(value)} onChange={() => toggleAiAnalysisValue(field, value)} disabled={!aiAnalysis.enabled} />
-            {label}
-          </label>
-        ))}
-        <div className="ai-custom-algorithm-option ai-custom-text-option">
-          <label className="ai-option ai-custom-algorithm-toggle">
-            <input type="checkbox" checked={aiAnalysis[customEnabledField]} onChange={(event) => toggleAiCustomEnabled(customEnabledField, event.target.checked)} disabled={!aiAnalysis.enabled} />
-            {customLabel}
-          </label>
-          {aiAnalysis[customEnabledField] && <div className="ai-custom-algorithm-draft">
-            <input value={aiAnalysis[draftField]} onChange={(event) => updateAiCustomDraft(draftField, event.target.value)} disabled={!aiAnalysis.enabled} placeholder={customPlaceholder} aria-label={`${customLabel} 입력`} />
-            <button className="secondary-button compact-button" type="button" onClick={() => addAiCustomTextItem(customField, draftField, customEnabledField)} disabled={!aiAnalysis.enabled || !aiAnalysis[draftField].trim()}>추가</button>
-          </div>}
-        </div>
-      </div>
-      {(selectedOptions.length > 0 || customItems.length > 0) && <div className="ai-selected-algorithms">
-        <p className="form-hint">선택한 {title}</p>
-        {selectedOptions.map((value) => {
-          const label = options.find(([optionValue]) => optionValue === value)?.[1] ?? value;
-          return <div className="ai-algorithm-rule" key={value}>
-            <span>{label}</span>
-            <button className="ai-remove-button" type="button" onClick={() => toggleAiAnalysisValue(field, value)} disabled={!aiAnalysis.enabled} aria-label={`${label} 선택 해제`}><X size={14} /></button>
-          </div>;
-        })}
-        {customItems.map((item, index) => <div className="ai-algorithm-rule" key={`${customField}-${index}`}>
-          <span>{item}</span>
-          <button className="ai-remove-button" type="button" onClick={() => removeAiCustomTextItem(customField, index)} disabled={!aiAnalysis.enabled} aria-label={`${item} 삭제`}><X size={14} /></button>
-        </div>)}
-      </div>}
-    </fieldset>;
-  };
-  const selectedAlgorithms = aiAnalysis.algorithmRequirements ?? [];
-  const customAlgorithms = aiAnalysis.customAlgorithms ?? [];
-  const learningMaterials = aiAnalysis.learningMaterials ?? [{ title: "", url: "" }];
-  const learningMaterialDraftIndex = learningMaterials.length - 1;
-  const savedLearningMaterials = learningMaterials.slice(0, learningMaterialDraftIndex);
-  const algorithmGroup = (
-    <fieldset className="ai-option-group">
-      <legend>사용 알고리즘</legend>
-      <div className="ai-option-grid">
-        {aiAlgorithmOptions.map(([value, label]) => (
-          <label key={value} className="ai-option">
-            <input type="checkbox" checked={selectedAlgorithms.some((item) => item.algorithm === value)} onChange={() => toggleAlgorithm(value)} disabled={!aiAnalysis.enabled} />
-            {label}
-          </label>
-        ))}
-        <div className="ai-custom-algorithm-option">
-          <label className="ai-option ai-custom-algorithm-toggle">
-            <input type="checkbox" checked={aiAnalysis.customAlgorithmsEnabled} onChange={(event) => setCustomAlgorithmsEnabled(event.target.checked)} disabled={!aiAnalysis.enabled} />
-            기타 알고리즘
-          </label>
-          {aiAnalysis.customAlgorithmsEnabled && <div className="ai-custom-algorithm-draft">
-            <input value={aiAnalysis.customAlgorithmDraft} onChange={(event) => updateAiAnalysis("customAlgorithmDraft", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="예: 단조 스택" aria-label="기타 알고리즘 이름" />
-            <button className="secondary-button compact-button" type="button" onClick={addCustomAlgorithm} disabled={!aiAnalysis.enabled || !aiAnalysis.customAlgorithmDraft.trim()}>추가</button>
-          </div>}
-        </div>
-      </div>
-      {(selectedAlgorithms.length > 0 || customAlgorithms.length > 0) && (
-        <div className="ai-selected-algorithms">
-          <p className="form-hint">선택한 알고리즘의 사용 조건을 설정하세요.</p>
-          {selectedAlgorithms.map((item) => {
-            const label = aiAlgorithmOptions.find(([value]) => value === item.algorithm)?.[1] ?? item.algorithm;
-            return <div className="ai-algorithm-rule" key={item.algorithm}><span>{label}</span><select value={item.level} onChange={(event) => updateAlgorithmLevel(item.algorithm, event.target.value)} disabled={!aiAnalysis.enabled}><option value="RECOMMENDED">권장</option><option value="REQUIRED">필수</option></select><button className="ai-remove-button" type="button" onClick={() => toggleAlgorithm(item.algorithm)} disabled={!aiAnalysis.enabled} aria-label={`${label} 선택 해제`}><X size={14} /></button></div>;
-          })}
-          {customAlgorithms.map((item, index) => <div className="ai-algorithm-rule" key={`custom-algorithm-${index}`}>
-            <span>{item.name}</span>
-            <select value={item.level} onChange={(event) => updateCustomAlgorithm(index, "level", event.target.value)} disabled={!aiAnalysis.enabled} aria-label={`${item.name} 조건`}><option value="RECOMMENDED">권장</option><option value="REQUIRED">필수</option></select>
-            <button className="ai-remove-button" type="button" onClick={() => removeCustomAlgorithm(index)} disabled={!aiAnalysis.enabled} aria-label={`${item.name} 삭제`}><X size={14} /></button>
-          </div>)}
-        </div>
-      )}
-      <p className="form-hint">‘필수’는 AI 분석과 운영자 검토에 반영됩니다. 실제 점수는 테스트 결과를 기준으로 합니다.</p>
-    </fieldset>
-  );
-  return <>
-    <div className="ai-analysis-heading">
-      <div>
-        <h3>AI 분석 기준 및 참고자료</h3>
-        <p className="form-hint">채점 결과와 함께 AI가 피드백을 작성할 때 사용할 기준입니다. 숨김 테스트와 모범 답안은 응시자에게 공개되지 않습니다.</p>
-      </div>
-      <label className="ai-toggle"><input type="checkbox" checked={aiAnalysis.enabled} onChange={(event) => updateAiAnalysis("enabled", event.target.checked)} /> AI 분석 사용</label>
-    </div>
-    {aiAnalysis.enabled ? <>
-    {optionGroup("평가 기준", "rubrics", aiRubricOptions, "customRubrics", "customRubricsEnabled", "customRubricDraft", "기타 평가 기준", "예: 함수 분리와 재사용성")}
-    {optionGroup("대표 오답 패턴", "mistakePatterns", aiMistakeOptions, "customMistakes", "customMistakesEnabled", "customMistakeDraft", "기타 오답 패턴", "예: 초기값을 고정 상수로 설정")}
-    {algorithmGroup}
-    <div className="ai-complexity-grid">
-      <ComplexityOptionGroup title="예상 시간복잡도" name="expectedTimeComplexity" value={aiAnalysis.expectedTimeComplexity} onChange={(value) => updateAiAnalysis("expectedTimeComplexity", value)} options={[["", "모르겠어요 / 선택 안 함"], ["O(1)", "O(1) · 상수"], ["O(log N)", "O(log N) · 로그"], ["O(N)", "O(N) · 선형"], ["O(N log N)", "O(N log N) · 선형로그"], ["O(N²)", "O(N²) · 제곱"], ["O(2^N)", "O(2^N) · 지수"]]} disabled={!aiAnalysis.enabled} />
-      <ComplexityOptionGroup title="예상 공간복잡도" name="expectedSpaceComplexity" value={aiAnalysis.expectedSpaceComplexity} onChange={(value) => updateAiAnalysis("expectedSpaceComplexity", value)} options={[["", "모르겠어요 / 선택 안 함"], ["O(1)", "O(1) · 추가 공간 없음"], ["O(log N)", "O(log N) · 로그"], ["O(N)", "O(N) · 선형"], ["O(N log N)", "O(N log N) · 선형로그"], ["O(N²)", "O(N²) · 제곱"]]} disabled={!aiAnalysis.enabled} />
-    </div>
-    <section className="ai-material-section">
-      <div className="section-title-row"><div><h3>학습 자료 링크</h3><p className="form-hint">분석 결과에 연결할 개념 설명이나 공식 문서입니다.</p></div><button className="secondary-button compact-button" type="button" onClick={addLearningMaterial} disabled={!aiAnalysis.enabled}>링크 추가</button></div>
-      <div className="ai-material-row ai-material-draft-row">
-        <label>자료명<input value={learningMaterials[learningMaterialDraftIndex]?.title ?? ""} onChange={(event) => updateLearningMaterial(learningMaterialDraftIndex, "title", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="예: 배열 순회 기초" /></label>
-        <label>URL<input type="url" value={learningMaterials[learningMaterialDraftIndex]?.url ?? ""} onChange={(event) => updateLearningMaterial(learningMaterialDraftIndex, "url", event.target.value)} disabled={!aiAnalysis.enabled} placeholder="https://..." /></label>
-      </div>
-      {savedLearningMaterials.length > 0 && <div className="ai-selected-algorithms ai-selected-learning-materials">
-        <p className="form-hint">추가한 학습 자료</p>
-        {savedLearningMaterials.map((material, index) => {
-          const materialUrl = String(material.url ?? "").trim();
-          return <div className="ai-algorithm-rule" key={`learning-${index}`}>
-            <span className="ai-learning-material-summary"><strong>{material.title || "제목 없는 자료"}</strong>{isHttpUrl(materialUrl) ? <a href={materialUrl} target="_blank" rel="noopener noreferrer">{materialUrl}</a> : <small>{materialUrl}</small>}</span>
-            <button className="ai-remove-button" type="button" onClick={() => removeLearningMaterial(index)} disabled={!aiAnalysis.enabled} aria-label={`${material.title || material.url} 삭제`}><X size={14} /></button>
-          </div>;
-        })}
-      </div>}
-    </section>
-    <section className="ai-material-section">
-      <div className="section-title-row"><div><h3>참고 파일 첨부</h3><p className="form-hint">TXT, Markdown, JSON, CSV 파일만 지원하며 파일 내용은 AI 분석 참고용으로 저장됩니다. 파일당 250KB 이하.</p></div><label className="secondary-button compact-button file-button"><FileUp size={14} /> 파일 첨부<input type="file" accept=".txt,.md,.markdown,.json,.csv,text/plain,text/markdown,application/json,text/csv" onChange={uploadReferenceMaterial} disabled={!aiAnalysis.enabled} /></label></div>
-      {aiAnalysis.referenceMaterials.length > 0 ? <div className="ai-upload-list">{aiAnalysis.referenceMaterials.map((material, index) => <div className="ai-upload-item" key={material.name + index}><span>{material.name}</span><button className="text-button" type="button" onClick={() => removeReferenceMaterial(index)}>삭제</button></div>)}</div> : <p className="empty-state">첨부한 참고 파일이 없습니다.</p>}
-    </section>
-    </> : <div className="ai-disabled-summary"><strong>AI 분석을 사용하지 않습니다.</strong><p>문제 등록과 테스트 채점에는 영향을 주지 않습니다. 필요한 경우 위 스위치를 켜 세부 기준을 설정하세요.</p></div>}
-  </>;
 }
 
 function TestCaseEditor({ collection, cases, addTestCase, removeTestCase, updateTestCase, error }) {
   const isPublic = collection === "publicExamples";
-  return <section className="coding-test-section" id={`coding-field-${collection}`} tabIndex="-1"><div className="section-title-row"><div><h3>{isPublic ? "공개 예제" : "숨김 테스트"} <span className="required-mark">필수</span></h3><p className="form-hint">{isPublic ? "응시자에게 표시되는 예제입니다." : "실제 채점 기준으로만 사용하며 응시자에게 표시하지 않습니다."}</p></div><button className="secondary-button compact-button" type="button" onClick={() => addTestCase(collection)}>추가</button></div>{error && <span className="coding-field-error" role="alert">{error}</span>}{cases.map((testCase, index) => <div className="test-case-card" key={`${collection}-${index}`}><div className="section-title-row"><strong>{isPublic ? "예제" : "숨김 테스트"} {index + 1}</strong>{cases.length > 1 && <button className="text-button" type="button" onClick={() => removeTestCase(collection, index)}>삭제</button>}</div><label>입력<textarea value={testCase.input} onChange={(event) => updateTestCase(collection, index, "input", event.target.value)} /></label><label>기대 출력<textarea value={testCase.expectedOutput} onChange={(event) => updateTestCase(collection, index, "expectedOutput", event.target.value)} /></label>{isPublic && <label>설명 <span className="text-muted">(선택)</span><input value={testCase.explanation} onChange={(event) => updateTestCase(collection, index, "explanation", event.target.value)} /></label>}</div>)}</section>;
+  return <section className="coding-test-section" id={`coding-field-${collection}`} tabIndex="-1"><div className="section-title-row"><div><h3>{isPublic ? "공개 예제" : "비공개 채점 케이스"} {error && <span className="required-mark">필수</span>}</h3><p className="form-hint">{isPublic ? "응시자에게 표시되는 예제입니다." : "실제 채점에만 사용하며 응시자에게 공개하지 않습니다."}</p></div><button className="secondary-button compact-button" type="button" onClick={() => addTestCase(collection)}>추가</button></div>{error && <span className="coding-field-error" role="alert">{error}</span>}{cases.map((testCase, index) => <div className="test-case-card" key={`${collection}-${index}`}><div className="section-title-row"><strong>{isPublic ? "예제" : "채점 케이스"} {index + 1}</strong>{cases.length > 1 && <button className="text-button" type="button" onClick={() => removeTestCase(collection, index)}>삭제</button>}</div><label>입력<textarea value={testCase.input} onChange={(event) => updateTestCase(collection, index, "input", event.target.value)} /></label><label>기대 출력<textarea value={testCase.expectedOutput} onChange={(event) => updateTestCase(collection, index, "expectedOutput", event.target.value)} /></label>{isPublic && <label>설명 <span className="text-muted">(선택)</span><input value={testCase.explanation} onChange={(event) => updateTestCase(collection, index, "explanation", event.target.value)} /></label>}</div>)}</section>;
 }
 
 function PreviewDetail({ title, content }) {

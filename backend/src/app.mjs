@@ -267,6 +267,8 @@ const normalizeAiAnalysis = (value) => {
     customAlgorithmLevel: customAlgorithms[0]?.level ?? customAlgorithmLevel,
     expectedTimeComplexity: typeof aiAnalysis.expectedTimeComplexity === "string" ? aiAnalysis.expectedTimeComplexity.trim().slice(0, 100) : "",
     expectedSpaceComplexity: typeof aiAnalysis.expectedSpaceComplexity === "string" ? aiAnalysis.expectedSpaceComplexity.trim().slice(0, 100) : "",
+    solutionRequirements: typeof aiAnalysis.solutionRequirements === "string" ? aiAnalysis.solutionRequirements.trim().slice(0, 2_000) : "",
+    prohibitedApproaches: typeof aiAnalysis.prohibitedApproaches === "string" ? aiAnalysis.prohibitedApproaches.trim().slice(0, 2_000) : "",
     learningMaterials: normalizeAiMaterials(aiAnalysis.learningMaterials),
     referenceMaterials: normalizeAiReferenceMaterials(aiAnalysis.referenceMaterials),
     referenceAnswer: normalizeAiReferenceAnswer(aiAnalysis.referenceAnswer),
@@ -776,7 +778,9 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
             recommendedAlgorithms: aiAnalysis.recommendedAlgorithms ?? [],
             customAlgorithms: aiAnalysis.customAlgorithmsEnabled ? aiAnalysis.customAlgorithms ?? [] : [],
             expectedTimeComplexity: aiAnalysis.expectedTimeComplexity ?? "",
-            expectedSpaceComplexity: aiAnalysis.expectedSpaceComplexity ?? ""
+            expectedSpaceComplexity: aiAnalysis.expectedSpaceComplexity ?? "",
+            solutionRequirements: aiAnalysis.solutionRequirements ?? "",
+            prohibitedApproaches: aiAnalysis.prohibitedApproaches ?? ""
           },
           reference: {
             solutions: item.referenceSolutions ?? {},
@@ -2324,7 +2328,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
         const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
         const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
         const normalizedReferenceSolutions = Object.fromEntries(Object.entries(referenceSolutions && typeof referenceSolutions === "object" ? referenceSolutions : {}).filter(([language, source]) => codingLanguages.has(language) && isNonEmptyText(source)).map(([language, source]) => [language, source.trim()]));
-        if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 숨김 테스트를 모두 입력해주세요." });
+        if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 비공개 채점 케이스를 모두 입력해주세요." });
         if (judgeMode === "NUMERIC_TOLERANCE" && (!Number.isFinite(numericTolerance) || numericTolerance < 0)) return response.status(400).json({ message: "숫자 오차 허용 범위를 입력해주세요." });
         if (judgeMode === "CUSTOM" && !isNonEmptyText(customJudgeCode)) return response.status(400).json({ message: "별도 채점 코드를 입력해주세요." });
         const question = {
@@ -2370,7 +2374,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const normalizedPublicExamples = normalizeTestCases(publicExamples, true);
       const normalizedHiddenTestCases = normalizeTestCases(hiddenTestCases, true);
       const normalizedReferenceSolutions = Object.fromEntries(Object.entries(referenceSolutions && typeof referenceSolutions === "object" ? referenceSolutions : {}).filter(([language, source]) => codingLanguages.has(language) && isNonEmptyText(source)).map(([language, source]) => [language, source.trim()]));
-      if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 숨김 테스트를 모두 입력해주세요." });
+      if (![title, description, inputFormat, outputFormat, constraints].every(isNonEmptyText) || !normalizedLanguages.length || !normalizedPublicExamples || !normalizedHiddenTestCases || !judgeModes.has(judgeMode)) return response.status(400).json({ message: "코딩 문제 정보, 입출력 형식, 공개 예제, 비공개 채점 케이스를 모두 입력해주세요." });
       if (judgeMode === "NUMERIC_TOLERANCE" && (!Number.isFinite(numericTolerance) || numericTolerance < 0)) return response.status(400).json({ message: "숫자 오차 허용 범위를 입력해주세요." });
       if (judgeMode === "CUSTOM" && !isNonEmptyText(customJudgeCode)) return response.status(400).json({ message: "별도 채점 코드를 입력해주세요." });
       const question = await store.updateQuestion(current.id, {
@@ -2402,12 +2406,20 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const type = requirements.type === "MULTIPLE_CHOICE" ? "MULTIPLE_CHOICE" : requirements.type === "CODING" ? "CODING" : "";
       const scope = typeof requirements.scope === "string" ? requirements.scope.trim().slice(0, 2_000) : "";
       const languages = type === "CODING" && Array.isArray(requirements.languages) ? [...new Set(requirements.languages.filter((language) => codingLanguages.has(language)))] : [];
-      if (!difficulty || !type || scope.length < 2 || (type === "CODING" && !languages.length)) return finish(400, { message: "난이도, 문제 유형, 출제 범위와 사용 언어를 확인해주세요." });
+      const rawConditions = requirements.authoringConditions && typeof requirements.authoringConditions === "object" ? requirements.authoringConditions : {};
+      const authoringConditions = type === "CODING" ? {
+        algorithmRequirements: normalizeAiAlgorithmRequirements(rawConditions.algorithmRequirements, new Set(["ARRAY_TRAVERSAL", "SORTING", "HASH_MAP", "TWO_POINTERS", "DYNAMIC_PROGRAMMING", "BFS_DFS"])),
+        expectedTimeComplexity: typeof rawConditions.expectedTimeComplexity === "string" ? rawConditions.expectedTimeComplexity.trim().slice(0, 100) : "",
+        expectedSpaceComplexity: typeof rawConditions.expectedSpaceComplexity === "string" ? rawConditions.expectedSpaceComplexity.trim().slice(0, 100) : "",
+        solutionRequirements: typeof rawConditions.solutionRequirements === "string" ? rawConditions.solutionRequirements.trim().slice(0, 2_000) : "",
+        prohibitedApproaches: typeof rawConditions.prohibitedApproaches === "string" ? rawConditions.prohibitedApproaches.trim().slice(0, 2_000) : "",
+      } : {};
+      if (!difficulty || !type || scope.length < 2 || (type === "CODING" && !languages.length)) return finish(400, { message: "난이도, 문제 주제 및 요청사항과 사용 언어를 확인해주세요." });
       const aiConfig = centralAiConfig();
       if (!aiConfig.apiKey) return finish(503, { message: "등록된 중앙 AI API 키가 없습니다. 관리자 AI 설정에서 연결을 등록해주세요." });
       const prompt = JSON.stringify({
         task: "Generate exactly three distinct, complete exam-question candidates in Korean.",
-        requirements: { difficulty, type, scope, languages },
+        requirements: { difficulty, type, scope, languages, authoringConditions },
         outputSchema: type === "CODING" ? {
           candidates: [{ id: "short ASCII identifier", label: "short Korean style label", summary: "short Korean summary", form: { title: "string", languages, description: "string", inputFormat: "string", outputFormat: "string", constraints: "string", publicExamples: [{ input: "string", expectedOutput: "string", explanation: "string" }], hiddenTestCases: [{ input: "string", expectedOutput: "string" }], judgeMode: "EXACT" } }],
         } : {
@@ -2417,6 +2429,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           "Each candidate must be usable without further AI generation.",
           "For CODING, include at least one public example and two hidden test cases with concrete, internally consistent inputs and outputs.",
           "For CODING, title, description, inputFormat, outputFormat, constraints must all be non-empty. Set languages to exactly the requested languages.",
+          "For CODING, make the specification and tests satisfy every required algorithm, complexity target, required solution condition, and prohibited approach in authoringConditions.",
           "For MULTIPLE_CHOICE, include at least two distinct options and an answer that exactly matches one option.",
           "Return JSON only. Do not add Markdown fences or explanatory text.",
         ],
@@ -2432,12 +2445,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           const options = Array.isArray(form.options) ? [...new Set(form.options.map((item) => typeof item === "string" ? item.trim().slice(0, 2_000) : "").filter(Boolean))] : [];
           const answer = typeof form.answer === "string" ? form.answer.trim() : "";
           if (!isNonEmptyText(form.prompt) || options.length < 2 || !options.includes(answer)) return null;
-          return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages }, revisionNotes: [], form: { prompt: form.prompt.trim().slice(0, 10_000), options, answer } };
+          return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages, authoringConditions }, revisionNotes: [], form: { prompt: form.prompt.trim().slice(0, 10_000), options, answer } };
         }
         const publicExamples = normalizeTestCases(form.publicExamples, true);
         const hiddenTestCases = normalizeTestCases(form.hiddenTestCases, true);
         if (![form.title, form.description, form.inputFormat, form.outputFormat, form.constraints].every(isNonEmptyText) || !languages.length || !publicExamples || !hiddenTestCases) return null;
-        return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages }, revisionNotes: [], form: { title: form.title.trim().slice(0, 300), languages, description: form.description.trim().slice(0, 10_000), inputFormat: form.inputFormat.trim().slice(0, 10_000), outputFormat: form.outputFormat.trim().slice(0, 10_000), constraints: form.constraints.trim().slice(0, 10_000), publicExamples, hiddenTestCases, judgeMode: "EXACT" } };
+        return { id, label, summary, seed: index + 1, requirements: { difficulty, type, scope, languages, authoringConditions }, revisionNotes: [], form: { title: form.title.trim().slice(0, 300), languages, description: form.description.trim().slice(0, 10_000), inputFormat: form.inputFormat.trim().slice(0, 10_000), outputFormat: form.outputFormat.trim().slice(0, 10_000), constraints: form.constraints.trim().slice(0, 10_000), publicExamples, hiddenTestCases, judgeMode: "EXACT" } };
         }).filter(Boolean);
       };
       const agent = await runProblemAuthoringAgent({
