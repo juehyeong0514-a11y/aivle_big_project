@@ -137,6 +137,14 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - States: waiting for first analysis, detections visible, and no detections; the latest analysis time remains visible without blocking camera controls, and the supervisor summary separates front-camera and mobile-camera results.
 - Accessibility: the overlay exposes the detection count as text and never relies on box color alone because each box includes an object label and confidence.
 
+### AI analysis problem navigator
+
+- Structure: a persistent overall AI summary followed immediately by a compact horizontal problem tab rail and one selected problem analysis panel; scoring, complexity, deductions, and feedback sections stack vertically in reading order, while paired metrics may use two columns inside a section.
+- States: first problem, middle problem, last problem, direct tab selection, previous/next navigation, full score, and deducted score.
+- Interaction: selecting a numbered tab or the previous/next controls replaces only the problem analysis content; the overall summary remains fixed.
+- Accessibility: the tab rail uses `role="tablist"`, selected state is exposed with `aria-selected`, and navigation controls have explicit problem labels.
+- Responsive behavior: the problem rail scrolls horizontally on narrow screens, analysis metric columns stack below 640px, and no empty spacer is introduced between sections.
+
 ## 6. Motion & Interaction
 
 Use 120ms ease-out for button feedback and 240ms ease-in-out for tab/panel state changes. Animate only `transform` and `opacity`; respect `prefers-reduced-motion`. Toasts and confirmation copy should explain the completed action without blocking the next task.

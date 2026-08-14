@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, Building2, Cpu, FileText, LoaderCircle, MailCheck, RefreshCw, RotateCcw, Save, TerminalSquare, UserRound, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Building2, ChevronLeft, ChevronRight, Cpu, FileText, LoaderCircle, MailCheck, RefreshCw, RotateCcw, Save, TerminalSquare, UserRound, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary } from '../automationUi.mjs';
 
@@ -318,25 +318,48 @@ function ResultMetric({ label, value }) {
 }
 
 function AiAnalysisResult({ result = {} }) {
+  const [activeIndex, setActiveIndex] = useState(0);
   const analysisResult = result.output && typeof result.output === 'object' && !Array.isArray(result.output) ? result.output : result;
   const breakdown = Array.isArray(analysisResult.rubricBreakdown) ? analysisResult.rubricBreakdown : [];
   const maxScore = analysisResult.maxScore ?? breakdown[0]?.maxScore ?? 30;
-  return <section className="ai-analysis-result" aria-labelledby="ai-analysis-result-title">
+  const safeActiveIndex = Math.min(activeIndex, Math.max(0, breakdown.length - 1));
+  const item = breakdown[safeActiveIndex];
+  const moveProblem = (nextIndex) => {
+    if (nextIndex < 0 || nextIndex >= breakdown.length) return;
+    setActiveIndex(nextIndex);
+  };
+
+  return <section className="ai-analysis-result ai-analysis-paged" aria-labelledby="ai-analysis-result-title">
     <div className="ai-analysis-summary">
       <div className="ai-analysis-summary-copy"><span className="ai-analysis-kicker">AI REVIEW</span><h3 id="ai-analysis-result-title">AI 분석 자료</h3><p>{analysisResult.feedback || '분석이 완료되었습니다.'}</p></div>
       <div className="ai-analysis-total-score"><span>총점</span><strong>{analysisResult.score ?? '-'}</strong><small>/ {maxScore}점</small></div>
     </div>
-    {breakdown.length ? <div className="ai-analysis-question-list">{breakdown.map((item, index) => <article key={item.questionId ?? index}>
-      <div className="ai-analysis-question-heading"><div><small>문제 {index + 1}</small><strong>{item.title || `문제 ${index + 1}`}</strong></div><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
-      {(item.algorithmScore != null || item.codeQualityScore != null) && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 항목</h4><div className="ai-analysis-score-grid">
-        <ResultMetric label="알고리즘 정확성" value={`${item.algorithmScore ?? '-'} / 20`} />
-        <ResultMetric label="코드 품질" value={`${item.codeQualityScore ?? '-'} / 10`} />
-      </div></section>}
-      {(item.timeComplexity || item.spaceComplexity) && <section className="ai-analysis-part complexity-part"><h4><span>02</span> 효율성 분석</h4><div className="ai-analysis-complexity-grid"><ComplexityAnalysis label="시간 복잡도" value={item.timeComplexity} /><ComplexityAnalysis label="공간 복잡도" value={item.spaceComplexity} /></div></section>}
-      {Array.isArray(item.deductions) && item.deductions.length > 0 && <section className="ai-analysis-part deduction-part"><h4><span>03</span> 감점 내역</h4><div className="ai-analysis-deductions"><ul>{item.deductions.map((deduction, deductionIndex) => <li key={deductionIndex}><span>-{deduction.points ?? 0}점</span> {deduction.reason || deduction.category}</li>)}</ul></div></section>}
-      {item.feedback && <section className="ai-analysis-part feedback-part"><h4><span>04</span> 종합 피드백</h4><div className="ai-analysis-feedback"><p>{item.feedback}</p></div></section>}
-      {item.algorithmScore == null && item.codeQualityScore == null && item.breakdown && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 기준별 결과</h4><div className="ai-analysis-legacy-rubrics">{Object.entries(item.breakdown).map(([name, rubric]) => <div key={name}><strong>{name}</strong><span>{rubric?.score ?? '-'} / {rubric?.maxScore ?? '-'}</span><p>{rubric?.feedback}</p></div>)}</div></section>}
-    </article>)}</div> : <p className="empty-state">문제별 분석 자료가 없습니다.</p>}
+    {item ? <>
+      <div className="ai-analysis-problem-nav">
+        <div className="ai-analysis-problem-tabs" role="tablist" aria-label="문제별 AI 분석">
+          {breakdown.map((problem, index) => <button aria-controls="ai-analysis-problem-panel" aria-selected={safeActiveIndex === index} className={safeActiveIndex === index ? 'active' : ''} id={`ai-analysis-problem-tab-${index}`} key={problem.questionId ?? index} onClick={() => setActiveIndex(index)} role="tab" type="button"><span className="ai-analysis-problem-tab-label">문제 {index + 1}</span><strong className="ai-analysis-problem-tab-score">{problem.score ?? '-'}점</strong></button>)}
+        </div>
+        <span className="ai-analysis-problem-position">{safeActiveIndex + 1} / {breakdown.length}</span>
+      </div>
+      <article aria-labelledby={`ai-analysis-problem-tab-${safeActiveIndex}`} className="ai-analysis-selected-problem" id="ai-analysis-problem-panel" role="tabpanel">
+        <div className="ai-analysis-question-heading"><div><small>문제 {safeActiveIndex + 1}</small><strong>{item.title || `문제 ${safeActiveIndex + 1}`}</strong></div><span>{item.score ?? '-'} / {item.maxScore ?? 30}점</span></div>
+        <div className="ai-analysis-selected-grid">
+          {(item.algorithmScore != null || item.codeQualityScore != null) && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 항목</h4><div className="ai-analysis-score-grid">
+            <ResultMetric label="알고리즘 정확성" value={`${item.algorithmScore ?? '-'} / 20`} />
+            <ResultMetric label="코드 품질" value={`${item.codeQualityScore ?? '-'} / 10`} />
+          </div></section>}
+          {(item.timeComplexity || item.spaceComplexity) && <section className="ai-analysis-part complexity-part"><h4><span>02</span> 효율성 분석</h4><div className="ai-analysis-complexity-grid"><ComplexityAnalysis label="시간 복잡도" value={item.timeComplexity} /><ComplexityAnalysis label="공간 복잡도" value={item.spaceComplexity} /></div></section>}
+          {item.algorithmScore == null && item.codeQualityScore == null && item.breakdown && <section className="ai-analysis-part score-part"><h4><span>01</span> 채점 기준별 결과</h4><div className="ai-analysis-legacy-rubrics">{Object.entries(item.breakdown).map(([name, rubric]) => <div key={name}><strong>{name}</strong><span>{rubric?.score ?? '-'} / {rubric?.maxScore ?? '-'}</span><p>{rubric?.feedback}</p></div>)}</div></section>}
+        </div>
+        {Array.isArray(item.deductions) && item.deductions.length > 0 && <section className="ai-analysis-part deduction-part"><h4><span>03</span> 감점 내역</h4><div className="ai-analysis-deductions"><ul>{item.deductions.map((deduction, deductionIndex) => <li key={deductionIndex}><span>-{deduction.points ?? 0}점</span> {deduction.reason || deduction.category}</li>)}</ul></div></section>}
+        {item.feedback && <section className="ai-analysis-part feedback-part"><h4><span>04</span> 종합 피드백</h4><div className="ai-analysis-feedback"><p>{item.feedback}</p></div></section>}
+        <div className="ai-analysis-problem-actions">
+          <button className="secondary-button" disabled={safeActiveIndex === 0} onClick={() => moveProblem(safeActiveIndex - 1)} type="button"><ChevronLeft size={16} /> 이전 문제</button>
+          <span>문제 {safeActiveIndex + 1} / 총 {breakdown.length}문제</span>
+          <button className="primary-button" disabled={safeActiveIndex === breakdown.length - 1} onClick={() => moveProblem(safeActiveIndex + 1)} type="button">다음 문제 <ChevronRight size={16} /></button>
+        </div>
+      </article>
+    </> : <p className="empty-state">문제별 분석 자료가 없습니다.</p>}
   </section>;
 }
 

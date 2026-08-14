@@ -20,6 +20,7 @@ const AdminRoute = lazy(() => import('./components/AdminRoute'));
 const SupervisorExamDashboard = lazy(() => import('./supervisor/SupervisorExamDashboard'));
 const ManagerExamCreatePage = lazy(() => import('./manager/ManagerExamCreatePage'));
 const ManagerExamDetailPage = lazy(() => import('./manager/ManagerExamDetailPage'));
+const AiAnalysisPreviewPage = lazy(() => import('./pages/AiAnalysisPreviewPage'));
 
 function CandidateAccessRoute({ children }) {
   const hasCandidateAccess = Boolean(localStorage.getItem('candidateAccessToken'));
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/faq" element={<FaqPage />} />
+          <Route path="/preview/ai-analysis" element={<AiAnalysisPreviewPage />} />
           <Route path="/manager/exams" element={<ManagerRoute><SupervisorExamDashboard /></ManagerRoute>} />
           <Route path="/manager/exams/new" element={<ManagerRoute><ManagerExamCreatePage /></ManagerRoute>} />
           <Route path="/manager/exams/:examId" element={<ManagerRoute><ManagerExamDetailPage /></ManagerRoute>} />
