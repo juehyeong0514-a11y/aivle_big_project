@@ -7,7 +7,7 @@ const emptyConditions = { algorithmRequirements: [], expectedTimeComplexity: "",
 const empty = { difficulty: "", type: "", scope: "", languages: [], authoringConditions: emptyConditions };
 const typeName = (value) => value === "CODING" ? "코딩 문제" : "객관식 문제";
 
-export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOnly = false, completed = false }) {
+export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOnly = false, completed = false, resetKey = 0 }) {
   const initialRequirements = codingOnly ? { ...empty, type: "CODING" } : empty;
   const [requirements, setRequirements] = useState(initialRequirements);
   const [errors, setErrors] = useState({});
@@ -21,6 +21,19 @@ export default function ProblemCreationChatbot({ examId, onApplyCoding, codingOn
   const [agentSteps, setAgentSteps] = useState([]);
   const [revising, setRevising] = useState(false);
   useEffect(() => setComplete(completed), [completed]);
+  useEffect(() => {
+    setRequirements(codingOnly ? { ...empty, type: "CODING" } : empty);
+    setErrors({});
+    setCandidates([]);
+    setSelected(null);
+    setFeedback("");
+    setFeedbackError("");
+    setComplete(false);
+    setGenerating(false);
+    setGenerationError(null);
+    setAgentSteps([]);
+    setRevising(false);
+  }, [resetKey, codingOnly]);
   const visibleAgentSteps = agentSteps.filter((step) => !step.includes("요구사항 검증 완료"));
   const update = (field, value) => { setRequirements((current) => ({ ...current, [field]: value })); setErrors((current) => ({ ...current, [field]: "" })); };
   const toggleLanguage = (language) => {

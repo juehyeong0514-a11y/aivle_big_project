@@ -1231,6 +1231,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const [isAuthoringOpen, setIsAuthoringOpen] = useState(true);
   const [aiDraftApplyNonce, setAiDraftApplyNonce] = useState(0);
   const [aiAuthoringComplete, setAiAuthoringComplete] = useState(false);
+  const [aiAuthoringResetNonce, setAiAuthoringResetNonce] = useState(0);
   const [generatedAnswerSignature, setGeneratedAnswerSignature] = useState("");
   const generatedAnswerSignatureRef = useRef("");
   const draftKey = codingDraftKey(examId, editingQuestionId);
@@ -1399,6 +1400,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       generatedAnswerSignatureRef.current = "";
       setGeneratedAnswerSignature("");
       setAiAuthoringComplete(false);
+      setAiAuthoringResetNonce((current) => current + 1);
       activeAnswerRequestSignature.current = "";
       if (wasEditing) setIsAuthoringOpen(false);
     }
@@ -1440,7 +1442,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
         </main>
         <aside className="coding-ai-workspace" aria-label="출제 도우미">
           <header><span>AUTHORING ASSISTANT</span><h3>출제 도우미</h3><p>조건만 정하면 시안 작성부터 답안 준비까지 이어집니다.</p></header>
-          {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} completed={aiAuthoringComplete} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
+          {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} completed={aiAuthoringComplete} resetKey={aiAuthoringResetNonce} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
           {editingQuestionId && <div className="coding-ai-edit-note">수정한 내용이 저장되면 최신 기준으로 답안을 다시 준비합니다.</div>}
           <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={retryReferenceAnswer} answerOutdated={answerOutdated} />
         </aside>
