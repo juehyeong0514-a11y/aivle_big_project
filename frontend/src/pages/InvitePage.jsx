@@ -92,6 +92,7 @@ export default function InvitePage() {
       localStorage.setItem('candidateNumber', data.candidateNumber);
       if (data.skipPrecheck) localStorage.setItem('candidateSkipPrecheck', 'true');
       else localStorage.removeItem('candidateSkipPrecheck');
+      sessionStorage.removeItem('candidateDevSkipPrecheck');
       sessionStorage.setItem('candidateInvitationToken', token);
       sessionStorage.setItem('candidateInvitationName', invite?.candidateName || '응시자');
       window.dispatchEvent(new Event('candidate-invitation-updated'));

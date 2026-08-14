@@ -130,6 +130,14 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - Accessibility: problem selector and result tabs are keyboard reachable; editor has an explicit label; the bottom controls repeat execution and submission actions without relying on the header.
 - Responsive behavior: at 900px the statement pane stacks above the editor; on small screens control labels stay readable and examples become one column.
 
+### Candidate exam waiting room
+
+- Structure: environment-check completion status, server-synchronized countdown, scheduled start and duration summary, secondary time-refresh action, and a primary coding-test start action.
+- States: waiting with a disabled start action, checking server time, ready with an enabled start action, entering, and recoverable server error.
+- Interaction: reaching the scheduled time enables the start action without navigating automatically; the candidate explicitly starts the exam. In a development build, `Ctrl + Alt + M` exposes an environment-check bypass button. Selecting it opens this waiting room with the shortcut reset; pressing `Ctrl + Alt + M` again here may bypass the schedule only for the current browser-tab applicant session. The shortcut remains intentionally undisclosed on the waiting screen.
+- Accessibility: countdown changes are announced politely, errors use an alert, button labels expose waiting/loading state in text, and color is never the only readiness signal.
+- Responsive behavior: actions are side by side on wider screens and stack into full-width controls below 640px.
+
 ### AI detection overlay
 
 - Structure: a non-interactive layer over webcam or auxiliary-camera video, with one semantic bounding box and confidence label per detected object.

@@ -35,10 +35,11 @@ export const scheduledExamEndsAt = (exam) => {
   if (!startsAt || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return undefined;
   return new Date(Date.parse(startsAt) + durationMinutes * 60 * 1000).toISOString();
 };
-export const shouldWaitForExamStart = (candidate, exam, now = Date.now()) => {
+export const shouldWaitForExamStart = (candidate, exam, now = Date.now(), allowEarlyStart = false) => {
   const startsAt = scheduledExamStartsAt(exam);
-  return candidate?.isTestCandidate !== true && Boolean(startsAt) && now < Date.parse(startsAt);
+  return candidate?.isTestCandidate !== true && !allowEarlyStart && Boolean(startsAt) && now < Date.parse(startsAt);
 };
+export const isExamStartBypassEnabled = (environment = process.env) => environment.NODE_ENV !== "production" && environment.EXAM_START_BYPASS_ENABLED === "true";
 const managerOrganizationIds = (user, organizations) => organizations
   .filter((organization) => user.approvalStatus === "APPROVED" && organization.status === "APPROVED" && (organization.managerIds?.includes(user.id) || user.organizationIds?.includes(organization.id)))
   .map((organization) => organization.id);
@@ -482,9 +483,10 @@ const requireManager = (request, response, next) => {
   return next();
 };
 
-export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, mobileAiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier, emailSender = sendSendGridEmail, automationClock = () => Date.now(), automationIntervalMs = 60_000, startAutomation = true, startAutomationScheduler: startAutomationSchedulerOption } = {}) => {
+export const createApp = async ({ databasePath = resolve("data/database.json"), aiSettingsEncryptionKey = process.env.AI_SETTINGS_ENCRYPTION_KEY, codeExecutionUrl = resolveCodeExecutionUrl(), aiProctorOptions = {}, mobileAiProctorOptions = {}, aiProviderInvoker, aiKeyVerifier, emailSender = sendSendGridEmail, automationClock = () => Date.now(), automationIntervalMs = 60_000, startAutomation = true, startAutomationScheduler: startAutomationSchedulerOption, examStartBypassEnabled = isExamStartBypassEnabled() } = {}) => {
   const store = await createStore(databasePath);
   const sessions = new Map(store.sessions.map((session) => [session.tokenHash, session]));
+  const earlyExamStartSessions = new WeakSet();
   const loginFailures = new Map();
   const candidateFailures = new Map();
   const liveSessions = new Map();
@@ -1422,6 +1424,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const questionCount = store.questions.filter((question) => question.examId === exam.id).length;
     return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questionCount}문제`, date: exam.date }, candidate: { name: candidate.name, candidateNumber: candidate.candidateNumber }, expiresAt: invitation.expiresAt, termination: applicantTermination(invitation), skipPrecheck: candidate.isTestCandidate === true });
   });
+  app.post("/api/applicant/exam/test-start-bypass", authenticateApplicant, (request, response) => {
+    if (!examStartBypassEnabled) return response.sendStatus(404);
+    earlyExamStartSessions.add(request.applicantSession.session);
+    return response.json({ bypassed: true, serverNow: new Date().toISOString() });
+  });
   app.get("/api/applicant/termination", authenticateApplicant, (request, response) => {
     const { invitation } = request.applicantSession;
     return response.json({ termination: applicantTermination(invitation) });
@@ -1818,19 +1825,23 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     return response.sendStatus(204);
   });
   app.get("/api/applicant/exam", authenticateApplicant, (request, response) => {
-    const { candidate, exam, invitation } = request.applicantSession;
+    const { candidate, exam, invitation, session } = request.applicantSession;
     const termination = applicantTermination(invitation);
     const startsAt = scheduledExamStartsAt(exam);
-    if (!termination && shouldWaitForExamStart(candidate, exam)) {
-      return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${store.questions.filter((question) => question.examId === exam.id).length}문제`, date: exam.date }, questions: [], termination: null, waiting: true, startsAt });
+    const endsAt = scheduledExamEndsAt(exam);
+    const serverNow = new Date().toISOString();
+    const waiting = !termination && shouldWaitForExamStart(candidate, exam, Date.parse(serverNow), examStartBypassEnabled && earlyExamStartSessions.has(session));
+    const examSummary = { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${store.questions.filter((question) => question.examId === exam.id).length}문제`, date: exam.date, endsAt };
+    if (waiting || request.query.statusOnly === "1") {
+      return response.json({ exam: examSummary, questions: [], termination, waiting, startsAt, serverNow });
     }
     const questions = termination ? [] : store.questions.filter((question) => question.examId === exam.id).map(publicQuestion);
-    return response.json({ exam: { id: exam.id, title: exam.title, duration: exam.duration, questions: `총 ${questions.length}문제`, date: exam.date }, questions, termination, waiting: false, startsAt });
+    return response.json({ exam: { ...examSummary, questions: `총 ${questions.length}문제` }, questions, termination, waiting: false, startsAt, serverNow });
   });
   const rejectBeforeExamStart = (applicantSession, response) => {
-    const { candidate, exam } = applicantSession;
+    const { candidate, exam, session } = applicantSession;
     const startsAt = scheduledExamStartsAt(exam);
-    if (!shouldWaitForExamStart(candidate, exam)) return false;
+    if (!shouldWaitForExamStart(candidate, exam, Date.now(), examStartBypassEnabled && earlyExamStartSessions.has(session))) return false;
     response.status(425).json({ message: "시험 시작 전에는 문제를 조회하거나 답안을 작성할 수 없습니다.", startsAt });
     return true;
   };

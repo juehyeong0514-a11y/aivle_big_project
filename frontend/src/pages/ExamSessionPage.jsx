@@ -1,14 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Send, ShieldX } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Clock, Play, RefreshCw, Send, ShieldX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
 import { getLiveMediaStatus, hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
-
-const durationInSeconds = (duration) => {
-  const minutes = Number.parseInt(String(duration ?? '').match(/\d+/)?.[0] ?? '', 10);
-  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : 0;
-};
+import useTestShortcuts from '../applicant/useTestShortcuts';
 
 const formatRemainingTime = (seconds) => {
   const safeSeconds = Math.max(0, seconds);
@@ -28,19 +24,28 @@ export default function ExamSessionPage() {
   const [runResults, setRunResults] = useState({});
   const [saveStatus, setSaveStatus] = useState('');
   const [submitted, setSubmitted] = useState(null);
-  const [error, setError] = useState('');
   const [submissionError, setSubmissionError] = useState('');
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [waitingUntil, setWaitingUntil] = useState('');
   const [waitingSeconds, setWaitingSeconds] = useState(0);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
+  const [showWaitingRoom, setShowWaitingRoom] = useState(true);
+  const [startAvailable, setStartAvailable] = useState(false);
+  const [checkingStart, setCheckingStart] = useState(false);
+  const [enteringExam, setEnteringExam] = useState(false);
+  const [waitingError, setWaitingError] = useState('');
   const [activeWarning, setActiveWarning] = useState(null);
   const [termination, setTermination] = useState(null);
   const warningIdsRef = useRef(new Set());
   const warningsInitializedRef = useRef(false);
+  const bypassRequestedRef = useRef(false);
+  const checkingStartRef = useRef(false);
+  const testShortcutsEnabled = useTestShortcuts();
   const codingQuestions = useMemo(() => questions.filter((question) => question.type === 'CODING'), [questions]);
 
   useEffect(() => {
-    const skipPrecheck = localStorage.getItem('candidateSkipPrecheck') === 'true';
+    const skipPrecheck = localStorage.getItem('candidateSkipPrecheck') === 'true'
+      || (import.meta.env.DEV && sessionStorage.getItem('candidateDevSkipPrecheck') === 'true');
     if (skipPrecheck || (hasActiveLiveStream('webcam') && hasActiveLiveStream('screen'))) return;
     api.get('/applicant/termination', { headers: candidateAuthHeaders(), params: { poll: Date.now() } })
       .then(({ data }) => {
@@ -117,18 +122,14 @@ export default function ExamSessionPage() {
   }, []);
 
   useEffect(() => {
-    if (!exam?.id || waitingUntil) return undefined;
-    const totalSeconds = durationInSeconds(exam.duration);
-    if (!totalSeconds) return undefined;
-    const timerKey = `examEndAt:${exam.id}`;
-    const savedEndAt = Number(sessionStorage.getItem(timerKey));
-    const endAt = Number.isFinite(savedEndAt) && savedEndAt > Date.now() ? savedEndAt : Date.now() + totalSeconds * 1000;
-    sessionStorage.setItem(timerKey, String(endAt));
-    const updateTimer = () => setRemainingSeconds(Math.max(0, Math.ceil((endAt - Date.now()) / 1000)));
+    if (!exam?.id || showWaitingRoom) return undefined;
+    const endAt = Date.parse(exam.endsAt ?? '');
+    if (!Number.isFinite(endAt)) return undefined;
+    const updateTimer = () => setRemainingSeconds(Math.max(0, Math.ceil((endAt - (Date.now() + serverClockOffsetMs)) / 1000)));
     updateTimer();
     const timer = window.setInterval(updateTimer, 1000);
     return () => window.clearInterval(timer);
-  }, [exam?.id, exam?.duration, waitingUntil]);
+  }, [exam?.endsAt, exam?.id, serverClockOffsetMs, showWaitingRoom]);
 
   useEffect(() => {
     const reportMediaHeartbeat = () => {
@@ -143,62 +144,103 @@ export default function ExamSessionPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    let retryTimer;
-    const loadExam = () => api.get('/applicant/exam', { headers: candidateAuthHeaders() })
-      .then(async ({ data }) => {
-        if (!active) return null;
-        setExam(data.exam ?? null);
-        if (data.waiting) {
-          setWaitingUntil(data.startsAt ?? '');
-          retryTimer = window.setTimeout(loadExam, 1000);
-          return null;
-        }
-        setWaitingUntil('');
-        const normalized = Array.isArray(data.questions)
-          ? data.questions.map((question) => ({ ...question, options: Array.isArray(question.options) ? question.options.filter(Boolean) : [] }))
-          : [];
-        setQuestions(normalized);
-        const progress = await api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
-        return { progress, questions: normalized };
-      })
-      .then((result) => {
-        if (!active || !result) return;
-        const { progress, questions: loadedQuestions } = result;
-        const initializedAnswers = { ...(progress.data.answers ?? {}) };
-        loadedQuestions.forEach((question) => {
-          if (question.type !== 'CODING' || !question.starterCode) return;
-          const savedAnswer = initializedAnswers[question.id];
-          if (!savedAnswer || !savedAnswer.source?.trim()) {
-            initializedAnswers[question.id] = {
-              ...savedAnswer,
-              language: savedAnswer?.language ?? question.languages?.[0] ?? 'JavaScript',
-              source: question.starterCode,
-            };
-          }
-        });
-        setAnswers(initializedAnswers);
-        setRunResults(progress.data.runResults ?? {});
-        if (progress.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(progress.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
-      })
-      .catch((reason) => {
-        if (active) setError(apiErrorMessage(reason, '시험 세션을 확인할 수 없습니다. 초대 링크로 다시 입장해 주세요.'));
-      });
-    loadExam();
-    return () => {
-      active = false;
-      window.clearTimeout(retryTimer);
-    };
+  const syncWaitingStatus = useCallback((data) => {
+    setExam(data.exam ?? null);
+    setTermination(data.termination ?? null);
+    setWaitingUntil(data.startsAt ?? '');
+    const serverNow = Date.parse(data.serverNow ?? '');
+    if (Number.isFinite(serverNow)) setServerClockOffsetMs(serverNow - Date.now());
+    setStartAvailable(!data.waiting);
   }, []);
+
+  const initializeExam = useCallback(async (data) => {
+    const normalized = Array.isArray(data.questions)
+      ? data.questions.map((question) => ({ ...question, options: Array.isArray(question.options) ? question.options.filter(Boolean) : [] }))
+      : [];
+    setExam(data.exam ?? null);
+    setQuestions(normalized);
+    const progress = await api.get('/applicant/exam/progress', { headers: candidateAuthHeaders() });
+    const initializedAnswers = { ...(progress.data.answers ?? {}) };
+    normalized.forEach((question) => {
+      if (question.type !== 'CODING' || !question.starterCode) return;
+      const savedAnswer = initializedAnswers[question.id];
+      if (!savedAnswer || !savedAnswer.source?.trim()) {
+        initializedAnswers[question.id] = {
+          ...savedAnswer,
+          language: savedAnswer?.language ?? question.languages?.[0] ?? 'JavaScript',
+          source: question.starterCode,
+        };
+      }
+    });
+    setAnswers(initializedAnswers);
+    setRunResults(progress.data.runResults ?? {});
+    if (progress.data.updatedAt) setSaveStatus('저장됨 · ' + new Date(progress.data.updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    setWaitingUntil('');
+    setShowWaitingRoom(false);
+  }, []);
+
+  const enterExam = useCallback(async ({ bypass = false } = {}) => {
+    if (enteringExam || (!startAvailable && !bypass)) return;
+    setEnteringExam(true);
+    setWaitingError('');
+    try {
+      if (bypass) await api.post('/applicant/exam/test-start-bypass', {}, { headers: candidateAuthHeaders() });
+      const { data } = await api.get('/applicant/exam', { headers: candidateAuthHeaders() });
+      syncWaitingStatus(data);
+      if (data.termination) return;
+      if (data.waiting) {
+        setWaitingError('서버 기준 시험 시작 전입니다. 시간을 다시 확인해 주세요.');
+        return;
+      }
+      await initializeExam(data);
+    } catch (reason) {
+      setWaitingError(apiErrorMessage(reason, '시험 입장을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
+    } finally {
+      setEnteringExam(false);
+    }
+  }, [enteringExam, initializeExam, startAvailable, syncWaitingStatus]);
+
+  const refreshStartStatus = useCallback(async () => {
+    if (checkingStartRef.current) return;
+    checkingStartRef.current = true;
+    setCheckingStart(true);
+    setWaitingError('');
+    try {
+      const { data } = await api.get('/applicant/exam', { headers: candidateAuthHeaders(), params: { statusOnly: 1, poll: Date.now() } });
+      syncWaitingStatus(data);
+    } catch (reason) {
+      setWaitingError(apiErrorMessage(reason, '서버 시간을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'));
+    } finally {
+      checkingStartRef.current = false;
+      setCheckingStart(false);
+    }
+  }, [syncWaitingStatus]);
+
+  useEffect(() => {
+    refreshStartStatus();
+  }, [refreshStartStatus]);
 
   useEffect(() => {
     if (!waitingUntil) return undefined;
-    const updateWaitingTime = () => setWaitingSeconds(Math.max(0, Math.ceil((Date.parse(waitingUntil) - Date.now()) / 1000)));
+    const updateWaitingTime = () => {
+      const seconds = Math.max(0, Math.ceil((Date.parse(waitingUntil) - (Date.now() + serverClockOffsetMs)) / 1000));
+      setWaitingSeconds(seconds);
+      if (seconds === 0) setStartAvailable(true);
+    };
     updateWaitingTime();
     const timer = window.setInterval(updateWaitingTime, 1000);
     return () => window.clearInterval(timer);
-  }, [waitingUntil]);
+  }, [serverClockOffsetMs, waitingUntil]);
+
+  useEffect(() => {
+    if (!testShortcutsEnabled) {
+      bypassRequestedRef.current = false;
+      return;
+    }
+    if (!import.meta.env.DEV || !showWaitingRoom || bypassRequestedRef.current) return;
+    bypassRequestedRef.current = true;
+    void enterExam({ bypass: true });
+  }, [enterExam, showWaitingRoom, testShortcutsEnabled]);
 
   const submitExam = async (event) => {
     event.preventDefault();
@@ -209,6 +251,7 @@ export default function ExamSessionPage() {
       setSubmitted(data);
       localStorage.removeItem('candidateAccessToken');
       localStorage.removeItem('candidateSkipPrecheck');
+      sessionStorage.removeItem('candidateDevSkipPrecheck');
       sessionStorage.removeItem('candidateInvitationToken');
       sessionStorage.removeItem('candidateInvitationName');
     } catch (reason) {
@@ -228,9 +271,9 @@ export default function ExamSessionPage() {
 
   if (termination) return <ForceTerminatedPage termination={termination} />;
   if (submitted) return <ResultPage submitted={submitted} navigate={navigate} />;
-  if (error) return <ErrorPage error={error} navigate={navigate} />;
+  if (!exam && waitingError) return <ErrorPage error={waitingError} navigate={navigate} />;
   if (!exam) return <main className="container"><div className="workspace-loading">시험 세션을 불러오는 중입니다...</div></main>;
-  if (waitingUntil) return <ExamWaitingPage exam={exam} startsAt={waitingUntil} waitingSeconds={waitingSeconds} />;
+  if (showWaitingRoom) return <ExamWaitingPage checkingStart={checkingStart} enteringExam={enteringExam} exam={exam} onEnter={enterExam} onRefresh={refreshStartStatus} startAvailable={startAvailable} startsAt={waitingUntil} waitingError={waitingError} waitingSeconds={waitingSeconds} />;
   const remainingTime = formatRemainingTime(remainingSeconds);
   if (codingQuestions.length) return <form onSubmit={submitExam}><CodingExamWorkspace answers={answers} exam={exam} questions={questions} remainingTime={remainingTime} runResults={runResults} saveProgress={saveCodingProgress} saveStatus={saveStatus} submissionError={submissionError} updateAnswers={setAnswers} updateRunResults={setRunResults} />{activeWarning && <ExamWarningModal warning={activeWarning} dismiss={() => setActiveWarning(null)} />}</form>;
 
@@ -250,8 +293,26 @@ export default function ExamSessionPage() {
   );
 }
 
-function ExamWaitingPage({ exam, startsAt, waitingSeconds }) {
-  return <main className="container"><section className="card exam-session-result exam-waiting-card"><Clock size={42} color="var(--accent-primary)" /><span className="workspace-eyebrow">WAITING ROOM</span><h1>{exam.title}</h1><p>사전 점검이 완료되었습니다. 시험 시작 시간이 되면 자동으로 시험 화면이 열립니다.</p><strong className="exam-waiting-countdown">{formatRemainingTime(waitingSeconds)}</strong><dl><div><dt>시험 시작</dt><dd>{new Date(startsAt).toLocaleString('ko-KR')}</dd></div><div><dt>제한 시간</dt><dd>{exam.duration}</dd></div></dl><p className="form-hint">이 페이지를 닫거나 새로고침하지 말고 잠시 기다려 주세요.</p></section></main>;
+function ExamWaitingPage({ checkingStart, enteringExam, exam, onEnter, onRefresh, startAvailable, startsAt, waitingError, waitingSeconds }) {
+  return <main className="container exam-waiting-page"><section className="card exam-session-result exam-waiting-card">
+    <header className="exam-waiting-intro">
+      <div className={`exam-waiting-status-icon${startAvailable ? ' ready' : ''}`}><CheckCircle2 size={22} aria-hidden="true" /></div>
+      <span className="workspace-eyebrow">환경 점검 완료</span>
+      <h1>{exam.title}</h1>
+      <p>{startAvailable ? '입장할 수 있습니다. 아래 버튼을 눌러 시작해 주세요.' : '시험 시작 시간까지 기다려 주세요.'}</p>
+    </header>
+    <div className="exam-waiting-timer" aria-live="polite">
+      <span>{startAvailable ? '시험 입장 가능' : '시험 시작까지'}</span>
+      <strong className="exam-waiting-countdown">{startAvailable ? '입장 가능' : formatRemainingTime(waitingSeconds)}</strong>
+    </div>
+    <dl><div><dt>시험 시작</dt><dd>{startsAt ? new Date(startsAt).toLocaleString('ko-KR') : '즉시 입장 가능'}</dd></div><div><dt>제한 시간</dt><dd>{exam.duration}</dd></div></dl>
+    {waitingError && <div className="workspace-alert error exam-waiting-error" role="alert">{waitingError}</div>}
+    <div className="exam-waiting-actions">
+      <button className="secondary-button" type="button" onClick={onRefresh} disabled={checkingStart || enteringExam}><RefreshCw size={17} aria-hidden="true" /> {checkingStart ? '확인 중...' : '시간 다시 확인'}</button>
+      <button className="primary-button exam-start-button" type="button" onClick={() => onEnter()} disabled={!startAvailable || enteringExam}><Play size={17} aria-hidden="true" /> {enteringExam ? '입장 중...' : startAvailable ? '코딩테스트 시작' : '시작 시간 전입니다'}</button>
+    </div>
+    <p className="form-hint exam-waiting-hint">서버 시간 기준입니다. 시작 시간이 되면 입장 버튼이 활성화됩니다.</p>
+  </section></main>;
 }
 
 function ExamWarningModal({ warning, dismiss }) {

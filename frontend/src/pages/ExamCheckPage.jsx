@@ -12,7 +12,7 @@ import {
 import { QRCodeCanvas } from 'qrcode.react';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { registerLiveStream } from '../applicant/liveMonitoring';
-import useTestShortcuts from '../applicant/useTestShortcuts';
+import useTestShortcuts, { TEST_SHORTCUT_STORAGE_KEY } from '../applicant/useTestShortcuts';
 
 export default function ExamCheckPage() {
   const navigate = useNavigate();
@@ -273,6 +273,14 @@ export default function ExamCheckPage() {
     qrConnected;
   const identityVerified = idCardVerification.status === 'VERIFIED' || alternativeVerification.status === 'APPROVED';
 
+  const enterExamSession = () => {
+    if (import.meta.env.DEV && testShortcutsEnabled) {
+      sessionStorage.setItem('candidateDevSkipPrecheck', 'true');
+      sessionStorage.removeItem(TEST_SHORTCUT_STORAGE_KEY);
+    }
+    navigate('/exam/session');
+  };
+
   return (
     <div className="container">
       {testShortcutsEnabled && (
@@ -473,8 +481,8 @@ export default function ExamCheckPage() {
           </span>
         </div>
 
-        <button type="button" className="btn-primary" disabled={!isAllReady || !examSession} onClick={() => navigate('/exam/session')}>
-          {isAllReady ? '코딩 테스트 응시 시작' : '모든 점검 항목을 완료해주세요'}
+        <button type="button" className="btn-primary" disabled={(!isAllReady && !(import.meta.env.DEV && testShortcutsEnabled)) || !examSession} onClick={enterExamSession}>
+          {isAllReady ? '코딩 테스트 응시 시작' : import.meta.env.DEV && testShortcutsEnabled ? '[임시] 시험 대기 화면 확인' : '모든 점검 항목을 완료해주세요'}
         </button>
       </div>
 

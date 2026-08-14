@@ -44,6 +44,7 @@ Set-Location -LiteralPath '$backend'
 `$env:AI_PROCTOR_WARNING_COOLDOWN_SECONDS = '60'
 `$env:AI_PROCTOR_BOOK_DETECTION_ENABLED = 'false'
 `$env:AI_SETTINGS_ENCRYPTION_KEY = 'aivle-local-development-ai-settings-key'
+`$env:EXAM_START_BYPASS_ENABLED = 'true'
 npm run dev
 "@
 
