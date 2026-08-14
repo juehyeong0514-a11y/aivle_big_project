@@ -25,12 +25,40 @@ test("waits before the exam for regular candidates but lets test candidates ente
   assert.equal(shouldWaitForExamStart({}, exam, Date.parse("2099-01-01T01:30:00.000Z")), false);
 });
 
-test("exam start bypass is opt-in and never enabled in production", () => {
+test("exam start bypass is opt-in in every server environment", () => {
   assert.equal(isExamStartBypassEnabled({}), false);
   assert.equal(isExamStartBypassEnabled({ NODE_ENV: "development" }), false);
   assert.equal(isExamStartBypassEnabled({ EXAM_START_BYPASS_ENABLED: "true" }), true);
   assert.equal(isExamStartBypassEnabled({ NODE_ENV: "development", EXAM_START_BYPASS_ENABLED: "true" }), true);
-  assert.equal(isExamStartBypassEnabled({ NODE_ENV: "production", EXAM_START_BYPASS_ENABLED: "true" }), false);
+  assert.equal(isExamStartBypassEnabled({ NODE_ENV: "production", EXAM_START_BYPASS_ENABLED: "true" }), true);
+});
+
+test("exam start bypass unlocks the waiting exam for only the authenticated applicant session", async (context) => {
+  const { app } = await fixture({ examStartBypassEnabled: true });
+  const server = app.listen(0);
+  await new Promise((resolveReady) => server.once("listening", resolveReady));
+  context.after(() => server.close());
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const login = await fetch(`${baseUrl}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" }) });
+  const manager = await login.json();
+  const managerHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${manager.token}` };
+  const candidateResponse = await fetch(`${baseUrl}/manager/candidates`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: "org-aivle-cs", name: "Bypass Test", email: "bypass-test@example.com", birthDate: "2000-01-01" }) });
+  const candidate = await candidateResponse.json();
+  const examResponse = await fetch(`${baseUrl}/manager/exams`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ organizationId: "org-aivle-cs", title: "Bypass Test Exam", duration: "60분", questions: "총 1문제", date: "2099.01.01 10:00" }) });
+  const exam = await examResponse.json();
+  await fetch(`${baseUrl}/manager/exams/${exam.id}/assign`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitationResponse = await fetch(`${baseUrl}/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id] }) });
+  const invitation = await invitationResponse.json();
+  const invitationToken = new URL(invitation.mailPreviews[0].entryLink).searchParams.get("token");
+  const verification = await fetch(`${baseUrl}/invitations/${invitationToken}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
+  const applicant = await verification.json();
+  const applicantHeaders = { Authorization: `Bearer ${applicant.accessToken}` };
+  assert.equal((await (await fetch(`${baseUrl}/applicant/exam`, { headers: applicantHeaders })).json()).waiting, true);
+  assert.equal((await fetch(`${baseUrl}/applicant/exam/test-start-bypass`, { method: "POST", headers: applicantHeaders })).status, 200);
+  assert.equal((await (await fetch(`${baseUrl}/applicant/exam`, { headers: applicantHeaders })).json()).waiting, false);
+  const secondVerification = await fetch(`${baseUrl}/invitations/${invitationToken}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: candidate.candidateNumber }) });
+  const secondApplicant = await secondVerification.json();
+  assert.equal((await (await fetch(`${baseUrl}/applicant/exam`, { headers: { Authorization: `Bearer ${secondApplicant.accessToken}` } })).json()).waiting, true);
 });
 
 test("automatic processing is a cutoff no-op before scheduledExamEndsAt and catches up after restart", async () => {

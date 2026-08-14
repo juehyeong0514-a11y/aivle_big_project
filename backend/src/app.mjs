@@ -39,7 +39,7 @@ export const shouldWaitForExamStart = (candidate, exam, now = Date.now(), allowE
   const startsAt = scheduledExamStartsAt(exam);
   return candidate?.isTestCandidate !== true && !allowEarlyStart && Boolean(startsAt) && now < Date.parse(startsAt);
 };
-export const isExamStartBypassEnabled = (environment = process.env) => environment.NODE_ENV !== "production" && environment.EXAM_START_BYPASS_ENABLED === "true";
+export const isExamStartBypassEnabled = (environment = process.env) => environment.EXAM_START_BYPASS_ENABLED === "true";
 const managerOrganizationIds = (user, organizations) => organizations
   .filter((organization) => user.approvalStatus === "APPROVED" && organization.status === "APPROVED" && (organization.managerIds?.includes(user.id) || user.organizationIds?.includes(organization.id)))
   .map((organization) => organization.id);

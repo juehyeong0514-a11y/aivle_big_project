@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Clock, Play, RefreshCw, Send, ShieldX } fr
 import { useNavigate } from 'react-router-dom';
 import { api, apiErrorMessage, candidateAuthHeaders } from '../api/client';
 import { CodingExamWorkspace } from '../components/CodingExamWorkspace';
+import { shouldRequestExamStartBypass } from '../applicant/examStartBypass.mjs';
 import { getLiveMediaStatus, hasActiveLiveStream, stopLiveMonitoring } from '../applicant/liveMonitoring';
 import useTestShortcuts from '../applicant/useTestShortcuts';
 
@@ -237,7 +238,7 @@ export default function ExamSessionPage() {
       bypassRequestedRef.current = false;
       return;
     }
-    if (!import.meta.env.DEV || !showWaitingRoom || bypassRequestedRef.current) return;
+    if (!shouldRequestExamStartBypass({ shortcutEnabled: testShortcutsEnabled, waitingRoomVisible: showWaitingRoom, requestSent: bypassRequestedRef.current })) return;
     bypassRequestedRef.current = true;
     void enterExam({ bypass: true });
   }, [enterExam, showWaitingRoom, testShortcutsEnabled]);
