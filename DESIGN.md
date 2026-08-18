@@ -153,6 +153,24 @@ Spacing uses a 4px base unit. `--space-1` through `--space-8` map to 4, 8, 12, 1
 - Accessibility: the tab rail uses `role="tablist"`, selected state is exposed with `aria-selected`, and navigation controls have explicit problem labels.
 - Responsive behavior: the problem rail scrolls horizontally on narrow screens, analysis metric columns stack below 640px, and no empty spacer is introduced between sections.
 
+### Exam automation panel
+
+- Structure: a compact operational panel placed inside the existing manager question-management screen after the saved-question list. It shows question count, organization candidate count, assignable/excluded counts, lead-time control, calculated invitation time, lifecycle badge, start confirmation, and retry action.
+- States: pre-start preview, assigning, waiting invitation, inviting, waiting exam, finalizing, grading, reporting, email sending, completed, invitation failed, grading failed, email failed, and locked after invitation creation.
+- Interaction: managers can edit the lead-time number until an invitation is created; starting automation opens a confirmation modal that repeats assignable/excluded counts and send time before the backend start call.
+- Accessibility: lead-time input has a visible label and numeric bounds; status and exclusion reasons are text-visible; confirmation and retry are native buttons with disabled and loading labels.
+- Responsive behavior: metrics collapse from four columns to two, then one column below mobile widths; long Korean exclusion reason labels wrap naturally without clipping.
+
+### Exam automation panel
+
+- Structure: an exam-scoped summary header, scheduled start and lead-time metadata, progress indicator, lifecycle status rail, and candidate/result rows. The panel consumes the automation helper contract rather than displaying raw backend codes.
+- Lifecycle statuses: `ASSIGNING`, `WAITING_INVITATION`, `INVITING`, `WAITING_EXAM`, `FINALIZING`, `GRADING`, `REPORTING`, `EMAIL_SENDING`, and `COMPLETED`; failure statuses are `INVITATION_FAILED`, `GRADING_FAILED`, and `EMAIL_FAILED`.
+- Delivery states: result email `SENT`, review-required `HELD`, normal `AWAITING_SEND`, `SENDING`, and `FAILED`. A held result must explain that review is required and must not imply that email was sent.
+- States: loading, scheduled, processing, completed, failed, held for review, and unknown payload fallback. Unknown codes use the visible Korean label “자동 처리 상태 확인 필요” and never leak an untrusted raw code as the primary status.
+- Exclusion reasons: `NO_SHOW`, `ABSENT`, `FORCE_TERMINATED`, `DISQUALIFIED`, `EXCLUDED`, `MANUAL_EXCLUSION`, and invitation failure map to Korean reason labels; an unknown reason uses “제외 사유를 확인해 주세요.”.
+- Accessibility: use a labelled `section`, native status text alongside progress semantics, a polite live region for phase changes, and do not rely on color for lifecycle, delivery, failure, or exclusion meaning.
+- Responsive behavior: summary metadata wraps below 768px; the status rail remains horizontally readable; candidate rows stack action controls below 640px.
+
 ## 6. Motion & Interaction
 
 Use 120ms ease-out for button feedback and 240ms ease-in-out for tab/panel state changes. Animate only `transform` and `opacity`; respect `prefers-reduced-motion`. Toasts and confirmation copy should explain the completed action without blocking the next task.

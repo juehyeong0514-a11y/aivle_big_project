@@ -1,7 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams } from './automationUi.mjs';
+import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams, automationPhaseFor, automationDeliveryStatusFor, formatAutomationScheduledAt, formatAutomationLeadTime, localizeAutomationExclusionReason } from './automationUi.mjs';
+
+test('automation panel exposes every lifecycle phase and safe unknown fallback', () => {
+  const phases = ['ASSIGNING', 'WAITING_INVITATION', 'INVITING', 'WAITING_EXAM', 'FINALIZING', 'GRADING', 'REPORTING', 'EMAIL_SENDING', 'COMPLETED'];
+  assert.deepEqual(phases.map((phase) => automationPhaseFor({ automationStatus: phase }).status), phases);
+  assert.equal(automationPhaseFor({ automationStatus: 'NOT_A_REAL_PHASE' }).label, '자동 처리 상태 확인 필요');
+  assert.equal(automationPhaseFor(null).status, 'UNKNOWN');
+});
+
+test('automation delivery helper distinguishes sent, held review, and normal awaiting send', () => {
+  assert.deepEqual(automationDeliveryStatusFor({ resultEmailStatus: 'SENT' }), { status: 'SENT', label: '결과 메일 발송 완료' });
+  assert.deepEqual(automationDeliveryStatusFor({ reviewStatus: 'REVIEW_REQUIRED' }), { status: 'HELD', label: '검토 필요로 발송 보류' });
+  assert.deepEqual(automationDeliveryStatusFor({ resultEmailStatus: 'PENDING' }), { status: 'AWAITING_SEND', label: '결과 메일 발송 대기' });
+  assert.deepEqual(automationDeliveryStatusFor({}), { status: 'AWAITING_SEND', label: '결과 메일 발송 대기' });
+  assert.equal(automationDeliveryStatusFor({ resultEmailStatus: 'WAT' }).status, 'UNKNOWN');
+});
+
+test('automation helpers localize exclusion reasons and format schedule/lead time safely', () => {
+  assert.equal(localizeAutomationExclusionReason('NO_SHOW'), '시험 미응시(결시)');
+  assert.equal(localizeAutomationExclusionReason('FORCE_TERMINATED'), '강제 종료');
+  assert.equal(localizeAutomationExclusionReason('TEST_CANDIDATE'), '테스트 응시자');
+  assert.equal(localizeAutomationExclusionReason('MISSING_BIRTH_DATE'), '생년월일 누락');
+  assert.equal(localizeAutomationExclusionReason('future-code'), '제외 사유를 확인해 주세요.');
+  assert.match(formatAutomationScheduledAt('2026-08-18T09:30:00+09:00'), /2026/);
+  assert.equal(formatAutomationScheduledAt('bad-date'), '일정 미정');
+  assert.equal(formatAutomationLeadTime('2026-08-18T09:00:00Z', '2026-08-18T08:30:00Z'), '30분 전');
+  assert.equal(formatAutomationLeadTime('bad-date', Date.now()), '시간 미정');
+});
 
 test('full invocation history replaces the latest list instead of rendering both panels', () => {
   assert.equal(invocationLogView(false), 'latest');
@@ -46,6 +73,9 @@ test('automation helpers derive candidate states, recovery actions, and aggregat
   assert.equal(emailState.status, 'EMAIL_FAILED');
   assert.deepEqual(automationRecoveryActionsFor(emailFailure, emailRequest), ['RESEND_EMAIL']);
   assert.equal(localizeAutomationFailure('Result email delivery failed; manual resend is available.'), '결과 메일 발송에 실패했습니다. 메일 재발송으로 복구할 수 있습니다.');
+  const held = automationStateFor({ candidateId: 'held', automationStatus: 'REVIEW_REQUIRED', resultEmailStatus: 'REVIEW_REQUIRED' }, { id: 'held-request' });
+  assert.equal(held.status, 'REVIEW_REQUIRED');
+  assert.deepEqual(automationRecoveryActionsFor({ automationStatus: 'REVIEW_REQUIRED' }, { id: 'held-request' }), []);
 
   const summary = deriveAutomationSummary(
     [{ candidateId: 'waiting' }, { candidateId: 'completed' }, { candidateId: 'absent', resultStatus: 'ABSENT' }, { candidateId: 'excluded', status: 'FORCE_TERMINATED' }, gradingFailure, emailFailure],

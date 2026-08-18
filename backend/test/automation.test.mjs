@@ -205,6 +205,110 @@ test("manual recovery clears an active lease and rejects candidates outside the 
   assert.equal(store.resultEmailDeliveries.find((item) => item.examId === exam.id && item.candidateId === candidate.id).retryCount, 0);
 });
 
+test("manager operations agent start enforces scope, prerequisites, due-now invitations, and idempotency", async (context) => {
+  let now = Date.parse("2099-02-01T00:30:00.000Z");
+  const { app, store } = await fixture({ automationClock: () => now });
+  const server = app.listen(0);
+  context.after(() => { app.locals.automation.stop(); server.close(); });
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const login = await fetch(`${baseUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "supervisor@aivle.com", password: "123", role: "MANAGER" }) });
+  const { token } = await login.json();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  await store.addExam({ id: "agent-other-org", title: "Other org", duration: "30분", date: "2099.02.01 10:00", status: "AVAILABLE", organizationId: "org-data-lab", inviteLeadMinutes: 60 });
+  const forbidden = await fetch(`${baseUrl}/api/manager/exams/agent-other-org/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(forbidden.status, 403);
+
+  await store.addExam({ id: "agent-no-question", title: "No question", duration: "30분", date: "2099.02.01 10:00", status: "AVAILABLE", organizationId: "org-aivle-cs", inviteLeadMinutes: 60 });
+  const noQuestion = await fetch(`${baseUrl}/api/manager/exams/agent-no-question/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(noQuestion.status, 409);
+  assert.equal((await noQuestion.json()).code, "NO_QUESTIONS");
+
+  const exam = store.exams.find((item) => item.id === "exam-2026-second-half");
+  await store.updateExam(exam.id, { date: "2099.02.01 10:00", duration: "60분", inviteLeadMinutes: 60 });
+  await store.addCandidate({ id: "agent-test-candidate", name: "Test", email: "agent-test@example.com", birthDate: "2000-01-01", organizationId: exam.organizationId, candidateNumber: "AGENT-TEST", status: "REGISTERED", isTestCandidate: true });
+  await store.addCandidate({ id: "agent-bad-email", name: "Bad", email: "bad", birthDate: "2000-01-01", organizationId: exam.organizationId, candidateNumber: "AGENT-BAD", status: "REGISTERED" });
+
+  const previewResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation-status`, { headers });
+  const preview = await previewResponse.json();
+  assert.equal(preview.state.inviteLeadMinutes, 60);
+  assert.equal(preview.preview.eligibleCandidateCount, 1);
+  assert.equal(preview.preview.excludedCandidates.some((item) => item.candidateId === "agent-test-candidate" && item.reasons.includes("TEST_CANDIDATE")), true);
+
+  const [start, concurrentStart] = await Promise.all([
+    fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/start`, { method: "POST", headers, body: JSON.stringify({}) }),
+    fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/start`, { method: "POST", headers, body: JSON.stringify({}) })
+  ]);
+  assert.equal(start.status, 202);
+  assert.equal(concurrentStart.status, 202);
+  const started = await start.json();
+  const concurrentlyStarted = await concurrentStart.json();
+  assert.equal(started.state.phase, "WAITING_EXAM");
+  assert.equal(concurrentlyStarted.state.phase, "WAITING_EXAM");
+  assert.equal(started.state.invitationDeliveryStatus, "PREVIEW");
+  assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
+  assert.equal(store.assignments.some((item) => item.examId === exam.id && item.candidateId === "agent-test-candidate"), false);
+
+  await app.locals.automation.runNow();
+  await app.locals.automation.runNow();
+  assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
+  const repeatedStart = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(repeatedStart.status, 202);
+  assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
+
+  const lockedLead = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ inviteLeadMinutes: 30 }) });
+  assert.equal(lockedLead.status, 409);
+
+  await store.updateCandidate("candidate-1", { status: "SUSPENDED" });
+  await store.addExam({ id: "agent-no-eligible", title: "No eligible", duration: "30분", date: "2099.02.01 10:00", status: "AVAILABLE", organizationId: "org-aivle-cs", inviteLeadMinutes: 60 });
+  await store.addQuestion({ id: "agent-no-eligible-question", examId: "agent-no-eligible", type: "MULTIPLE_CHOICE", prompt: "1?", options: ["1", "2"], answer: "1" });
+  const noEligible = await fetch(`${baseUrl}/api/manager/exams/agent-no-eligible/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(noEligible.status, 409);
+  assert.equal((await noEligible.json()).code, "NO_ELIGIBLE_CANDIDATES");
+  now += 1;
+});
+
+test("operations result email holds proctor warnings and releases once review is NORMAL", async () => {
+  const sent = [];
+  const previousApiKey = process.env.AI_API_KEY;
+  process.env.AI_API_KEY = "test-automation-key";
+  let now = Date.parse("2099-02-02T03:00:00.000Z");
+  const { app, store } = await fixture({
+    automationClock: () => now,
+    aiProviderInvoker: async () => ({ score: 27, maxScore: 30, feedback: "ok", rubricBreakdown: [] }),
+    emailSender: async (payload) => {
+      sent.push(payload.to);
+      return true;
+    }
+  });
+  const exam = store.exams.find((item) => item.id === "exam-2026-second-half");
+  await store.updateExam(exam.id, { date: "2099.02.02 10:00", duration: "30분", inviteLeadMinutes: 60 });
+  const candidate = store.candidates.find((item) => item.id === "candidate-1");
+  await store.addInvitation({ id: "hold-release-invitation", examId: exam.id, candidateId: candidate.id, organizationId: exam.organizationId, candidateNumber: candidate.candidateNumber, verifiedAt: "2099-02-02T01:30:00.000Z", expiresAt: "2099-02-02T02:00:00.000Z" });
+  await store.saveCodingSubmission({ id: "hold-release-submission", examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, answers: { "coding-example-1": { language: "JavaScript", source: "console.log(1)" } }, runResults: {}, status: "DRAFT", submittedAt: null, updatedAt: "2099-02-02T01:40:00.000Z" });
+  await store.addExaminee({ id: "hold-release-examinee", candidateId: candidate.id, name: candidate.name, organizationId: exam.organizationId, examId: exam.id, status: "NORMAL", statusText: "시험 입장 완료", currentProb: "시험 시작 전" });
+  await store.addWarning({ id: "hold-warning", examineeId: "hold-release-examinee", examId: exam.id, organizationId: exam.organizationId, message: "경고", source: "SUPERVISOR", createdAt: "2099-02-02T01:45:00.000Z" });
+
+  await app.locals.automation.runNow();
+  assert.equal(sent.length, 0);
+  assert.equal(store.resultEmailDeliveries.find((item) => item.examId === exam.id && item.candidateId === candidate.id).status, "REVIEW_REQUIRED");
+  assert.equal(store.candidateAutomationStates.find((item) => item.examId === exam.id && item.candidateId === candidate.id).status, "REVIEW_REQUIRED");
+
+  const assignment = store.assignments.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+  await store.updateAssignment(assignment.id, { reviewStatus: "NORMAL", reviewedAt: new Date(now).toISOString(), reviewedBy: "test-manager" });
+  await store.updateCandidateAutomationState(exam.id, candidate.id, { status: "EMAIL_PENDING", reason: "", lastError: "" });
+  await app.locals.automation.runNow();
+  assert.deepEqual(sent, [candidate.email]);
+  assert.equal(store.resultEmailDeliveries.find((item) => item.examId === exam.id && item.candidateId === candidate.id).status, "SENT");
+  await app.locals.automation.runNow();
+  assert.equal(sent.length, 1);
+
+  if (previousApiKey === undefined) delete process.env.AI_API_KEY;
+  else process.env.AI_API_KEY = previousApiKey;
+  app.locals.automation.stop();
+});
+
 test("manager results enrich automation fields without mutating persisted assignments", async (context) => {
   const { app, store } = await fixture();
   const exam = store.exams.find((item) => item.id === "exam-2026-second-half");

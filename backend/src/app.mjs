@@ -3,6 +3,16 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, r
 import { resolve } from "node:path";
 import { createStore, verifyPassword } from "./store.mjs";
 import { createAiProctor } from "./aiProctor.mjs";
+import {
+  DEFAULT_INVITE_LEAD_MINUTES,
+  ExamOperationsAgentError,
+  assertCanStartExamOperations,
+  computeInvitationScheduledAt,
+  isInvitationLocked,
+  normalizeInviteLeadMinutes,
+  phaseForInviteSchedule,
+  previewExamOperationsCandidates
+} from "./examOperationsAgent.mjs";
 import { ProblemAuthoringAgentError, runProblemAuthoringAgent } from "./problemAuthoringAgent.mjs";
 
 const roles = new Set(["APPLICANT", "MANAGER", "SUPERVISOR", "ADMIN"]);
@@ -490,6 +500,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const loginFailures = new Map();
   const candidateFailures = new Map();
   const liveSessions = new Map();
+  const automationStartLocks = new Map();
   const auxiliaryDevices = new Map(store.auxiliaryDevices.map((device) => [device.token, device]));
   const idCardScans = new Map(store.idCardScans.map((scan) => [scan.token, scan]));
   // A supervisor can reopen the detail modal before the applicant has answered
@@ -615,6 +626,45 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     };
   };
   const addInvitationAudit = (action, actor, details = {}) => store.addInvitationAuditLog({ id: randomUUID(), action, actorId: actor.id, actorName: actor.name, createdAt: new Date().toISOString(), ...details });
+  const createExamInvitations = async ({ exam, candidateIds, replaceExisting = true, sentBy = "manager", now = Date.now() }) => {
+    const expiresAt = scheduledExamEndsAt(exam);
+    if (!expiresAt) throw Object.assign(new Error("시험 일정과 제한 시간을 확인한 뒤 초대해주세요."), { status: 409 });
+    if (Date.parse(expiresAt) <= now) throw Object.assign(new Error("이미 종료된 시험에는 초대 링크를 발송할 수 없습니다."), { status: 409 });
+    const previews = [];
+    const createdInvitationIds = [];
+    const reusedInvitationIds = [];
+    const sentAt = new Date(now).toISOString();
+    for (const candidate of store.candidates.filter((item) => candidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
+      const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && invitationStatus(item, new Date(now)) === "ACTIVE");
+      if (!replaceExisting && activeInvitations.some((item) => ["SENT", "PREVIEW", "PENDING"].includes(String(item.deliveryStatus ?? "PENDING").toUpperCase()))) {
+        reusedInvitationIds.push(activeInvitations[0].id);
+        continue;
+      }
+      await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: sentAt, revokedReason: "재발송으로 인한 자동 폐기" })));
+      const token = randomUUID();
+      const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt, verifiedAt: null, submittedAt: null, revokedAt: null, deliveryStatus: "PENDING", sentBy };
+      await store.addInvitation(invitation);
+      createdInvitationIds.push(invitation.id);
+      previews.push({ to: candidate.email, examName: exam.title, schedule: exam.date, entryLink: new URL("/exam/enter?token=" + encodeURIComponent(token), publicWebOrigin).toString(), candidateNumber: candidate.candidateNumber, notice: "시험 시작 전 웹캠, 마이크, 화면 공유를 점검해주세요.", expiresAt, oneTimeToken: token });
+    }
+    let deliveryStatus = previews.length ? "PREVIEW" : "REUSED";
+    if (previews.length) {
+      try {
+        const deliveries = await Promise.all(previews.map((preview) => sendSendGridEmail({
+          to: preview.to,
+          subject: "[Aivle] " + preview.examName + " 시험 초대",
+          html: "<p>안녕하세요.</p><p><strong>" + escapeHtml(preview.examName) + "</strong> 시험에 초대되었습니다.</p><ul><li>응시번호: " + escapeHtml(preview.candidateNumber) + "</li><li>시험 일정: " + escapeHtml(preview.schedule) + "</li><li>입장 링크 만료: " + escapeHtml(preview.expiresAt) + "</li></ul><p>" + escapeHtml(preview.notice) + "</p><p><a href=\"" + escapeHtml(preview.entryLink) + "\">시험 입장하기</a></p>",
+          text: preview.examName + " 시험에 초대되었습니다. 응시번호: " + preview.candidateNumber + ". 시험 일정: " + preview.schedule + ". 입장 링크: " + preview.entryLink + ". " + preview.notice
+        })));
+        deliveryStatus = deliveries.every(Boolean) ? "SENT" : "PREVIEW";
+        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { deliveryStatus })));
+      } catch {
+        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date(now).toISOString(), revokedReason: "이메일 발송 실패", deliveryStatus: "FAILED" })));
+        throw Object.assign(new Error("초대 메일 전송에 실패했습니다."), { status: 502, code: "INVITATION_FAILED" });
+      }
+    }
+    return { deliveryStatus, count: previews.length + reusedInvitationIds.length, createdCount: previews.length, reusedCount: reusedInvitationIds.length, createdInvitationIds, reusedInvitationIds, mailPreviews: previews.map(({ oneTimeToken, ...preview }) => preview) };
+  };
   const encryptAiApiKey = (apiKey) => {
     if (!aiSettingsEncryptionKey) return undefined;
     const initializationVector = randomBytes(12);
@@ -934,6 +984,14 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const automationIsExcluded = (assignment, examinee) => assignment?.status === "FORCE_TERMINATED"
     || assignment?.resultStatus === "DISQUALIFIED"
     || examinee?.status === "FORCE_TERMINATED";
+  const automationResultHoldReason = (exam, candidate) => {
+    const assignment = automationAssignment(exam.id, candidate.id);
+    if (["REVIEW_REQUIRED", "SUSPICIOUS"].includes(assignment?.reviewStatus)) return "REVIEW_STATUS_" + assignment.reviewStatus;
+    const examinee = store.examinees.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
+    const hasWarning = store.warnings.some((warning) => warning.examId === exam.id && warning.examineeId === examinee?.id);
+    if (hasWarning && assignment?.reviewStatus !== "NORMAL") return "PROCTOR_WARNING_REVIEW_REQUIRED";
+    return "";
+  };
   const automationMarkDeliveryFailure = async ({ examId, candidateId, delivery, error }) => {
     const nextRetryCount = Number(delivery?.retryCount ?? 0) + 1;
     const terminal = nextRetryCount > automationMaxRetries;
@@ -952,6 +1010,23 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     let delivery = store.resultEmailDeliveries.find((item) => item.examId === exam.id && item.candidateId === candidate.id);
     const now = automationClock();
     if (delivery?.status === "SENT") return delivery;
+    const holdReason = automationResultHoldReason(exam, candidate);
+    if (holdReason) {
+      await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "REVIEW_REQUIRED", reason: holdReason, lastError: "" });
+      return store.upsertResultEmailDelivery(exam.id, candidate.id, {
+        status: "REVIEW_REQUIRED",
+        attempts: Number(delivery?.attempts ?? 0),
+        retryCount: 0,
+        nextAttemptAt: null,
+        gradingRequestId: gradingRequest.id,
+        lastError: "",
+        reviewReason: holdReason,
+        heldAt: delivery?.heldAt ?? automationTimestamp()
+      });
+    }
+    if (delivery?.status === "REVIEW_REQUIRED") {
+      delivery = await store.updateResultEmailDelivery(exam.id, candidate.id, { status: "PENDING", nextAttemptAt: null, lastError: "", reviewReleasedAt: automationTimestamp() });
+    }
     if (delivery?.status === "FAILED" && Number(delivery.retryCount ?? 0) > automationMaxRetries) return delivery;
     if (delivery?.nextAttemptAt && Date.parse(delivery.nextAttemptAt) > now) return delivery;
     delivery = await store.upsertResultEmailDelivery(exam.id, candidate.id, {
@@ -986,7 +1061,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (gradingRequest?.status === "COMPLETED") {
       await store.updateAssignment(assignment.id, { aiGradingStatus: "COMPLETED", aiGradingResult: gradingRequest.result, aiGradedAt: gradingRequest.completedAt ?? gradingRequest.result?.gradedAt });
       const delivery = await sendAutomationResultEmail({ exam, candidate, gradingRequest });
-      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : "EMAIL_PENDING", gradingRequest, delivery };
+      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : delivery?.status === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED" : "EMAIL_PENDING", gradingRequest, delivery };
     }
     if (gradingRequest?.status === "FAILED" && (Number(gradingRequest.retryCount ?? 0) >= 3 || (gradingRequest.nextRetryAt && Date.parse(gradingRequest.nextRetryAt) > automationClock()))) return { status: "GRADING_FAILED", gradingRequest };
     if (!gradingRequest || !["PENDING", "PROCESSING", "FAILED"].includes(gradingRequest.status)) {
@@ -1012,7 +1087,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       gradingRequest = store.aiGradingRequests.find((item) => item.id === gradingRequest.id) ?? gradingRequest;
       if (gradingRequest.status !== "COMPLETED") return { status: gradingRequest.status === "FAILED" ? "GRADING_FAILED" : "GRADING_PENDING", gradingRequest };
       const delivery = await sendAutomationResultEmail({ exam, candidate, gradingRequest });
-      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : "EMAIL_PENDING", gradingRequest, delivery };
+      return { status: delivery?.status === "FAILED" ? "EMAIL_FAILED" : delivery?.status === "SENT" ? "GRADED" : delivery?.status === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED" : "EMAIL_PENDING", gradingRequest, delivery };
     } catch (error) {
       const retryCount = Number(gradingRequest.retryCount ?? 0) + 1;
       await store.updateAiGradingRequest(gradingRequest.id, { status: "FAILED", failedAt: automationTimestamp(), errorMessage: String(error?.message ?? error).slice(0, 500), autoTriggered: true, retryCount, nextRetryAt: retryCount >= automationMaxRetries ? null : new Date(automationClock() + automationRetryDelaysMs[retryCount - 1]).toISOString() });
@@ -1070,9 +1145,78 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
     await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: "GRADING", finalizedAt: now });
     const grading = await ensureAutomationGrading(exam, candidate, submission ?? store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === candidate.id));
-    const stateStatus = grading.status === "GRADED" ? "COMPLETED" : grading.status === "EMAIL_FAILED" ? "EMAIL_FAILED" : grading.status === "EMAIL_PENDING" ? "EMAIL_PENDING" : grading.status === "GRADING_FAILED" ? "GRADING_FAILED" : "GRADING";
+    const stateStatus = grading.status === "GRADED" ? "COMPLETED" : grading.status === "EMAIL_FAILED" ? "EMAIL_FAILED" : grading.status === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED" : grading.status === "EMAIL_PENDING" ? "EMAIL_PENDING" : grading.status === "GRADING_FAILED" ? "GRADING_FAILED" : "GRADING";
     await store.upsertCandidateAutomationState(exam.id, candidate.id, { status: stateStatus, finalizedAt: now, gradingRequestId: grading.gradingRequest?.id, lastError: grading.error?.message ?? grading.gradingRequest?.errorMessage ?? "" });
     return grading;
+  };
+  const operationsCandidatePreview = (exam, now = automationClock()) => previewExamOperationsCandidates({
+    exam,
+    candidates: store.candidates,
+    now
+  });
+  const ensureOperationsAssignments = async (exam, candidates) => {
+    const created = [];
+    for (const candidate of candidates) {
+      if (!store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidate.id)) {
+        const assignment = { id: randomUUID(), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, status: "ASSIGNED" };
+        await store.addAssignment(assignment);
+        await store.addExaminee({ id: randomUUID(), candidateId: candidate.id, name: candidate.name, organizationId: candidate.organizationId, examId: exam.id, status: "NOT_STARTED", statusText: "미접속", currentProb: "시험 시작 전" });
+        created.push(assignment);
+      }
+    }
+    return created;
+  };
+  const runOperationsInvitationStep = async (exam, now) => {
+    const state = store.examAutomationStates.find((item) => item.examId === exam.id);
+    if (!state?.managedByAgent) return undefined;
+    const startsAt = scheduledExamStartsAt(exam);
+    const cutoffAt = scheduledExamEndsAt(exam);
+    if (!startsAt || !cutoffAt) {
+      return store.updateExamAutomationState(exam.id, { status: "FAILED", phase: "INVITATION_FAILED", lastError: "INVALID_EXAM_SCHEDULE", lastFailureAt: automationTimestamp() });
+    }
+    if (now >= Date.parse(cutoffAt)) {
+      await store.updateExamAutomationState(exam.id, { phase: "FINALIZING", cutoffAt, lastRunAt: automationTimestamp() });
+      return undefined;
+    }
+    const preview = operationsCandidatePreview(exam, now);
+    const invitationScheduledAt = state.invitationScheduledAt ?? computeInvitationScheduledAt({ startsAt, leadMinutes: state.inviteLeadMinutes ?? exam.inviteLeadMinutes ?? DEFAULT_INVITE_LEAD_MINUTES, now });
+    if (Date.parse(invitationScheduledAt) > now) {
+      return store.updateExamAutomationState(exam.id, {
+        status: "PENDING",
+        phase: "WAITING_INVITATION",
+        cutoffAt,
+        invitationScheduledAt,
+        totalCandidateCount: preview.totalCandidateCount,
+        eligibleCandidateCount: preview.eligibleCandidateCount,
+        excludedCandidateCount: preview.excludedCandidateCount,
+        excludedCandidates: preview.excludedCandidates
+      });
+    }
+    if (["WAITING_EXAM", "FINALIZING", "GRADING", "REPORTING", "EMAIL_SENDING", "COMPLETED"].includes(state.phase)) return state;
+    await store.updateExamAutomationState(exam.id, { status: "PROCESSING", phase: "INVITING", lastRunAt: automationTimestamp(), lastError: "" });
+    try {
+      const assignedIds = store.assignments.filter((assignment) => assignment.examId === exam.id).map((assignment) => assignment.candidateId);
+      const candidateIds = preview.eligibleCandidates.map((candidate) => candidate.id).filter((candidateId) => assignedIds.includes(candidateId));
+      const invitationResult = await createExamInvitations({ exam, candidateIds, replaceExisting: false, sentBy: "exam-operations-agent", now });
+      return store.updateExamAutomationState(exam.id, {
+        status: "PENDING",
+        phase: "WAITING_EXAM",
+        invitationSentAt: automationTimestamp(),
+        invitationDeliveryStatus: invitationResult.deliveryStatus,
+        invitationCreatedCount: invitationResult.createdCount,
+        invitationReusedCount: invitationResult.reusedCount,
+        lastError: ""
+      });
+    } catch (error) {
+      const current = store.examAutomationStates.find((item) => item.examId === exam.id);
+      return store.updateExamAutomationState(exam.id, {
+        status: "FAILED",
+        phase: "INVITATION_FAILED",
+        retryCount: Number(current?.retryCount ?? 0) + 1,
+        lastError: String(error?.message ?? error).slice(0, 500),
+        lastFailureAt: automationTimestamp()
+      });
+    }
   };
   const runExamAutomation = async (examOrId, now = automationClock()) => {
     const exam = typeof examOrId === "string" ? store.exams.find((item) => item.id === examOrId) : examOrId;
@@ -1080,10 +1224,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const cutoffAt = scheduledExamEndsAt(exam);
     if (!cutoffAt) return { examId: exam.id, status: "UNSCHEDULED", cutoffAt: null };
     const cutoffMs = Date.parse(cutoffAt);
+    const preExamState = await runOperationsInvitationStep(exam, now);
+    if (preExamState && now < cutoffMs) return preExamState;
     const previousExamState = store.examAutomationStates.find((item) => item.examId === exam.id);
     const cutoffChanged = previousExamState?.cutoffAt !== cutoffAt;
     let examState = await store.upsertExamAutomationState(exam.id, { cutoffAt });
-    if (now < cutoffMs) return { ...examState, status: "PENDING", cutoffAt };
+    if (now < cutoffMs) return { ...examState, status: "PENDING", phase: examState.phase ?? "WAITING_EXAM", cutoffAt };
     const invitations = store.invitations.filter((item) => item.examId === exam.id);
     const hasNewlyStartedCandidate = invitations.some((invitation) => {
       const candidateState = store.candidateAutomationStates.find((item) => item.examId === exam.id && item.candidateId === invitation.candidateId);
@@ -1092,7 +1238,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const submission = store.codingSubmissions.find((item) => item.examId === exam.id && item.candidateId === invitation.candidateId);
       return Boolean(invitation.verifiedAt || invitation.submittedAt || assignment?.status === "SUBMITTED" || ["DRAFT", "SUBMITTED"].includes(submission?.status));
     });
-    if (!cutoffChanged && examState.status === "COMPLETED" && !hasNewlyStartedCandidate && !store.candidateAutomationStates.some((item) => item.examId === exam.id && ["EMAIL_PENDING", "GRADING", "GRADING_FAILED", "EMAIL_FAILED"].includes(item.status))) return examState;
+    if (!cutoffChanged && examState.status === "COMPLETED" && !hasNewlyStartedCandidate && !store.candidateAutomationStates.some((item) => item.examId === exam.id && ["EMAIL_PENDING", "REVIEW_REQUIRED", "GRADING", "GRADING_FAILED", "EMAIL_FAILED"].includes(item.status))) return examState;
     const claimed = await store.claimExamAutomation(exam.id, { now, leaseMs: 5 * 60_000 });
     if (!claimed) return store.examAutomationStates.find((item) => item.examId === exam.id) ?? examState;
     const processingLeaseUntil = claimed.processingLeaseUntil;
@@ -1107,12 +1253,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     const states = store.candidateAutomationStates.filter((item) => item.examId === exam.id);
     const pending = states.filter((item) => ["PENDING", "GRADING", "EMAIL_PENDING"].includes(item.status)).length;
     const failures = states.filter((item) => ["GRADING_FAILED", "EMAIL_FAILED"].includes(item.status)).length;
+    const nextPhase = failures ? (states.some((item) => item.status === "GRADING_FAILED") ? "GRADING_FAILED" : "EMAIL_FAILED")
+      : pending ? (states.some((item) => item.status === "GRADING") ? "GRADING" : "EMAIL_SENDING")
+        : "COMPLETED";
     examState = await store.updateExamAutomationState(exam.id, {
       status: pending ? "PROCESSING" : "COMPLETED",
+      phase: nextPhase,
       completedAt: pending ? null : automationTimestamp(),
       processingLeaseUntil: pending ? processingLeaseUntil : null,
       candidateCount: invitations.length,
-      finalizedCount: states.filter((item) => ["COMPLETED", "FINALIZED", "ABSENT", "EXCLUDED", "EMAIL_FAILED", "GRADING_FAILED"].includes(item.status)).length,
+      finalizedCount: states.filter((item) => ["COMPLETED", "FINALIZED", "ABSENT", "EXCLUDED", "REVIEW_REQUIRED", "EMAIL_FAILED", "GRADING_FAILED"].includes(item.status)).length,
       failureCount: failures,
       lastError: failures ? "One or more automatic-processing steps failed" : ""
     });
@@ -2425,6 +2575,11 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const candidate = store.candidates.find((item) => item.id === gradingRequest.candidateId);
       const exam = store.exams.find((item) => item.id === gradingRequest.examId);
       if (!candidate || !isValidEmail(candidate.email)) return response.status(400).json({ message: "응시자의 이메일 주소가 유효하지 않습니다." });
+      const holdReason = exam && candidate ? automationResultHoldReason(exam, candidate) : "";
+      if (holdReason) {
+        await store.upsertResultEmailDelivery(gradingRequest.examId, gradingRequest.candidateId, { status: "REVIEW_REQUIRED", gradingRequestId: gradingRequest.id, reviewReason: holdReason, nextAttemptAt: null, lastError: "" });
+        return response.status(409).json({ message: "감독 경고 또는 검토 보류 상태의 응시자는 정상 검토 확정 후 결과를 발송할 수 있습니다." });
+      }
       const { subject, html, text } = buildAiResultEmailContent({ candidate, exam, result: gradingRequest.result });
       let deliveryStatus;
       try {
@@ -2707,7 +2862,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const { title, duration, date, organizationId } = request.body;
       if (![title, duration, date, organizationId].every(isNonEmptyText)) return response.status(400).json({ message: "조직, 시험명, 제한 시간, 시험 일정을 모두 입력해주세요." });
       if (!scopedOrganization(request, organizationId)) return response.status(403).json({ message: "배정된 승인 조직만 시험을 만들 수 있습니다." });
-      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: "", date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId };
+      const exam = { id: randomUUID(), title: title.trim(), duration: duration.trim(), questions: "", date: date.trim(), category: "정규 평가", status: "AVAILABLE", organizationId, inviteLeadMinutes: DEFAULT_INVITE_LEAD_MINUTES };
       if (!scheduledExamEndsAt(exam)) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
       await store.addExam(exam);
       const testCandidate = {
@@ -3169,25 +3324,35 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       const hasDate = Object.hasOwn(request.body, "date");
       const hasTitle = Object.hasOwn(request.body, "title");
       const hasDuration = Object.hasOwn(request.body, "duration");
+      const hasInviteLeadMinutes = Object.hasOwn(request.body, "inviteLeadMinutes");
       const date = hasDate && typeof request.body.date === "string" ? request.body.date.trim() : exam?.date;
       const title = hasTitle && typeof request.body.title === "string" ? request.body.title.trim() : exam?.title;
       const duration = hasDuration && typeof request.body.duration === "string" ? request.body.duration.trim() : exam?.duration;
       if (!exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
-      if (!hasDate && !hasTitle && !hasDuration) return response.status(400).json({ message: "수정할 시험 정보를 입력해주세요." });
+      if (!hasDate && !hasTitle && !hasDuration && !hasInviteLeadMinutes) return response.status(400).json({ message: "수정할 시험 정보를 입력해주세요." });
       if (!isNonEmptyText(title)) return response.status(400).json({ message: "시험 제목을 입력해주세요." });
       if (title.length > 100) return response.status(400).json({ message: "시험 제목은 100자 이하로 입력해주세요." });
       if (!isNonEmptyText(date)) return response.status(400).json({ message: "시험 시작 일시를 입력해주세요." });
       if (!isNonEmptyText(duration)) return response.status(400).json({ message: "시험 제한 시간을 입력해주세요." });
-      const nextExam = { ...exam, title, date, duration };
+      const inviteLeadMinutes = hasInviteLeadMinutes ? normalizeInviteLeadMinutes(request.body.inviteLeadMinutes) : normalizeInviteLeadMinutes(exam.inviteLeadMinutes);
+      if (hasInviteLeadMinutes && isInvitationLocked(store.invitations, exam.id)) return response.status(409).json({ message: "초대 발송 이후에는 사전 발송 시간을 수정할 수 없습니다." });
+      const nextExam = { ...exam, title, date, duration, inviteLeadMinutes };
       const expiresAt = scheduledExamEndsAt(nextExam);
       if (!expiresAt) return response.status(400).json({ message: "시험 일정과 제한 시간을 올바르게 입력해주세요." });
       const scheduleChanged = date !== exam.date || duration !== exam.duration;
-      const updated = await store.updateExam(exam.id, { title, date, duration, updatedAt: new Date().toISOString() });
+      const updated = await store.updateExam(exam.id, { title, date, duration, inviteLeadMinutes, updatedAt: new Date().toISOString() });
       await Promise.all(store.invitations
         .filter((invitation) => invitation.examId === exam.id && !invitation.revokedAt)
         .map((invitation) => store.updateInvitation(invitation.id, { expiresAt })));
       if (scheduleChanged && store.examAutomationStates.some((state) => state.examId === exam.id)) {
         await store.updateExamAutomationState(exam.id, { status: "PENDING", cutoffAt: expiresAt, completedAt: null, processingLeaseId: null, processingLeaseUntil: null, lastError: "" });
+      }
+      const activeState = store.examAutomationStates.find((state) => state.examId === exam.id && state.managedByAgent && !["WAITING_EXAM", "FINALIZING", "GRADING", "REPORTING", "EMAIL_SENDING", "COMPLETED"].includes(state.phase));
+      if (activeState) {
+        const startsAt = scheduledExamStartsAt(updated);
+        const invitationScheduledAt = computeInvitationScheduledAt({ startsAt, leadMinutes: inviteLeadMinutes, now: automationClock() });
+        await store.updateExamAutomationState(exam.id, { inviteLeadMinutes, invitationScheduledAt, phase: phaseForInviteSchedule({ scheduledAt: invitationScheduledAt, now: automationClock() }), status: "PENDING", lastError: "" });
+        void runExamAutomation(updated, automationClock()).catch((error) => console.error("automation invitation reschedule failed", error));
       }
       return response.json({ ...updated, invitationExpiresAt: expiresAt });
     } catch (error) {
@@ -3277,36 +3442,12 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!exam || candidateIds.length === 0) return response.status(400).json({ message: "시험과 초대할 응시자를 확인해주세요." });
       const eligibleCandidateIds = candidateIds.filter((candidateId) => store.assignments.some((assignment) => assignment.examId === exam.id && assignment.candidateId === candidateId));
       if (eligibleCandidateIds.length !== candidateIds.length) return response.status(409).json({ message: "시험 대상자로 먼저 배정한 응시자만 초대할 수 있습니다." });
-      const expiresAt = scheduledExamEndsAt(exam);
-      if (!expiresAt) return response.status(409).json({ message: "시험 일정과 제한 시간을 확인한 뒤 초대해주세요." });
-      if (new Date(expiresAt) <= new Date()) return response.status(409).json({ message: "이미 종료된 시험에는 초대 링크를 발송할 수 없습니다." });
-      const previews = [];
-      const createdInvitationIds = [];
-      for (const candidate of store.candidates.filter((item) => eligibleCandidateIds.includes(item.id) && item.organizationId === exam.organizationId)) {
-        const activeInvitations = store.invitations.filter((item) => item.examId === exam.id && item.candidateId === candidate.id && invitationStatus(item) === "ACTIVE");
-        await Promise.all(activeInvitations.map((item) => store.updateInvitation(item.id, { revokedAt: new Date().toISOString(), revokedReason: "재발송으로 인한 자동 폐기" })));
-        const token = randomUUID();
-        const invitation = { id: randomUUID(), tokenHash: hashToken(token), examId: exam.id, organizationId: exam.organizationId, candidateId: candidate.id, candidateNumber: candidate.candidateNumber, expiresAt, sentAt: new Date().toISOString(), verifiedAt: null, submittedAt: null, revokedAt: null, deliveryStatus: "PENDING" };
-        await store.addInvitation(invitation);
-        createdInvitationIds.push(invitation.id);
-        previews.push({ to: candidate.email, examName: exam.title, schedule: exam.date, entryLink: new URL("/exam/enter?token=" + encodeURIComponent(token), publicWebOrigin).toString(), candidateNumber: candidate.candidateNumber, notice: "시험 시작 전 웹캠, 마이크, 화면 공유를 점검해주세요.", expiresAt, oneTimeToken: token });
-      }
-      let deliveryStatus;
       try {
-        const deliveries = await Promise.all(previews.map((preview) => sendSendGridEmail({
-          to: preview.to,
-          subject: "[Aivle] " + preview.examName + " 시험 초대",
-          html: "<p>안녕하세요.</p><p><strong>" + escapeHtml(preview.examName) + "</strong> 시험에 초대되었습니다.</p><ul><li>응시번호: " + escapeHtml(preview.candidateNumber) + "</li><li>시험 일정: " + escapeHtml(preview.schedule) + "</li><li>입장 링크 만료: " + escapeHtml(preview.expiresAt) + "</li></ul><p>" + escapeHtml(preview.notice) + "</p><p><a href=\"" + escapeHtml(preview.entryLink) + "\">시험 입장하기</a></p>",
-          text: preview.examName + " 시험에 초대되었습니다. 응시번호: " + preview.candidateNumber + ". 시험 일정: " + preview.schedule + ". 입장 링크: " + preview.entryLink + ". " + preview.notice
-        })));
-        deliveryStatus = deliveries.every(Boolean) ? "SENT" : "PREVIEW";
-        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { deliveryStatus })));
-      } catch {
-        await Promise.all(createdInvitationIds.map((id) => store.updateInvitation(id, { revokedAt: new Date().toISOString(), revokedReason: "이메일 발송 실패", deliveryStatus: "FAILED" })));
-        return response.status(502).json({ message: "초대 메일 전송에 실패했습니다." });
+        const result = await createExamInvitations({ exam, candidateIds: eligibleCandidateIds, replaceExisting: true, sentBy: request.user.id, now: Date.now() });
+        return response.status(201).json({ count: result.mailPreviews.length, deliveryStatus: result.deliveryStatus, mailPreviews: result.mailPreviews });
+      } catch (error) {
+        return response.status(error.status ?? 502).json({ message: error.message ?? "초대 메일 전송에 실패했습니다." });
       }
-      const safePreviews = previews.map(({ oneTimeToken, ...preview }) => preview);
-      return response.status(201).json({ count: safePreviews.length, deliveryStatus, mailPreviews: safePreviews });
     } catch (error) {
       return next(error);
     }
@@ -3500,10 +3641,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const automationProjection = (examId) => {
     const exam = store.exams.find((item) => item.id === examId);
     const cutoffAt = scheduledExamEndsAt(exam ?? {});
-    const examState = store.examAutomationStates.find((item) => item.examId === examId) ?? { examId, status: cutoffAt ? "PENDING" : "UNSCHEDULED", cutoffAt: cutoffAt ?? null };
+    const startsAt = scheduledExamStartsAt(exam ?? {});
+    const inviteLeadMinutes = normalizeInviteLeadMinutes(exam?.inviteLeadMinutes);
+    const preview = exam ? operationsCandidatePreview(exam) : { totalCandidateCount: 0, eligibleCandidateCount: 0, excludedCandidateCount: 0, excludedCandidates: [] };
+    const computedInvitationScheduledAt = startsAt ? computeInvitationScheduledAt({ startsAt, leadMinutes: inviteLeadMinutes, now: automationClock() }) : null;
+    const questionCount = store.questions.filter((question) => question.examId === examId).length;
+    const assignedCandidateCount = store.assignments.filter((assignment) => assignment.examId === examId && preview.eligibleCandidates?.some((candidate) => candidate.id === assignment.candidateId)).length;
+    const examState = store.examAutomationStates.find((item) => item.examId === examId) ?? { examId, status: cutoffAt ? "PENDING" : "UNSCHEDULED", phase: "ASSIGNING", cutoffAt: cutoffAt ?? null, inviteLeadMinutes, invitationScheduledAt: computedInvitationScheduledAt };
     const { lastError: _examLastError, errorMessage: _examErrorMessage, reason: _examReason, ...safeExamState } = examState;
-    const examFailure = safeAutomationFailure(examState.status, examState.reason ?? examState.lastError);
-    const examFailed = ["FAILED", "GRADING_FAILED", "EMAIL_FAILED"].includes(String(examState.status ?? "").toUpperCase());
+    const examFailure = safeAutomationFailure(examState.phase ?? examState.status, examState.reason ?? examState.lastError);
+    const examFailed = ["FAILED", "INVITATION_FAILED", "GRADING_FAILED", "EMAIL_FAILED"].includes(String(examState.phase ?? examState.status ?? "").toUpperCase());
     const candidates = store.candidateAutomationStates.filter((item) => item.examId === examId).map((item) => {
       const candidate = store.candidates.find((candidateItem) => candidateItem.id === item.candidateId);
       const delivery = store.resultEmailDeliveries.find((deliveryItem) => deliveryItem.examId === examId && deliveryItem.candidateId === item.candidateId);
@@ -3512,7 +3659,25 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       return { ...safeState, candidateName: candidate?.name ?? "", candidateEmail: candidate?.email ?? "", failureCode: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(item.status) ? failure.code : "", failureReason: ["FAILED", "GRADING_FAILED", "EMAIL_FAILED", "EXCLUDED"].includes(item.status) ? failure.message : "", email: delivery ? { status: delivery.status, attempts: delivery.attempts ?? 0, retryCount: delivery.retryCount ?? 0, nextAttemptAt: delivery.nextAttemptAt ?? null, failureCode: delivery.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "", failureReason: delivery.status === "FAILED" ? "Result email delivery failed; manual resend is available." : "", sentAt: delivery.sentAt ?? null } : null };
     });
     const deliveries = store.resultEmailDeliveries.filter((item) => item.examId === examId).map((item) => ({ id: item.id, examId: item.examId, candidateId: item.candidateId, status: item.status, attempts: item.attempts ?? 0, retryCount: item.retryCount ?? 0, nextAttemptAt: item.nextAttemptAt ?? null, failureCode: item.status === "FAILED" ? "EMAIL_DELIVERY_FAILED" : "", failureReason: item.status === "FAILED" ? "Result email delivery failed; manual resend is available." : "", sentAt: item.sentAt ?? null, candidateName: store.candidates.find((candidate) => candidate.id === item.candidateId)?.name ?? "" }));
-    return { exam: exam ? { id: exam.id, title: exam.title, organizationId: exam.organizationId, cutoffAt } : null, state: { ...safeExamState, failureCode: examFailed ? examFailure.code : "", failureReason: examFailed ? examFailure.message : "" }, candidates, deliveries };
+    return {
+      exam: exam ? { id: exam.id, title: exam.title, organizationId: exam.organizationId, cutoffAt, startsAt, inviteLeadMinutes, questionCount } : null,
+      state: {
+        ...safeExamState,
+        phase: safeExamState.phase ?? "ASSIGNING",
+        inviteLeadMinutes: safeExamState.inviteLeadMinutes ?? inviteLeadMinutes,
+        invitationScheduledAt: safeExamState.invitationScheduledAt ?? computedInvitationScheduledAt,
+        totalCandidateCount: safeExamState.totalCandidateCount ?? preview.totalCandidateCount,
+        eligibleCandidateCount: safeExamState.eligibleCandidateCount ?? preview.eligibleCandidateCount,
+        assignedCandidateCount: safeExamState.assignedCandidateCount ?? assignedCandidateCount,
+        excludedCandidateCount: safeExamState.excludedCandidateCount ?? preview.excludedCandidateCount,
+        excludedCandidates: safeExamState.excludedCandidates ?? preview.excludedCandidates,
+        failureCode: examFailed ? examFailure.code : "",
+        failureReason: examFailed ? examFailure.message : ""
+      },
+      preview: { ...preview, assignedCandidateCount, questionCount, invitationLocked: isInvitationLocked(store.invitations, examId) },
+      candidates,
+      deliveries
+    };
   };
   const automationAggregateSummary = () => {
     const states = store.candidateAutomationStates;
@@ -3551,7 +3716,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     }
     const deliveries = store.resultEmailDeliveries.filter((item) => item.examId === examId && (!candidateId || item.candidateId === candidateId));
     for (const delivery of deliveries) {
-      if (delivery.status !== "SENT") await store.updateResultEmailDelivery(examId, delivery.candidateId, { status: "RETRY_WAITING", retryCount: 0, nextAttemptAt: null, lastError: "" });
+      if (!["SENT", "REVIEW_REQUIRED"].includes(delivery.status)) await store.updateResultEmailDelivery(examId, delivery.candidateId, { status: "RETRY_WAITING", retryCount: 0, nextAttemptAt: null, lastError: "" });
     }
     const requests = store.aiGradingRequests.filter((item) => item.examId === examId && (!candidateId || item.candidateId === candidateId) && item.autoTriggered && item.status === "FAILED");
     for (const request of requests) await store.updateAiGradingRequest(request.id, { status: "PENDING", retryCount: 0, nextRetryAt: undefined, errorMessage: "", failedAt: undefined });
@@ -3566,9 +3731,80 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   };
   const triggerAutomationCatchUp = (exam) => {
     const cutoffAt = scheduledExamEndsAt(exam);
-    if (!cutoffAt || Date.parse(cutoffAt) > automationClock()) return;
+    const state = store.examAutomationStates.find((item) => item.examId === exam.id);
+    const invitationDue = state?.managedByAgent && ["WAITING_INVITATION", "INVITING"].includes(state.phase) && state.invitationScheduledAt && Date.parse(state.invitationScheduledAt) <= automationClock();
+    if (!invitationDue && (!cutoffAt || Date.parse(cutoffAt) > automationClock())) return;
     void runExamAutomation(exam).catch((error) => console.error("automation status catch-up failed", error));
   };
+  const withAutomationStartLock = (examId, task) => {
+    const previous = automationStartLocks.get(examId) ?? Promise.resolve();
+    let tracked;
+    tracked = previous.catch(() => {}).then(task).finally(() => {
+      if (automationStartLocks.get(examId) === tracked) automationStartLocks.delete(examId);
+    });
+    automationStartLocks.set(examId, tracked);
+    return tracked;
+  };
+  app.post("/api/manager/exams/:examId/automation/start", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const access = automationAccess(request, request.params.examId);
+      if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 운영 시작 권한이 없습니다." });
+      const started = await withAutomationStartLock(access.exam.id, async () => {
+        const existing = store.examAutomationStates.find((state) => state.examId === access.exam.id && state.managedByAgent);
+        if (existing && !["INVITATION_FAILED", "GRADING_FAILED", "EMAIL_FAILED", "COMPLETED"].includes(existing.phase)) {
+          triggerAutomationCatchUp(access.exam);
+          return automationProjection(access.exam.id);
+        }
+        const now = automationClock();
+        const startsAt = scheduledExamStartsAt(access.exam);
+        const cutoffAt = scheduledExamEndsAt(access.exam);
+        const inviteLeadMinutes = normalizeInviteLeadMinutes(access.exam.inviteLeadMinutes ?? request.body?.inviteLeadMinutes);
+        const preview = operationsCandidatePreview(access.exam, now);
+        const questionCount = store.questions.filter((question) => question.examId === access.exam.id).length;
+        assertCanStartExamOperations({
+          exam: access.exam,
+          manager: request.user,
+          managedOrganizationIds: managerOrganizationIds(request.user, store.organizations),
+          questionCount,
+          candidatePreview: preview,
+          startsAt,
+          endsAt: cutoffAt,
+          now
+        });
+        const createdAssignments = await ensureOperationsAssignments(access.exam, preview.eligibleCandidates);
+        const assignedCandidateCount = store.assignments.filter((assignment) => assignment.examId === access.exam.id && preview.eligibleCandidates.some((candidate) => candidate.id === assignment.candidateId)).length;
+        const invitationScheduledAt = computeInvitationScheduledAt({ startsAt, leadMinutes: inviteLeadMinutes, now });
+        const phase = phaseForInviteSchedule({ scheduledAt: invitationScheduledAt, now });
+        await store.upsertExamAutomationState(access.exam.id, {
+          managedByAgent: true,
+          managerId: request.user.id,
+          organizationId: access.exam.organizationId,
+          status: "PENDING",
+          phase,
+          cutoffAt,
+          startedAt: automationTimestamp(),
+          lastRunAt: automationTimestamp(),
+          inviteLeadMinutes,
+          invitationScheduledAt,
+          totalCandidateCount: preview.totalCandidateCount,
+          eligibleCandidateCount: preview.eligibleCandidateCount,
+          assignedCandidateCount,
+          excludedCandidateCount: preview.excludedCandidateCount,
+          excludedCandidates: preview.excludedCandidates,
+          createdAssignmentCount: createdAssignments.length,
+          retryCount: 0,
+          lastError: ""
+        });
+        const run = await runOperationsInvitationStep(access.exam, now);
+        return { ...automationProjection(access.exam.id), run };
+      });
+      return response.status(202).json(started);
+    } catch (error) {
+      if (error instanceof ExamOperationsAgentError) return response.status(error.status).json({ message: error.message, code: error.code });
+      return next(error);
+    }
+  });
   app.get("/api/manager/exams/:examId/automation-status", authenticate, requireManager, (request, response) => {
     const access = automationAccess(request, request.params.examId);
     if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
@@ -3689,6 +3925,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (!exam || !assignment) return response.status(404).json({ message: "검토할 응시자 결과를 찾을 수 없습니다." });
       if (!["NOT_REVIEWED", "NORMAL", "REVIEW_REQUIRED", "SUSPICIOUS"].includes(reviewStatus)) return response.status(400).json({ message: "검토 상태가 올바르지 않습니다." });
       const result = await store.updateAssignment(assignment.id, { reviewStatus, reviewNote, reviewedAt: new Date().toISOString(), reviewedBy: request.user.id });
+      if (reviewStatus === "NORMAL" && store.resultEmailDeliveries.some((item) => item.examId === exam.id && item.candidateId === assignment.candidateId && item.status === "REVIEW_REQUIRED")) {
+        await store.updateCandidateAutomationState(exam.id, assignment.candidateId, { status: "EMAIL_PENDING", reason: "", lastError: "" });
+        void runExamAutomation(exam, automationClock()).catch((error) => console.error("review release automation failed", error));
+      }
       return response.json({ reviewStatus: result.reviewStatus, reviewNote: result.reviewNote, reviewedAt: result.reviewedAt });
     } catch (error) {
       return next(error);

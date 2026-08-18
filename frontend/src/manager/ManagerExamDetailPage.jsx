@@ -4,13 +4,16 @@ import {
   BookOpen,
   Check,
   CheckSquare,
+  Clock,
   Copy,
   Eye,
   ExternalLink,
   FileUp,
+  LoaderCircle,
   Mail,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Search,
   Send,
@@ -20,6 +23,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, apiErrorMessage, authHeaders } from "../api/client";
+import { automationPhaseFor, formatAutomationLeadTime, formatAutomationScheduledAt, localizeAutomationExclusionReason, localizeAutomationFailure } from "../automationUi.mjs";
 import { getExamCandidateScope } from "./candidateScope.mjs";
 import {
   codingDraftKey,
@@ -212,6 +216,53 @@ const parseCandidateCsv = (source) => {
   return candidates;
 };
 
+const AUTOMATION_LOCKED_PHASES = new Set([
+  "INVITING",
+  "WAITING_EXAM",
+  "FINALIZING",
+  "GRADING",
+  "REPORTING",
+  "EMAIL_SENDING",
+  "COMPLETED",
+]);
+
+const AUTOMATION_RETRYABLE_PHASES = new Set([
+  "FAILED",
+  "INVITATION_FAILED",
+  "GRADING_FAILED",
+  "EMAIL_FAILED",
+]);
+
+const previewExclusionReasonLabels = new Map([
+  ["DUPLICATE_CANDIDATE", "중복된 응시자 항목입니다."],
+  ["ORGANIZATION_MISMATCH", "현재 시험 조직과 다른 응시자입니다."],
+  ["STATUS_NOT_REGISTERED", "등록 완료 상태의 응시자만 운영 대상에 포함됩니다."],
+  ["TEST_CANDIDATE", "테스트 계정은 자동 운영 대상에서 제외됩니다."],
+  ["INVALID_EMAIL", "이메일 형식이 올바르지 않습니다."],
+  ["DUPLICATE_EMAIL", "동일한 이메일이 중복 등록되어 있습니다."],
+  ["MISSING_BIRTH_DATE", "생년월일이 없거나 형식이 올바르지 않습니다."],
+]);
+
+const localizePreviewExclusionReason = (value) => {
+  const key = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return previewExclusionReasonLabels.get(key) || localizeAutomationExclusionReason(key);
+};
+
+const normalizeInviteLeadDraft = (value) => {
+  const nextValue = Number(String(value ?? "").trim());
+  if (!Number.isInteger(nextValue) || nextValue < 0 || nextValue > 10_080) {
+    throw new Error("사전 초대 시간은 0분부터 10,080분(7일)까지 정수로 입력해주세요.");
+  }
+  return nextValue;
+};
+
+const computeExpectedInvitationAt = (startsAt, leadMinutes) => {
+  const startAtMs = Date.parse(String(startsAt ?? "").replace(/\./g, "-"));
+  const leadMinutesValue = Number(leadMinutes);
+  if (!Number.isFinite(startAtMs) || !Number.isFinite(leadMinutesValue)) return null;
+  return new Date(Math.max(Date.now(), startAtMs - Math.max(0, leadMinutesValue) * 60_000)).toISOString();
+};
+
 export default function ManagerExamDetailPage() {
   const navigate = useNavigate();
   const { examId } = useParams();
@@ -236,6 +287,12 @@ export default function ManagerExamDetailPage() {
   const [identityVerificationRequests, setIdentityVerificationRequests] = useState([]);
   const [reviewingIdentityRequestId, setReviewingIdentityRequestId] = useState("");
   const [copiedEntryLink, setCopiedEntryLink] = useState("");
+  const [automationStatus, setAutomationStatus] = useState(null);
+  const [inviteLeadDraft, setInviteLeadDraft] = useState("60");
+  const [isSavingInviteLead, setIsSavingInviteLead] = useState(false);
+  const [isStartingAutomation, setIsStartingAutomation] = useState(false);
+  const [isRetryingAutomation, setIsRetryingAutomation] = useState(false);
+  const [automationConfirmOpen, setAutomationConfirmOpen] = useState(false);
   const [activeManagementPanel, setActiveManagementPanel] = useState("questions");
   const [isExamPreviewOpen, setIsExamPreviewOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -250,8 +307,18 @@ export default function ManagerExamDetailPage() {
   const uploadableCandidateCount = candidateUploadPreview.filter((candidate) => !candidate.uploadError).length;
   const uploadErrorCount = candidateUploadPreview.length - uploadableCandidateCount;
 
+  const applyAutomationStatus = useCallback((payload, fallbackExam = null) => {
+    const nextStatus = payload && typeof payload === "object" ? payload : null;
+    setAutomationStatus(nextStatus);
+    const nextLeadMinutes = nextStatus?.state?.inviteLeadMinutes ?? nextStatus?.exam?.inviteLeadMinutes ?? fallbackExam?.inviteLeadMinutes ?? 60;
+    setInviteLeadDraft(String(nextLeadMinutes));
+    if (fallbackExam || nextStatus?.exam) {
+      setExam((current) => ({ ...(current ?? {}), ...(fallbackExam ?? {}), ...(nextStatus?.exam ?? {}) }));
+    }
+  }, []);
+
   const load = useCallback(async () => {
-    const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse, identityRequestResponse] =
+    const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse, identityRequestResponse, automationResponse] =
       await Promise.all([
         api.get("/manager/exams", headers),
         api.get("/manager/candidates", headers),
@@ -259,12 +326,15 @@ export default function ManagerExamDetailPage() {
         api.get(`/manager/exams/${examId}/questions`, headers),
         api.get("/manager/invitations", headers),
         api.get(`/manager/exams/${examId}/identity-verification-requests`, headers),
+        api.get(`/manager/exams/${examId}/automation-status`, headers).catch(() => ({ data: null })),
       ]);
-    setExam(examResponse.data.find((item) => item.id === examId) || null);
+    const selectedExam = examResponse.data.find((item) => item.id === examId) || null;
+    setExam(selectedExam);
     setCandidates(examCandidateResponse.data);
     setOrganizationCandidates(candidateResponse.data);
     setQuestions(questionResponse.data);
     setIdentityVerificationRequests(identityRequestResponse.data);
+    applyAutomationStatus(automationResponse.data, selectedExam);
     setAssignedCandidateIds(
       examCandidateResponse.data.map((candidate) => candidate.id),
     );
@@ -282,11 +352,64 @@ export default function ManagerExamDetailPage() {
         ),
       ),
     );
-  }, [examId, headers]);
+  }, [applyAutomationStatus, examId, headers]);
 
   const showMessage = (text, type = "info") => {
     setMessage(text);
     setMessageType(type);
+  };
+
+  const saveInviteLeadMinutes = async (options = {}) => {
+    const { silent = false } = options;
+    setIsSavingInviteLead(true);
+    try {
+      const value = normalizeInviteLeadDraft(inviteLeadDraft);
+      const { data } = await api.patch(`/manager/exams/${examId}`, { inviteLeadMinutes: value }, headers);
+      const automationResponse = await api.get(`/manager/exams/${examId}/automation-status`, headers).catch(() => ({ data: null }));
+      applyAutomationStatus(automationResponse.data, data);
+      if (!silent) showMessage("초대 링크 발송 시점을 저장했습니다.");
+      return value;
+    } catch (reason) {
+      const errorMessage = reason instanceof Error && !reason.response
+        ? reason.message
+        : apiErrorMessage(reason, "초대 링크 발송 시점을 저장하지 못했습니다.");
+      showMessage(errorMessage, "error");
+      throw reason;
+    } finally {
+      setIsSavingInviteLead(false);
+    }
+  };
+
+  const startExamAutomation = async () => {
+    setIsStartingAutomation(true);
+    try {
+      const currentLeadMinutes = Number(automationStatus?.state?.inviteLeadMinutes ?? automationStatus?.exam?.inviteLeadMinutes ?? exam?.inviteLeadMinutes ?? 60);
+      const nextLeadMinutes = normalizeInviteLeadDraft(inviteLeadDraft);
+      if (!automationStatus?.preview?.invitationLocked && !AUTOMATION_LOCKED_PHASES.has(String(automationStatus?.state?.phase ?? automationStatus?.state?.status ?? "").toUpperCase()) && currentLeadMinutes !== nextLeadMinutes) {
+        await saveInviteLeadMinutes({ silent: true });
+      }
+      const { data } = await api.post(`/manager/exams/${examId}/automation/start`, {}, headers);
+      applyAutomationStatus(data);
+      setAutomationConfirmOpen(false);
+      showMessage("자동 시험 운영을 시작했습니다.");
+    } catch (reason) {
+      showMessage(apiErrorMessage(reason, "자동 시험 운영을 시작하지 못했습니다."), "error");
+    } finally {
+      setIsStartingAutomation(false);
+    }
+  };
+
+  const retryExamAutomation = async () => {
+    setIsRetryingAutomation(true);
+    try {
+      const { data } = await api.post(`/manager/exams/${examId}/automation/retry`, {}, headers);
+      applyAutomationStatus(data);
+      showMessage("실패한 자동화 단계를 다시 실행했습니다.");
+    } catch (reason) {
+      showMessage(apiErrorMessage(reason, "자동화 재시도를 실행하지 못했습니다."), "error");
+    } finally {
+      setIsRetryingAutomation(false);
+    }
   };
 
   const startEditingExamTitle = () => {
@@ -871,7 +994,16 @@ export default function ManagerExamDetailPage() {
         editingQuestionId={editingQuestionId} createQuestion={createQuestion}
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
-        openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer} />}
+        openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer}
+        automationStatus={automationStatus}
+        inviteLeadDraft={inviteLeadDraft}
+        setInviteLeadDraft={setInviteLeadDraft}
+        isSavingInviteLead={isSavingInviteLead}
+        saveInviteLeadMinutes={saveInviteLeadMinutes}
+        isStartingAutomation={isStartingAutomation}
+        isRetryingAutomation={isRetryingAutomation}
+        retryExamAutomation={retryExamAutomation}
+        openAutomationConfirm={() => setAutomationConfirmOpen(true)} />}
 
       {activeManagementPanel === "candidates" && (
         <div className="candidate-operations-layout">
@@ -1125,6 +1257,30 @@ export default function ManagerExamDetailPage() {
         </section>
       )}
 
+      {automationConfirmOpen && (
+        <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="automation-start-title">
+          <button className="confirm-modal-backdrop" type="button" aria-label="자동 운영 시작 확인 닫기" onClick={() => setAutomationConfirmOpen(false)} />
+          <section className="confirm-modal-panel exam-automation-confirm-panel">
+            <h2 id="automation-start-title">자동 시험 운영을 시작할까요?</h2>
+            <p>저장된 문제와 운영 가능 응시자를 확인했고, 자동 배정과 초대 발송을 이어서 시작합니다.</p>
+            <dl className="exam-automation-confirm-list">
+              <div><dt>저장된 문제</dt><dd>{automationStatus?.preview?.questionCount ?? automationStatus?.exam?.questionCount ?? questions.length}개</dd></div>
+              <div><dt>등록 응시자</dt><dd>{automationStatus?.state?.totalCandidateCount ?? automationStatus?.preview?.totalCandidateCount ?? 0}명</dd></div>
+              <div><dt>운영 가능</dt><dd>{automationStatus?.state?.eligibleCandidateCount ?? automationStatus?.preview?.eligibleCandidateCount ?? 0}명</dd></div>
+              <div><dt>제외 대상</dt><dd>{automationStatus?.state?.excludedCandidateCount ?? automationStatus?.preview?.excludedCandidateCount ?? 0}명</dd></div>
+              <div><dt>예상 초대 시각</dt><dd>{formatAutomationScheduledAt(computeExpectedInvitationAt(automationStatus?.exam?.startsAt ?? automationStatus?.state?.startsAt, inviteLeadDraft) ?? automationStatus?.state?.invitationScheduledAt)}</dd></div>
+            </dl>
+            <p className="form-hint">시작 후 초대가 생성되기 전까지만 발송 시점을 수정할 수 있습니다.</p>
+            <div className="confirm-modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setAutomationConfirmOpen(false)}>취소</button>
+              <button className="primary-button" type="button" onClick={startExamAutomation} disabled={isStartingAutomation}>
+                {isStartingAutomation ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} 문제 작성 완료 및 자동 운영 시작
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {isExamPreviewOpen && (
         <div className="exam-preview-modal" role="dialog" aria-modal="true" aria-labelledby="exam-preview-title">
           <button className="exam-preview-backdrop" type="button" aria-label="시험지 미리보기 닫기" onClick={() => setIsExamPreviewOpen(false)} />
@@ -1212,7 +1368,7 @@ const referenceAnswerSignature = (form) => JSON.stringify({
 });
 
 
-function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
+function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer, automationStatus, inviteLeadDraft, setInviteLeadDraft, isSavingInviteLead, saveInviteLeadMinutes, isStartingAutomation, isRetryingAutomation, retryExamAutomation, openAutomationConfirm }) {
   const isCoding = questionType === "CODING";
   const updateForm = (field, value) => {
     setQuestionForm((current) => ({ ...current, [field]: value }));
@@ -1254,7 +1410,6 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const referenceAnswerReady = answerState.status === "GENERATED"
     && generatedAnswerSignature === currentAnswerSignature
     && questionForm.languages.every((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
-
   useEffect(() => {
     if (editingQuestionId) setIsAuthoringOpen(true);
   }, [editingQuestionId]);
@@ -1428,6 +1583,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form detail-management-panel">
     <div className="panel-heading"><div><h2>문제 정보 편집</h2><p>직접 작성하거나 출제 도우미로 초안을 빠르게 채울 수 있습니다.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
+    {message && <div className={`workspace-alert question-management-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
     {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
     {isAuthoringOpen ? <form onSubmit={submitQuestion} noValidate={isCoding}>
       <div className="coding-authoring-layout">
@@ -1450,7 +1606,103 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><div className="coding-bottom-statuses"><span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span><span className={`coding-answer-status ${referenceAnswerReady ? "ready" : answerState.status.toLowerCase()}`}>{answerState.status === "PROCESSING" ? "답안 준비 중" : referenceAnswerReady ? "답안 준비 완료" : answerOutdated ? "답안 다시 생성 필요" : answerState.status === "FAILED" || answerState.status === "BLOCKED" ? "답안 확인 필요" : "답안 준비 대기"}</span></div><div><button className="primary-button" type="submit" disabled={!hasValidationErrors && (!referenceAnswerReady || answerState.status === "PROCESSING")}><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "시험 문제 등록"}</button></div></div></div>
     </form> : <div className="coding-new-question-prompt"><div><strong>수정 사항을 저장했습니다.</strong><p>다른 문제를 추가하려면 새 문제 등록을 시작해 주세요.</p></div><button className="primary-button" type="button" onClick={() => setIsAuthoringOpen(true)}><Plus size={16} /> 새 문제 등록</button></div>}
     <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
+    <ExamAutomationPanel
+      questions={questions}
+      automationStatus={automationStatus}
+      inviteLeadDraft={inviteLeadDraft}
+      setInviteLeadDraft={setInviteLeadDraft}
+      isSavingInviteLead={isSavingInviteLead}
+      saveInviteLeadMinutes={saveInviteLeadMinutes}
+      isStartingAutomation={isStartingAutomation}
+      isRetryingAutomation={isRetryingAutomation}
+      retryExamAutomation={retryExamAutomation}
+      openAutomationConfirm={openAutomationConfirm}
+    />
   </section>;
+}
+
+function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, setInviteLeadDraft, isSavingInviteLead, saveInviteLeadMinutes, isStartingAutomation, isRetryingAutomation, retryExamAutomation, openAutomationConfirm }) {
+  const state = automationStatus?.state ?? {};
+  const preview = automationStatus?.preview ?? {};
+  const phase = automationPhaseFor({ phase: state.phase ?? state.status });
+  const phaseKey = String(state.phase ?? state.status ?? "").trim().toUpperCase();
+  const questionCount = Number(preview.questionCount ?? automationStatus?.exam?.questionCount ?? questions.length) || 0;
+  const registeredCount = Number(state.totalCandidateCount ?? preview.totalCandidateCount ?? 0) || 0;
+  const eligibleCount = Number(state.eligibleCandidateCount ?? preview.eligibleCandidateCount ?? 0) || 0;
+  const assignedCount = Number(state.assignedCandidateCount ?? preview.assignedCandidateCount ?? 0) || 0;
+  const excludedCount = Number(state.excludedCandidateCount ?? preview.excludedCandidateCount ?? 0) || 0;
+  const locked = Boolean(preview.invitationLocked) || AUTOMATION_LOCKED_PHASES.has(phaseKey);
+  const canStart = questionCount > 0 && eligibleCount > 0 && !(state.managedByAgent && !AUTOMATION_RETRYABLE_PHASES.has(phaseKey));
+  const canRetry = AUTOMATION_RETRYABLE_PHASES.has(phaseKey);
+  const excluded = Array.isArray(state.excludedCandidates) && state.excludedCandidates.length
+    ? state.excludedCandidates
+    : (Array.isArray(preview.excludedCandidates) ? preview.excludedCandidates : []);
+  const expectedInvitationAt = computeExpectedInvitationAt(automationStatus?.exam?.startsAt ?? state.startsAt, inviteLeadDraft)
+    ?? state.invitationScheduledAt
+    ?? null;
+  const progressText = [
+    `자동 배정 ${assignedCount}/${eligibleCount}명`,
+    Array.isArray(automationStatus?.deliveries) && automationStatus.deliveries.length
+      ? `결과 메일 ${automationStatus.deliveries.filter((delivery) => String(delivery.status ?? "").toUpperCase() === "SENT").length}건 완료`
+      : null,
+  ].filter(Boolean).join(" · ");
+  return <section className="exam-automation-panel" aria-labelledby="exam-automation-title">
+    <div className="section-title-row exam-automation-heading">
+      <div>
+        <span className="workspace-eyebrow"><Clock size={14} /> AUTO OPERATIONS</span>
+        <h3 id="exam-automation-title">자동 시험 운영</h3>
+        <p className="form-hint">문제 작성 완료 후 조직의 유효 응시자를 자동 배정하고 초대·채점·결과 메일을 이어서 처리합니다.</p>
+      </div>
+      <span className={`ai-request-status automation-${phase.status.toLowerCase()}`}>{phase.label}</span>
+    </div>
+    <div className="exam-automation-metrics">
+      <AutomationMetric label="저장된 문제" value={`${questionCount}개`} />
+      <AutomationMetric label="등록 응시자" value={`${registeredCount}명`} />
+      <AutomationMetric label="운영 가능" value={`${eligibleCount}명`} tone="success" />
+      <AutomationMetric label="자동 배정" value={`${assignedCount}명`} />
+      <AutomationMetric label="제외 대상" value={`${excludedCount}명`} tone={excludedCount ? "warning" : ""} />
+    </div>
+    <div className="exam-automation-controls">
+      <label>초대 사전 발송 시간
+        <span className="invite-lead-control"><input type="number" min="0" max="10080" step="1" value={inviteLeadDraft} onChange={(event) => setInviteLeadDraft(event.target.value)} disabled={locked || isSavingInviteLead} /><span>시험 시작 전 분</span></span>
+        <small className="form-hint">{locked ? "초대가 생성된 뒤에는 발송 시점을 수정할 수 없습니다." : "0분부터 10,080분(7일)까지 설정할 수 있습니다."}</small>
+      </label>
+      <div className="automation-schedule-summary">
+        <strong>{formatAutomationScheduledAt(expectedInvitationAt)}</strong>
+        <span>{expectedInvitationAt ? formatAutomationLeadTime(expectedInvitationAt) : "시간 미정"}</span>
+      </div>
+      <button className="secondary-button compact-button" type="button" onClick={() => saveInviteLeadMinutes().catch(() => {})} disabled={locked || isSavingInviteLead}>
+        {isSavingInviteLead ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 발송 시점 저장
+      </button>
+    </div>
+    <div className="exam-automation-status-row">
+      <div>
+        <strong>{progressText || "자동 운영 진행 현황을 준비 중입니다."}</strong>
+        <p>{automationStatus?.exam?.startsAt ? `예정 시험 시작: ${formatAutomationScheduledAt(automationStatus.exam.startsAt)}` : "시험 시작 시각을 확인해 주세요."}</p>
+      </div>
+      {canRetry && <button className="secondary-button" type="button" onClick={retryExamAutomation} disabled={isRetryingAutomation}>{isRetryingAutomation ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} 실패 단계 재시도</button>}
+    </div>
+    {excluded.length > 0 && <details className="automation-exclusion-list"><summary>제외 대상 {excluded.length}명과 사유</summary>{excluded.map((item, index) => <div key={`${item.candidateId || item.candidateName || item.candidateNumber}-${index}`}><strong>{item.candidateName || item.candidateNumber || "응시자"}</strong><span>{(Array.isArray(item.reasons) ? item.reasons : [item.reason]).filter(Boolean).map(localizePreviewExclusionReason).join(" · ")}</span></div>)}</details>}
+    {state.failureReason && <div className="workspace-alert error automation-detail-failure"><strong>{phase.label}</strong><span>{localizeAutomationFailure(state.failureReason)}</span></div>}
+    <div className="exam-automation-actions">
+      <button className="primary-button" type="button" onClick={openAutomationConfirm} disabled={!canStart || isStartingAutomation}>
+        {isStartingAutomation ? <LoaderCircle className="spin" size={16} /> : <CheckSquare size={16} />} 문제 작성 완료 및 자동 운영 시작
+      </button>
+      <span className="exam-automation-action-hint">
+        {!questionCount
+          ? "문제를 1개 이상 저장해야 자동 운영을 시작할 수 있습니다."
+          : !eligibleCount
+            ? "운영 가능한 응시자가 있어야 자동 운영을 시작할 수 있습니다."
+            : state.managedByAgent && !canRetry
+              ? "자동 운영이 이미 시작되어 현재 상태를 추적 중입니다."
+              : "수동 초대 운영은 응시자 운영 탭에서 그대로 사용할 수 있습니다."}
+      </span>
+    </div>
+  </section>;
+}
+
+function AutomationMetric({ label, value, tone = "" }) {
+  return <div className={`automation-summary-stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answerOutdated }) {

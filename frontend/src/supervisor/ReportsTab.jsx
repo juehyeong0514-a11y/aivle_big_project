@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, Building2, ChevronLeft, ChevronRight, Cpu, FileText, LoaderCircle, MailCheck, RefreshCw, RotateCcw, Save, TerminalSquare, UserRound, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
-import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary } from '../automationUi.mjs';
+import { automationDeliveryStatusFor, automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary } from '../automationUi.mjs';
 
 const reviewStatusLabels = { NOT_REVIEWED: '미검토', NORMAL: '정상', REVIEW_REQUIRED: '재검토 필요', SUSPICIOUS: '부정행위 의심' };
 
@@ -14,7 +14,7 @@ const mergeAutomationProjection = (results, projection) => {
   return results.map((result) => {
     const state = states.find((item) => item.candidateId === result.candidateId);
     if (!state) return result;
-    return { ...result, automationStatus: state.status || result.automationStatus, automationFailureReason: state.lastError || state.errorMessage || result.automationFailureReason, retryCount: state.retryCount ?? result.retryCount, nextRetryAt: state.nextRetryAt ?? result.nextRetryAt, resultEmailStatus: state.email?.status || result.resultEmailStatus, resultEmailedAt: state.email?.sentAt || result.resultEmailedAt, resultEmailFailureReason: state.email?.lastError || result.resultEmailFailureReason };
+    return { ...result, automationStatus: state.status || result.automationStatus, automationFailureReason: state.failureReason || state.lastError || state.errorMessage || result.automationFailureReason, retryCount: state.retryCount ?? result.retryCount, nextRetryAt: state.nextRetryAt ?? result.nextRetryAt, resultEmailStatus: state.email?.status || result.resultEmailStatus, resultEmailedAt: state.email?.sentAt || result.resultEmailedAt, resultEmailFailureReason: state.email?.failureReason || state.email?.lastError || result.resultEmailFailureReason };
   });
 };
 const projectionSummary = (projection) => {
@@ -22,18 +22,35 @@ const projectionSummary = (projection) => {
   if (!states.length) return null;
   const status = (item) => String(item.status || '').toUpperCase();
   const completed = states.filter((item) => ['COMPLETED', 'FINALIZED', 'EMAIL_SENT'].includes(status(item))).length;
-  const processing = states.filter((item) => ['PENDING', 'FINALIZING', 'GRADING', 'EMAIL_PENDING', 'EMAIL_SENDING'].includes(status(item))).length;
+  const processing = states.filter((item) => ['PENDING', 'ASSIGNING', 'WAITING_INVITATION', 'INVITING', 'WAITING_EXAM', 'FINALIZING', 'GRADING', 'EMAIL_PENDING', 'EMAIL_SENDING'].includes(status(item))).length;
   const failed = states.filter((item) => ['GRADING_FAILED', 'EMAIL_FAILED', 'FAILED'].includes(status(item))).length;
   const absent = states.filter((item) => status(item) === 'ABSENT').length;
   const excluded = states.filter((item) => status(item) === 'EXCLUDED').length;
   const emailSent = states.filter((item) => ['SENT', 'EMAIL_SENT'].includes(String(item.email?.status || '').toUpperCase()) || item.email?.sentAt).length;
-  const emailFailed = states.filter((item) => String(item.email?.status || '').toUpperCase() === 'FAILED').length;
+  const emailFailed = states.filter((item) => ['FAILED', 'REVIEW_REQUIRED'].includes(String(item.email?.status || '').toUpperCase())).length;
   return { total: states.length, completed, processing, failed, absent, excluded, emailSent, emailFailed, progress: states.length ? Math.round((completed + absent + excluded) / states.length * 100) : 0 };
 };
 
 const latestAiRequestFor = (requests, candidateId) => requests
   .filter((item) => item.candidateId === candidateId)
   .sort((first, second) => new Date(second.requestedAt ?? 0) - new Date(first.requestedAt ?? 0))[0];
+
+const automationDeliveryDescriptor = (result, automation) => {
+  const delivery = automationDeliveryStatusFor({
+    ...result,
+    reviewStatus: result?.reviewStatus,
+    resultReviewStatus: result?.reviewStatus,
+    resultEmailStatus: result?.resultEmailStatus,
+    emailStatus: result?.resultEmailStatus,
+    email: { sentAt: result?.resultEmailedAt },
+  });
+  if (automation.status === 'GRADING_FAILED') return { label: 'AI 채점 실패', tone: 'failed' };
+  if (automation.status === 'EMAIL_FAILED' || delivery.status === 'FAILED') return { label: '결과 메일 발송 실패', tone: 'failed' };
+  if (delivery.status === 'HELD') return { label: 'AI 경고 또는 재검토로 발송 보류', tone: 'held' };
+  if (delivery.status === 'SENT') return { label: '결과 자동 메일 발송 완료', tone: 'sent' };
+  if (String(result?.reviewStatus || '').toUpperCase() === 'NORMAL' && delivery.status === 'AWAITING_SEND') return { label: '정상 검토 완료 · 메일 발송 대기', tone: 'waiting' };
+  return null;
+};
 
 export default function ReportsTab() {
   const [organizations, setOrganizations] = useState([]);
@@ -53,6 +70,40 @@ export default function ReportsTab() {
   const [automationExamState, setAutomationExamState] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  const loadSelectedExamData = useCallback(async (nextOrganizationId = organizationId, nextExamId = selectedExamId) => {
+    if (!nextExamId || !nextOrganizationId) return;
+    const [resultResponse, examineeResponse, aiRequestResponse, automationResponse] = await Promise.all([
+      api.get(`/manager/results?organizationId=${encodeURIComponent(nextOrganizationId)}&examId=${encodeURIComponent(nextExamId)}`, { headers: authHeaders() }),
+      api.get(`/supervisor/examinees?organizationId=${encodeURIComponent(nextOrganizationId)}&examId=${encodeURIComponent(nextExamId)}`, { headers: authHeaders() }),
+      api.get(`/manager/ai-grading-requests?organizationId=${encodeURIComponent(nextOrganizationId)}&examId=${encodeURIComponent(nextExamId)}`, { headers: authHeaders() }),
+      api.get(`/manager/exams/${encodeURIComponent(nextExamId)}/automation-status`, { headers: authHeaders() }).catch(() => ({ data: null })),
+    ]);
+    const nextResults = mergeAutomationProjection(asList(resultResponse.data), automationResponse.data);
+    const nextRequests = asList(aiRequestResponse.data);
+    setResults(nextResults);
+    setExaminees(asList(examineeResponse.data));
+    setAiRequests(nextRequests);
+    setAutomationExamState(automationResponse.data?.state ?? null);
+    setAutomationSummary(projectionSummary(automationResponse.data) || deriveAutomationSummary(nextResults, nextRequests, payloadSummary(resultResponse.data) || payloadSummary(aiRequestResponse.data)));
+  }, [organizationId, selectedExamId]);
+
+  const loadResultDetail = useCallback(async (nextExamId = selectedExamId, nextCandidateId = selectedCandidateId) => {
+    if (!nextExamId || !nextCandidateId) return;
+    const { data } = await api.get(`/manager/exams/${encodeURIComponent(nextExamId)}/results/${encodeURIComponent(nextCandidateId)}`, { headers: authHeaders() });
+    const forceTerminated = Boolean(data.result?.forceTermination);
+    setDetail(forceTerminated ? {
+      ...data,
+      result: {
+        ...data.result,
+        status: '\uAC15\uC81C \uC885\uB8CC\u00B7\uD0C8\uB77D',
+        score: '-',
+        submittedAt: data.result.forceTermination.terminatedAt
+      }
+    } : data);
+    setActiveQuestionId(data.questions[0]?.id || '');
+    setReview({ reviewStatus: data.result.reviewStatus, reviewNote: data.result.reviewNote });
+  }, [selectedCandidateId, selectedExamId]);
 
   useEffect(() => {
     api.get('/manager/organizations', { headers: authHeaders() })
@@ -89,44 +140,16 @@ export default function ReportsTab() {
       setAutomationExamState(null);
       return;
     }
-    Promise.all([
-      api.get(`/manager/results?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
-      api.get(`/supervisor/examinees?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
-      api.get(`/manager/ai-grading-requests?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
-      api.get(`/manager/exams/${encodeURIComponent(selectedExamId)}/automation-status`, { headers: authHeaders() }).catch(() => ({ data: null })),
-    ])
-      .then(([resultResponse, examineeResponse, aiRequestResponse, automationResponse]) => {
-        const nextResults = mergeAutomationProjection(asList(resultResponse.data), automationResponse.data);
-        const nextRequests = asList(aiRequestResponse.data);
-        setResults(nextResults);
-        setExaminees(asList(examineeResponse.data));
-        setAiRequests(nextRequests);
-        setAutomationExamState(automationResponse.data?.state ?? null);
-        setAutomationSummary(projectionSummary(automationResponse.data) || deriveAutomationSummary(nextResults, nextRequests, payloadSummary(resultResponse.data) || payloadSummary(aiRequestResponse.data)));
-      })
+    loadSelectedExamData(organizationId, selectedExamId)
       .catch((reason) => setError(apiErrorMessage(reason, '결과를 불러오지 못했습니다.')));
-  }, [organizationId, selectedExamId]);
+  }, [loadSelectedExamData, organizationId, selectedExamId]);
 
   useEffect(() => {
     if (!selectedExamId || !selectedCandidateId) return;
     setMessage('');
-    api.get(`/manager/exams/${encodeURIComponent(selectedExamId)}/results/${encodeURIComponent(selectedCandidateId)}`, { headers: authHeaders() })
-      .then(({ data }) => {
-        const forceTerminated = Boolean(data.result?.forceTermination);
-        setDetail(forceTerminated ? {
-          ...data,
-          result: {
-            ...data.result,
-            status: '\uAC15\uC81C \uC885\uB8CC\u00B7\uD0C8\uB77D',
-            score: '-',
-            submittedAt: data.result.forceTermination.terminatedAt
-          }
-        } : data);
-        setActiveQuestionId(data.questions[0]?.id || '');
-        setReview({ reviewStatus: data.result.reviewStatus, reviewNote: data.result.reviewNote });
-      })
+    loadResultDetail(selectedExamId, selectedCandidateId)
       .catch((reason) => setError(apiErrorMessage(reason, '응시자 상세 결과를 불러오지 못했습니다.')));
-  }, [selectedExamId, selectedCandidateId]);
+  }, [loadResultDetail, selectedCandidateId, selectedExamId]);
 
   useEffect(() => {
     const hasProcessing = aiRequests.some((item) => ['PENDING', 'PROCESSING', 'FINALIZING', 'GRADING', 'EMAIL_SENDING'].includes(String(item.automationStatus || item.status).toUpperCase()))
@@ -134,22 +157,12 @@ export default function ReportsTab() {
     const hasEndedPendingExam = automationExamState?.status === 'PENDING' && automationExamState.cutoffAt && Date.parse(automationExamState.cutoffAt) <= Date.now();
     if (!organizationId || !selectedExamId || (!hasProcessing && !hasEndedPendingExam)) return undefined;
     let active = true;
-    const refreshRequests = () => Promise.all([
-      api.get(`/manager/results?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
-      api.get(`/manager/ai-grading-requests?organizationId=${encodeURIComponent(organizationId)}&examId=${encodeURIComponent(selectedExamId)}`, { headers: authHeaders() }),
-      api.get(`/manager/exams/${encodeURIComponent(selectedExamId)}/automation-status`, { headers: authHeaders() }).catch(() => ({ data: null }))
-    ]).then(([resultResponse, requestResponse, automationResponse]) => {
-      if (!active) return;
-      const nextResults = mergeAutomationProjection(asList(resultResponse.data), automationResponse.data);
-      const nextRequests = asList(requestResponse.data);
-      setResults(nextResults);
-      setAiRequests(nextRequests);
-      setAutomationExamState(automationResponse.data?.state ?? null);
-      setAutomationSummary(projectionSummary(automationResponse.data) || deriveAutomationSummary(nextResults, nextRequests, payloadSummary(resultResponse.data) || payloadSummary(requestResponse.data)));
-    }).catch(() => {});
+    const refreshRequests = () => loadSelectedExamData(organizationId, selectedExamId)
+      .then(() => { if (!active) return; })
+      .catch(() => {});
     const timer = window.setInterval(refreshRequests, 5000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [organizationId, selectedExamId, aiRequests, automationExamState, results]);
+  }, [aiRequests, automationExamState, loadSelectedExamData, organizationId, results, selectedExamId]);
 
   useEffect(() => {
     if (!detail) return undefined;
@@ -187,8 +200,9 @@ export default function ReportsTab() {
     setMessage('');
     try {
       const endpoint = action === 'resend' ? `/manager/ai-grading-requests/${encodeURIComponent(aiRequest.id)}/send-result-email` : `/manager/exams/${encodeURIComponent(selectedExamId)}/automation/retry`;
-      const { data } = await api.post(endpoint, action === 'resend' ? {} : { candidateId }, { headers: authHeaders() });
-      if (data?.id) setAiRequests((current) => current.map((item) => item.id === data.id ? data : item));
+      await api.post(endpoint, action === 'resend' ? {} : { candidateId }, { headers: authHeaders() });
+      await loadSelectedExamData();
+      if (candidateId === selectedCandidateId) await loadResultDetail();
       setMessage(action === 'resend' ? '실패한 결과 메일을 다시 발송했습니다.' : '실패한 자동 채점을 다시 시작했습니다.');
     } catch (reason) {
       setError(apiErrorMessage(reason, action === 'resend' ? '결과 메일을 다시 발송하지 못했습니다.' : '자동 채점을 다시 시작하지 못했습니다.'));
@@ -202,8 +216,9 @@ export default function ReportsTab() {
     setSavingReview(true);
     setMessage('');
     try {
-      const { data } = await api.patch(`/manager/exams/${encodeURIComponent(detail.exam.id)}/results/${encodeURIComponent(detail.candidate.id)}/review`, review, { headers: authHeaders() });
-      setDetail((current) => ({ ...current, result: { ...current.result, ...data } }));
+      await api.patch(`/manager/exams/${encodeURIComponent(detail.exam.id)}/results/${encodeURIComponent(detail.candidate.id)}/review`, review, { headers: authHeaders() });
+      await loadSelectedExamData(detail.exam.organizationId ?? organizationId, detail.exam.id);
+      await loadResultDetail(detail.exam.id, detail.candidate.id);
       setMessage('검토 상태와 메모를 저장했습니다.');
     } catch (reason) {
       setError(apiErrorMessage(reason, '검토 내용을 저장하지 못했습니다.'));
@@ -252,11 +267,12 @@ export default function ReportsTab() {
              const aiRequest = latestAiRequestFor(aiRequests, result.candidateId);
              const isForceTerminated = result.status === 'FORCE_TERMINATED' || result.resultStatus === 'DISQUALIFIED' || examinee?.status === 'FORCE_TERMINATED';
              const automation = automationStateFor(result, aiRequest, examinee, isForceTerminated);
+             const delivery = automationDeliveryDescriptor(result, automation);
              const recoveryActions = automationRecoveryActionsFor(result, aiRequest, examinee, isForceTerminated);
              const canRetry = recoveryActions.includes('RETRY_GRADING');
              const canResend = recoveryActions.includes('RESEND_EMAIL');
              const resultStatusLabel = isForceTerminated ? '강제 종료·탈락' : result.resultStatus === 'PENDING_REVIEW' ? '검토 대기' : result.status;
-             return <tr key={result.id || result.candidateId} className={(selectedCandidateId === result.candidateId ? 'active-result-row ' : '') + (isForceTerminated ? 'force-terminated-result-row' : '')}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{isForceTerminated ? '시험 종료' : examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td><span className={isForceTerminated ? 'result-status-danger' : ''}>{resultStatusLabel}</span></td><td>{isForceTerminated ? '-' : result.score ?? '-'}</td><td>{isForceTerminated ? (result.forceTerminatedAt ? new Date(result.forceTerminatedAt).toLocaleString('ko-KR') : '-') : result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td><div className="ai-result-actions"><span className={`ai-request-status automation-${automation.status.toLowerCase()}`}>{automation.label}</span>{automation.reason && <small className="automation-failure-reason">{automation.reason}</small>}{automation.completed && <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button>}{canRetry && <button className="secondary-button compact-button" type="button" onClick={() => recoverAutomation(aiRequest, 'retry', result.candidateId)} disabled={recoveringRequestId === aiRequest.id}>{recoveringRequestId === aiRequest.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 채점 재시도</button>}{canResend && <button className="secondary-button compact-button" type="button" onClick={() => recoverAutomation(aiRequest, 'resend', result.candidateId)} disabled={recoveringRequestId === aiRequest.id}>{recoveringRequestId === aiRequest.id ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} 메일 재발송</button>}</div></td></tr>;
+             return <tr key={result.id || result.candidateId} className={(selectedCandidateId === result.candidateId ? 'active-result-row ' : '') + (isForceTerminated ? 'force-terminated-result-row' : '')}><td><button type="button" className="result-candidate-button" onClick={() => setSelectedCandidateId(result.candidateId)}>{result.candidateName}</button></td><td>{result.candidateEmail}</td><td>{isForceTerminated ? '시험 종료' : examinee?.statusText || examinee?.status || '미접속'}</td><td>{examinee?.currentProb || '시험 시작 전'}</td><td>{result.examTitle || exams.find((exam) => exam.id === selectedExamId)?.title || '-'}</td><td><span className={isForceTerminated ? 'result-status-danger' : ''}>{resultStatusLabel}</span></td><td>{isForceTerminated ? '-' : result.score ?? '-'}</td><td>{isForceTerminated ? (result.forceTerminatedAt ? new Date(result.forceTerminatedAt).toLocaleString('ko-KR') : '-') : result.submittedAt ? new Date(result.submittedAt).toLocaleString('ko-KR') : '-'}</td><td><div className="ai-result-actions"><span className={`ai-request-status automation-${automation.status.toLowerCase()}`}>{automation.label}</span>{delivery && <small className={`automation-delivery-label ${delivery.tone}`}>{delivery.tone === 'sent' ? <MailCheck size={12} /> : null}{delivery.label}</small>}{automation.reason && <small className="automation-failure-reason">{automation.reason}</small>}{automation.completed && <button className="ai-analysis-open-button" type="button" onClick={() => setSelectedCandidateId(result.candidateId)}><Cpu size={14} /> 분석 자료 보기</button>}{canRetry && <button className="secondary-button compact-button" type="button" onClick={() => recoverAutomation(aiRequest, 'retry', result.candidateId)} disabled={recoveringRequestId === aiRequest.id}>{recoveringRequestId === aiRequest.id ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 채점 재시도</button>}{canResend && <button className="secondary-button compact-button" type="button" onClick={() => recoverAutomation(aiRequest, 'resend', result.candidateId)} disabled={recoveringRequestId === aiRequest.id}>{recoveringRequestId === aiRequest.id ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} 메일 재발송</button>}</div></td></tr>;
            })}
         </tbody></table>
         {!organizationId && <p className="empty-state">결과를 조회할 조직을 선택해주세요.</p>}
