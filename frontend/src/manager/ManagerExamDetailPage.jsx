@@ -456,7 +456,7 @@ export default function ManagerExamDetailPage() {
   }, [load]);
 
   useEffect(() => {
-    if (activeManagementPanel !== "identity") return undefined;
+    if (activeManagementPanel !== "candidates") return undefined;
     let active = true;
     const refreshIdentityRequests = () => api.get(`/manager/exams/${examId}/identity-verification-requests`, headers)
       .then(({ data }) => { if (active) setIdentityVerificationRequests(data); })
@@ -966,24 +966,24 @@ export default function ManagerExamDetailPage() {
           <span className="exam-detail-tab-count">문제 {questions.length}개</span>
         </button>
         <button
+          className={`exam-detail-tab ${activeManagementPanel === "automation" ? "active" : ""}`}
+          type="button"
+          aria-pressed={activeManagementPanel === "automation"}
+          onClick={() => { setActiveManagementPanel("automation"); setMessage(""); }}
+        >
+          <span className="exam-detail-tab-label"><Clock size={19} /> 자동 시험 운영</span>
+          <span className="exam-detail-tab-count">
+            {automationPhaseFor({ phase: automationStatus?.state?.phase ?? automationStatus?.state?.status }).label}
+          </span>
+        </button>
+        <button
           className={`exam-detail-tab ${activeManagementPanel === "candidates" ? "active" : ""}`}
           type="button"
           aria-pressed={activeManagementPanel === "candidates"}
           onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}
         >
           <span className="exam-detail-tab-label"><Users size={19} /> 응시자 운영</span>
-          <span className="exam-detail-tab-count">
-            등록 {examCandidateScope.count} · 초대 {invitedCandidateIds.length}
-          </span>
-        </button>
-        <button
-          className={`exam-detail-tab ${activeManagementPanel === "identity" ? "active" : ""}`}
-          type="button"
-          aria-pressed={activeManagementPanel === "identity"}
-          onClick={() => setActiveManagementPanel("identity")}
-        >
-          <span className="exam-detail-tab-label"><CheckSquare size={19} /> 대체 신원확인</span>
-          <span className="exam-detail-tab-count">대기 {identityVerificationRequests.filter((item) => item.status === "PENDING").length}건</span>
+          <span className="exam-detail-tab-count">등록 {examCandidateScope.count} · 초대 {invitedCandidateIds.length} · 신원확인 대기 {identityVerificationRequests.filter((item) => item.status === "PENDING").length}</span>
         </button>
       </nav>
 
@@ -995,17 +995,49 @@ export default function ManagerExamDetailPage() {
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
         openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer}
-        automationStatus={automationStatus}
-        inviteLeadDraft={inviteLeadDraft}
-        setInviteLeadDraft={setInviteLeadDraft}
-        isSavingInviteLead={isSavingInviteLead}
-        saveInviteLeadMinutes={saveInviteLeadMinutes}
-        isStartingAutomation={isStartingAutomation}
-        isRetryingAutomation={isRetryingAutomation}
-        retryExamAutomation={retryExamAutomation}
-        openAutomationConfirm={() => setAutomationConfirmOpen(true)} />}
+      />}
+
+      {activeManagementPanel === "automation" && (
+        <ExamAutomationPanel
+          questions={questions}
+          automationStatus={automationStatus}
+          inviteLeadDraft={inviteLeadDraft}
+          setInviteLeadDraft={setInviteLeadDraft}
+          isSavingInviteLead={isSavingInviteLead}
+          saveInviteLeadMinutes={saveInviteLeadMinutes}
+          isStartingAutomation={isStartingAutomation}
+          isRetryingAutomation={isRetryingAutomation}
+          retryExamAutomation={retryExamAutomation}
+          openAutomationConfirm={() => setAutomationConfirmOpen(true)}
+        />
+      )}
 
       {activeManagementPanel === "candidates" && (
+        <>
+        <section id="identity-management" className="data-panel detail-management-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>신분증 미소지자 대체 신원확인</h2>
+              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
+            </div>
+            <Users size={20} />
+          </div>
+          <div className="candidate-list-table">
+            {identityVerificationRequests.length ? identityVerificationRequests.map((item) => (
+              <div className="candidate-list-row" key={item.id}>
+                <span style={{ fontWeight: 700 }}>{item.candidateName} · {item.candidateNumber}</span>
+                <span>{item.status === "PENDING" ? "승인 대기" : item.status === "APPROVED" ? "승인됨" : "반려됨"}</span>
+                <span>{item.requestedAt ? new Date(item.requestedAt).toLocaleString("ko-KR") : "-"}</span>
+                <div className="candidate-row-actions">
+                  {item.status === "PENDING" && <>
+                    <button className="primary-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "APPROVED")}>승인</button>
+                    <button className="danger-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "REJECTED")}>반려</button>
+                  </>}
+                </div>
+              </div>
+            )) : <p className="empty-state">대체 신원확인 요청이 없습니다.</p>}
+          </div>
+        </section>
         <div className="candidate-operations-layout">
         <form
           id="candidate-management"
@@ -1228,33 +1260,7 @@ export default function ManagerExamDetailPage() {
         )}
       </div>
       </div>
-      )}
-
-      {activeManagementPanel === "identity" && (
-        <section id="identity-management" className="data-panel detail-management-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>신분증 미소지자 대체 신원확인</h2>
-              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
-            </div>
-            <Users size={20} />
-          </div>
-          <div className="candidate-list-table">
-            {identityVerificationRequests.length ? identityVerificationRequests.map((item) => (
-              <div className="candidate-list-row" key={item.id}>
-                <span style={{ fontWeight: 700 }}>{item.candidateName} · {item.candidateNumber}</span>
-                <span>{item.status === "PENDING" ? "승인 대기" : item.status === "APPROVED" ? "승인됨" : "반려됨"}</span>
-                <span>{item.requestedAt ? new Date(item.requestedAt).toLocaleString("ko-KR") : "-"}</span>
-                <div className="candidate-row-actions">
-                  {item.status === "PENDING" && <>
-                    <button className="primary-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "APPROVED")}>승인</button>
-                    <button className="danger-button compact-button" type="button" disabled={reviewingIdentityRequestId === item.id} onClick={() => reviewIdentityVerificationRequest(item.id, "REJECTED")}>반려</button>
-                  </>}
-                </div>
-              </div>
-            )) : <p className="empty-state">대체 신원확인 요청이 없습니다.</p>}
-          </div>
-        </section>
+        </>
       )}
 
       {automationConfirmOpen && (
@@ -1368,7 +1374,7 @@ const referenceAnswerSignature = (form) => JSON.stringify({
 });
 
 
-function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer, automationStatus, inviteLeadDraft, setInviteLeadDraft, isSavingInviteLead, saveInviteLeadMinutes, isStartingAutomation, isRetryingAutomation, retryExamAutomation, openAutomationConfirm }) {
+function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
   const isCoding = questionType === "CODING";
   const updateForm = (field, value) => {
     setQuestionForm((current) => ({ ...current, [field]: value }));
@@ -1384,7 +1390,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const [draftStatus, setDraftStatus] = useState("idle");
   const [draftSavedAt, setDraftSavedAt] = useState("");
   const [editorTab, setEditorTab] = useState("problem");
-  const [isAuthoringOpen, setIsAuthoringOpen] = useState(true);
+  const [isAuthoringOpen, setIsAuthoringOpen] = useState(false);
   const [aiDraftApplyNonce, setAiDraftApplyNonce] = useState(0);
   const [aiAuthoringComplete, setAiAuthoringComplete] = useState(false);
   const [aiAuthoringResetNonce, setAiAuthoringResetNonce] = useState(0);
@@ -1546,7 +1552,6 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       return false;
     }
     if (!referenceAnswerReady) return false;
-    const wasEditing = Boolean(editingQuestionId);
     const saved = await createQuestion(event);
     if (saved) {
       localStorage.removeItem(draftKey);
@@ -1557,7 +1562,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       setAiAuthoringComplete(false);
       setAiAuthoringResetNonce((current) => current + 1);
       activeAnswerRequestSignature.current = "";
-      if (wasEditing) setIsAuthoringOpen(false);
+      setIsAuthoringOpen(false);
     }
     return saved;
   };
@@ -1581,11 +1586,22 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     activeAnswerRequestSignature.current = "";
   };
 
+  const openNewQuestion = () => {
+    cancelQuestionEdit();
+    setIsAuthoringOpen(true);
+  };
+  const closeAuthoring = () => setIsAuthoringOpen(false);
+
   return <section id="question-management" className="data-panel form-panel coding-problem-form detail-management-panel">
-    <div className="panel-heading"><div><h2>문제 정보 편집</h2><p>직접 작성하거나 출제 도우미로 초안을 빠르게 채울 수 있습니다.</p></div><div className="question-panel-actions"><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
+    <div className="panel-heading"><div><h2>출제된 문제</h2><p>새 문제를 등록하거나 기존 문제를 수정하고 시험지 전체를 미리 볼 수 있습니다.</p></div><div className="question-panel-actions"><button className="primary-button compact-button" type="button" onClick={openNewQuestion}><Plus size={16} /> 새 문제 만들기</button><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
     {message && <div className={`workspace-alert question-management-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
-    {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
-    {isAuthoringOpen ? <form onSubmit={submitQuestion} noValidate={isCoding}>
+    <div className="question-list"><div className="section-title-row"><h3>문제 목록</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => { editQuestion(question); setIsAuthoringOpen(true); }}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다. 새 문제 만들기 버튼으로 출제를 시작하세요.</p>}</div>
+    {isAuthoringOpen && <div className="confirm-modal question-authoring-modal" role="dialog" aria-modal="true" aria-labelledby="question-authoring-title">
+      <button className="confirm-modal-backdrop" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring} />
+      <section className="confirm-modal-panel question-authoring-modal-panel">
+        <div className="question-authoring-modal-heading"><div><span className="workspace-eyebrow">QUESTION AUTHORING</span><h2 id="question-authoring-title">{editingQuestionId ? "문제 수정" : "새 문제 만들기"}</h2><p>출제 도우미로 초안을 만들거나 문제 정보를 직접 작성하세요.</p></div><button className="icon-button" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring}><X size={20} /></button></div>
+        {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
+        <form onSubmit={submitQuestion} noValidate={isCoding}>
       <div className="coding-authoring-layout">
         <main className="coding-editor-column">
           <nav className="coding-editor-tabs" aria-label="문제 정보 편집 영역">
@@ -1604,20 +1620,9 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
         </aside>
       </div>
       <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><div className="coding-bottom-statuses"><span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span><span className={`coding-answer-status ${referenceAnswerReady ? "ready" : answerState.status.toLowerCase()}`}>{answerState.status === "PROCESSING" ? "답안 준비 중" : referenceAnswerReady ? "답안 준비 완료" : answerOutdated ? "답안 다시 생성 필요" : answerState.status === "FAILED" || answerState.status === "BLOCKED" ? "답안 확인 필요" : "답안 준비 대기"}</span></div><div><button className="primary-button" type="submit" disabled={!hasValidationErrors && (!referenceAnswerReady || answerState.status === "PROCESSING")}><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "시험 문제 등록"}</button></div></div></div>
-    </form> : <div className="coding-new-question-prompt"><div><strong>수정 사항을 저장했습니다.</strong><p>다른 문제를 추가하려면 새 문제 등록을 시작해 주세요.</p></div><button className="primary-button" type="button" onClick={() => setIsAuthoringOpen(true)}><Plus size={16} /> 새 문제 등록</button></div>}
-    <div className="question-list"><div className="section-title-row"><h3>출제된 문제</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => editQuestion(question)}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다.</p>}</div>
-    <ExamAutomationPanel
-      questions={questions}
-      automationStatus={automationStatus}
-      inviteLeadDraft={inviteLeadDraft}
-      setInviteLeadDraft={setInviteLeadDraft}
-      isSavingInviteLead={isSavingInviteLead}
-      saveInviteLeadMinutes={saveInviteLeadMinutes}
-      isStartingAutomation={isStartingAutomation}
-      isRetryingAutomation={isRetryingAutomation}
-      retryExamAutomation={retryExamAutomation}
-      openAutomationConfirm={openAutomationConfirm}
-    />
+        </form>
+      </section>
+    </div>}
   </section>;
 }
 
