@@ -212,7 +212,7 @@ const parseCandidateCsv = (source) => {
     return { name: values[nameIndex], email: values[emailIndex], birthDate: normalizeBirthDate(values[birthDateIndex]) };
   });
   const invalidRow = candidates.findIndex((candidate) => !candidate.name || !candidate.email || !isValidCsvBirthDate(candidate.birthDate));
-  if (invalidRow >= 0) throw new Error(`CSV ${invalidRow + 2}행을 확인해주세요. 이름, 이메일, 실제 생년월일이 모두 필요합니다.`);
+  if (invalidRow >= 0) throw new Error(`CSV ${invalidRow + 2}행을 확인해 주세요. 이름, 이메일, 생년월일이 모두 필요합니다.`);
   return candidates;
 };
 
@@ -251,7 +251,7 @@ const localizePreviewExclusionReason = (value) => {
 const normalizeInviteLeadDraft = (value) => {
   const nextValue = Number(String(value ?? "").trim());
   if (!Number.isInteger(nextValue) || nextValue < 0 || nextValue > 10_080) {
-    throw new Error("사전 초대 시간은 0분부터 10,080분(7일)까지 정수로 입력해주세요.");
+    throw new Error("초대 발송 시점은 0분부터 10,080분(7일)까지 정수로 입력해 주세요.");
   }
   return nextValue;
 };
@@ -419,8 +419,8 @@ export default function ManagerExamDetailPage() {
 
   const saveExamTitle = async () => {
     const title = examTitleDraft.trim();
-    if (!title) return showMessage("시험 제목을 입력해주세요.", "error");
-    if (title.length > 100) return showMessage("시험 제목은 100자 이하로 입력해주세요.", "error");
+    if (!title) return showMessage("시험 제목을 입력해 주세요.", "error");
+    if (title.length > 100) return showMessage("시험 제목은 100자 이하로 입력해 주세요.", "error");
     setIsSavingExamTitle(true);
     try {
       const { data } = await api.patch(`/manager/exams/${examId}`, { title }, headers);
@@ -635,21 +635,23 @@ export default function ManagerExamDetailPage() {
     }));
 
   const editQuestion = (question) => {
+    setMessage("");
+    setMessageType("info");
     const isCoding = question.type === "CODING";
     setQuestionType(isCoding ? "CODING" : "MULTIPLE_CHOICE");
     if (isCoding) setQuestionForm(questionToForm(question));
     else setMultipleChoiceForm({ prompt: question.prompt ?? "", options: question.options?.length ? question.options : ["", ""], answer: question.answer ?? "" });
     setEditingQuestionId(question.id);
-    showMessage(`“${question.title}” 문제를 수정 중입니다.`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const cancelQuestionEdit = () => {
+    setMessage("");
+    setMessageType("info");
     setQuestionForm(initialCodingProblem());
     setMultipleChoiceForm(initialMultipleChoiceQuestion());
     setQuestionType("CODING");
     setEditingQuestionId("");
-    showMessage("새 코딩 문제 등록으로 전환했습니다.");
   };
 
   const confirmQuestionDelete = async () => {
@@ -755,7 +757,7 @@ export default function ManagerExamDetailPage() {
       setCandidateUploadPreview(remainingCandidates);
       if (remainingCandidates.length === 0) setCandidateUploadFileName("");
       setCandidateUploadError("");
-      showMessage(`${uploadableCandidates.length}명을 등록했습니다.${remainingCandidates.length ? ` ${remainingCandidates.length}명은 오류를 확인해주세요.` : ""}`);
+      showMessage(`${uploadableCandidates.length}명을 등록했습니다.${remainingCandidates.length ? ` ${remainingCandidates.length}명은 오류를 확인해 주세요.` : ""}`);
       await load();
     } catch (reason) {
       const uploadError = apiErrorMessage(reason, "응시자 파일을 등록하지 못했습니다.");
@@ -810,7 +812,7 @@ export default function ManagerExamDetailPage() {
 
   const sendInvitations = async () => {
     if (selectedCandidateIds.some((candidateId) => !assignableCandidates.find((candidate) => candidate.id === candidateId)?.birthDate)) {
-      showMessage("신분 인증을 위해 생년월일이 없는 응시자의 정보를 먼저 수정해주세요.", "error");
+      showMessage("신원확인을 위해 생년월일이 없는 응시자의 정보를 먼저 수정해 주세요.", "error");
       return;
     }
     try {
@@ -854,7 +856,7 @@ export default function ManagerExamDetailPage() {
       copyTarget.remove();
       if (!copied) {
         showMessage(
-          "초대 링크를 복사하지 못했습니다. 아래 링크를 직접 선택해 복사해주세요.", "error",
+          "초대 링크를 복사하지 못했습니다. 아래 링크를 직접 선택해 복사해 주세요.", "error",
         );
         return;
       }
@@ -880,7 +882,7 @@ export default function ManagerExamDetailPage() {
       assignedCandidateIds.includes(candidateId),
     );
     if (!candidateIds.length) {
-      showMessage("배정된 대상자를 먼저 선택해주세요.", "error");
+      showMessage("배정된 응시자를 먼저 선택해 주세요.", "error");
       return;
     }
     try {
@@ -936,7 +938,6 @@ export default function ManagerExamDetailPage() {
       </button>
       <div className="workspace-heading no-bottom-margin manager-exam-heading">
         <div>
-          <span className="workspace-eyebrow">EXAM DETAIL</span>
           <div className="title-with-badge">
             {isEditingExamTitle ? (
               <div className="exam-title-editor">
@@ -972,9 +973,6 @@ export default function ManagerExamDetailPage() {
           onClick={() => { setActiveManagementPanel("automation"); setMessage(""); }}
         >
           <span className="exam-detail-tab-label"><Clock size={19} /> 자동 시험 운영</span>
-          <span className="exam-detail-tab-count">
-            {automationPhaseFor({ phase: automationStatus?.state?.phase ?? automationStatus?.state?.status }).label}
-          </span>
         </button>
         <button
           className={`exam-detail-tab ${activeManagementPanel === "candidates" ? "active" : ""}`}
@@ -1008,7 +1006,7 @@ export default function ManagerExamDetailPage() {
           isStartingAutomation={isStartingAutomation}
           isRetryingAutomation={isRetryingAutomation}
           retryExamAutomation={retryExamAutomation}
-          openAutomationConfirm={() => setAutomationConfirmOpen(true)}
+          openAutomationConfirm={() => { setMessage(""); setMessageType("info"); setAutomationConfirmOpen(true); }}
         />
       )}
 
@@ -1017,8 +1015,8 @@ export default function ManagerExamDetailPage() {
         <section id="identity-management" className="data-panel detail-management-panel">
           <div className="panel-heading">
             <div>
-              <h2>신분증 미소지자 대체 신원확인</h2>
-              <p>기관이 사전 등록한 이름·응시번호 명단을 확인한 뒤 승인 또는 반려하세요.</p>
+              <h2>대체 신원확인 요청</h2>
+              <p>신분증이 없는 응시자의 요청을 확인하고 승인하거나 반려하세요.</p>
             </div>
             <Users size={20} />
           </div>
@@ -1047,7 +1045,7 @@ export default function ManagerExamDetailPage() {
           <div className="panel-heading">
             <div>
               <h2>응시자 등록</h2>
-              <p>개별 또는 CSV로 등록하면 오른쪽 운영 현황에 바로 추가됩니다.</p>
+              <p>응시자를 개별 등록하거나 CSV로 한 번에 등록할 수 있습니다.</p>
             </div>
             <Users size={20} />
           </div>
@@ -1121,7 +1119,7 @@ export default function ManagerExamDetailPage() {
         <div className="panel-heading">
           <div>
             <h2>응시자 현황 및 초대</h2>
-            <p>등록 정보와 배정·초대 상태를 확인하고 필요한 작업을 바로 처리하세요.</p>
+            <p>응시자별 배정 및 초대 상태를 확인하고 관리하세요.</p>
           </div>
           <div className="invitation-panel-actions">
             <Send size={20} />
@@ -1268,11 +1266,12 @@ export default function ManagerExamDetailPage() {
           <button className="confirm-modal-backdrop" type="button" aria-label="자동 운영 시작 확인 닫기" onClick={() => setAutomationConfirmOpen(false)} />
           <section className="confirm-modal-panel exam-automation-confirm-panel">
             <h2 id="automation-start-title">자동 시험 운영을 시작할까요?</h2>
-            <p>저장된 문제와 운영 가능 응시자를 확인했고, 자동 배정과 초대 발송을 이어서 시작합니다.</p>
+            <p>저장된 문제와 초대 가능한 응시자를 기준으로 자동 배정과 초대 발송을 시작합니다.</p>
+            {message && messageType === "error" && <div className="workspace-alert error" role="alert">{message}</div>}
             <dl className="exam-automation-confirm-list">
               <div><dt>저장된 문제</dt><dd>{automationStatus?.preview?.questionCount ?? automationStatus?.exam?.questionCount ?? questions.length}개</dd></div>
               <div><dt>등록 응시자</dt><dd>{automationStatus?.state?.totalCandidateCount ?? automationStatus?.preview?.totalCandidateCount ?? 0}명</dd></div>
-              <div><dt>운영 가능</dt><dd>{automationStatus?.state?.eligibleCandidateCount ?? automationStatus?.preview?.eligibleCandidateCount ?? 0}명</dd></div>
+              <div><dt>초대 가능 응시자</dt><dd>{automationStatus?.state?.eligibleCandidateCount ?? automationStatus?.preview?.eligibleCandidateCount ?? 0}명</dd></div>
               <div><dt>제외 대상</dt><dd>{automationStatus?.state?.excludedCandidateCount ?? automationStatus?.preview?.excludedCandidateCount ?? 0}명</dd></div>
               <div><dt>예상 초대 시각</dt><dd>{formatAutomationScheduledAt(computeExpectedInvitationAt(automationStatus?.exam?.startsAt ?? automationStatus?.state?.startsAt, inviteLeadDraft) ?? automationStatus?.state?.invitationScheduledAt)}</dd></div>
             </dl>
@@ -1293,7 +1292,6 @@ export default function ManagerExamDetailPage() {
           <section className="exam-preview-panel">
             <header className="exam-preview-heading">
               <div>
-                <span className="workspace-eyebrow"><Eye size={14} /> APPLICANT VIEW</span>
                 <h2 id="exam-preview-title">{exam.title}</h2>
                 <p>{exam.date} · {exam.duration} · 총 {questions.length}문제</p>
               </div>
@@ -1571,7 +1569,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const tabStatus = (tab) => {
     if (tab.fields.some((field) => visibleErrors[field])) return "확인 필요";
     if (!tab.fields.some((field) => allErrors[field])) return "완료";
-    return "작성 중";
+    return "";
   };
   const retryReferenceAnswer = async () => {
     activeAnswerRequestSignature.current = currentAnswerSignature;
@@ -1593,27 +1591,27 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const closeAuthoring = () => setIsAuthoringOpen(false);
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form detail-management-panel">
-    <div className="panel-heading"><div><h2>출제된 문제</h2><p>새 문제를 등록하거나 기존 문제를 수정하고 시험지 전체를 미리 볼 수 있습니다.</p></div><div className="question-panel-actions"><button className="primary-button compact-button" type="button" onClick={openNewQuestion}><Plus size={16} /> 새 문제 만들기</button><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 등록된 시험지 전체 미리보기</button><BookOpen size={20} /></div></div>
+    <div className="panel-heading"><div><h2>문제 관리</h2></div><div className="question-panel-actions"><button className="primary-button compact-button" type="button" onClick={openNewQuestion}><Plus size={16} /> 새 문제 만들기</button><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 시험지 미리보기</button><BookOpen size={20} /></div></div>
     {message && <div className={`workspace-alert question-management-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
     <div className="question-list"><div className="section-title-row"><h3>문제 목록</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => { editQuestion(question); setIsAuthoringOpen(true); }}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다. 새 문제 만들기 버튼으로 출제를 시작하세요.</p>}</div>
     {isAuthoringOpen && <div className="confirm-modal question-authoring-modal" role="dialog" aria-modal="true" aria-labelledby="question-authoring-title">
       <button className="confirm-modal-backdrop" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring} />
       <section className="confirm-modal-panel question-authoring-modal-panel">
-        <div className="question-authoring-modal-heading"><div><span className="workspace-eyebrow">QUESTION AUTHORING</span><h2 id="question-authoring-title">{editingQuestionId ? "문제 수정" : "새 문제 만들기"}</h2><p>출제 도우미로 초안을 만들거나 문제 정보를 직접 작성하세요.</p></div><button className="icon-button" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring}><X size={20} /></button></div>
+        <div className="question-authoring-modal-heading"><div><h2 id="question-authoring-title">{editingQuestionId ? "문제 수정" : "새 문제 만들기"}</h2><p>출제 도우미로 초안을 만들거나 문제 정보를 직접 작성하세요.</p></div><button className="icon-button" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring}><X size={20} /></button></div>
         {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
         <form onSubmit={submitQuestion} noValidate={isCoding}>
       <div className="coding-authoring-layout">
         <main className="coding-editor-column">
           <nav className="coding-editor-tabs" aria-label="문제 정보 편집 영역">
-            {CODING_EDITOR_TABS.map((tab) => { const status = tabStatus(tab); return <button key={tab.id} id={`coding-editor-tab-${tab.id}`} type="button" role="tab" aria-selected={editorTab === tab.id} className={editorTab === tab.id ? "active" : ""} onClick={() => setEditorTab(tab.id)}><strong>{tab.label}</strong><em className={status === "확인 필요" ? "attention" : status === "완료" ? "complete" : "incomplete"}>{status}</em></button>; })}
+            {CODING_EDITOR_TABS.map((tab) => { const status = tabStatus(tab); return <button key={tab.id} id={`coding-editor-tab-${tab.id}`} type="button" role="tab" aria-selected={editorTab === tab.id} className={editorTab === tab.id ? "active" : ""} onClick={() => setEditorTab(tab.id)}><strong>{tab.label}</strong>{status && <em className={status === "확인 필요" ? "attention" : "complete"}>{status}</em>}</button>; })}
           </nav>
           <div className="coding-step-panel coding-editor-panel" role="tabpanel" aria-labelledby={`coding-editor-tab-${editorTab}`}>
             {editorTab === "problem" && <><section className="coding-editor-section"><h4>제목 및 언어</h4><label>{requiredLabel("문제 제목", "title")}<input id="coding-field-title" value={questionForm.title} aria-invalid={Boolean(visibleErrors.title)} aria-describedby={visibleErrors.title ? "coding-error-title" : undefined} onChange={(event) => updateForm("title", event.target.value)} placeholder="예: 두 수의 합" />{errorFor("title")}</label><fieldset className="coding-language-field" id="coding-field-languages" tabIndex="-1"><legend>{requiredLabel("사용 언어", "languages")}</legend><div className="language-options">{["Python", "Java", "C", "JavaScript"].map((language) => <label key={language}><input type="checkbox" checked={questionForm.languages.includes(language)} onChange={() => toggleCodingLanguage(language)} /> {language}</label>)}</div>{errorFor("languages")}</fieldset></section><section className="coding-editor-section"><h4>문제 본문</h4>{[["description", "문제 설명"], ["inputFormat", "입력 형식"], ["outputFormat", "출력 형식"], ["constraints", "제한"]].map(([field, label]) => <label key={field}>{requiredLabel(label, field)}<textarea id={`coding-field-${field}`} value={questionForm[field]} aria-invalid={Boolean(visibleErrors[field])} aria-describedby={visibleErrors[field] ? `coding-error-${field}` : undefined} onChange={(event) => updateForm(field, event.target.value)} />{errorFor(field)}</label>)}</section></>}
-            {editorTab === "tests" && <><TestCaseEditor collection="publicExamples" cases={questionForm.publicExamples} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.publicExamples} /><TestCaseEditor collection="hiddenTestCases" cases={questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.hiddenTestCases} /><details className="coding-advanced-settings" open={questionForm.judgeMode !== "EXACT"}><summary>채점 방식 설정 <span>{questionForm.judgeMode === "EXACT" ? "기본값 사용 중" : "고급 설정 사용 중"}</span></summary><div><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input id="coding-field-numericTolerance" type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} />{errorFor("numericTolerance")}</label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea id="coding-field-customJudgeCode" className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} />{errorFor("customJudgeCode")}</label>}</div></details></>}
+            {editorTab === "tests" && <><TestCaseEditor collection="publicExamples" cases={questionForm.publicExamples} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.publicExamples} /><TestCaseEditor collection="hiddenTestCases" cases={questionForm.hiddenTestCases} addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateCodingTestCase} error={visibleErrors.hiddenTestCases} /><details className="coding-advanced-settings" open={questionForm.judgeMode !== "EXACT"}><summary>채점 방식 <span>{questionForm.judgeMode === "EXACT" ? "기본 설정" : "추가 설정"}</span></summary><div><label>비교 방식<select value={questionForm.judgeMode} onChange={(event) => updateForm("judgeMode", event.target.value)}><option value="EXACT">정확히 일치</option><option value="IGNORE_WHITESPACE">공백·줄바꿈 무시</option><option value="NUMERIC_TOLERANCE">숫자 오차 허용</option><option value="CUSTOM">별도 채점 코드</option></select></label>{questionForm.judgeMode === "NUMERIC_TOLERANCE" && <label>허용 오차<input id="coding-field-numericTolerance" type="number" min="0" step="any" value={questionForm.numericTolerance} onChange={(event) => updateForm("numericTolerance", event.target.value)} />{errorFor("numericTolerance")}</label>}{questionForm.judgeMode === "CUSTOM" && <label>별도 채점 코드<textarea id="coding-field-customJudgeCode" className="code-editor" value={questionForm.customJudgeCode} onChange={(event) => updateForm("customJudgeCode", event.target.value)} />{errorFor("customJudgeCode")}</label>}</div></details></>}
           </div>
         </main>
         <aside className="coding-ai-workspace" aria-label="출제 도우미">
-          <header><span>AUTHORING ASSISTANT</span><h3>출제 도우미</h3><p>조건만 정하면 시안 작성부터 답안 준비까지 이어집니다.</p></header>
+          <header><h3>출제 도우미</h3><p>조건을 입력하면 문제 시안과 모범 답안을 생성합니다.</p></header>
           {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} completed={aiAuthoringComplete} resetKey={aiAuthoringResetNonce} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
           {editingQuestionId && <div className="coding-ai-edit-note">수정한 내용이 저장되면 최신 기준으로 답안을 다시 준비합니다.</div>}
           <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={retryReferenceAnswer} answerOutdated={answerOutdated} />
@@ -1654,22 +1652,21 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
   return <section className="exam-automation-panel" aria-labelledby="exam-automation-title">
     <div className="section-title-row exam-automation-heading">
       <div>
-        <span className="workspace-eyebrow"><Clock size={14} /> AUTO OPERATIONS</span>
         <h3 id="exam-automation-title">자동 시험 운영</h3>
-        <p className="form-hint">문제 작성 완료 후 조직의 유효 응시자를 자동 배정하고 초대·채점·결과 메일을 이어서 처리합니다.</p>
+        <p className="form-hint">문제 작성 후 초대 가능한 응시자를 자동 배정하고 초대·채점·결과 안내를 처리합니다.</p>
       </div>
       <span className={`ai-request-status automation-${phase.status.toLowerCase()}`}>{phase.label}</span>
     </div>
     <div className="exam-automation-metrics">
       <AutomationMetric label="저장된 문제" value={`${questionCount}개`} />
       <AutomationMetric label="등록 응시자" value={`${registeredCount}명`} />
-      <AutomationMetric label="운영 가능" value={`${eligibleCount}명`} tone="success" />
+      <AutomationMetric label="초대 가능" value={`${eligibleCount}명`} tone="success" />
       <AutomationMetric label="자동 배정" value={`${assignedCount}명`} />
       <AutomationMetric label="제외 대상" value={`${excludedCount}명`} tone={excludedCount ? "warning" : ""} />
     </div>
     <div className="exam-automation-controls">
-      <label>초대 사전 발송 시간
-        <span className="invite-lead-control"><input type="number" min="0" max="10080" step="1" value={inviteLeadDraft} onChange={(event) => setInviteLeadDraft(event.target.value)} disabled={locked || isSavingInviteLead} /><span>시험 시작 전 분</span></span>
+      <label>초대 발송 시점
+        <span className="invite-lead-control"><input type="number" min="0" max="10080" step="1" value={inviteLeadDraft} onChange={(event) => setInviteLeadDraft(event.target.value)} disabled={locked || isSavingInviteLead} /><span>분 전</span></span>
         <small className="form-hint">{locked ? "초대가 생성된 뒤에는 발송 시점을 수정할 수 없습니다." : "0분부터 10,080분(7일)까지 설정할 수 있습니다."}</small>
       </label>
       <div className="automation-schedule-summary">
@@ -1682,7 +1679,7 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
     </div>
     <div className="exam-automation-status-row">
       <div>
-        <strong>{progressText || "자동 운영 진행 현황을 준비 중입니다."}</strong>
+        <strong>{progressText || "아직 자동 운영을 시작하지 않았습니다."}</strong>
         <p>{automationStatus?.exam?.startsAt ? `예정 시험 시작: ${formatAutomationScheduledAt(automationStatus.exam.startsAt)}` : "시험 시작 시각을 확인해 주세요."}</p>
       </div>
       {canRetry && <button className="secondary-button" type="button" onClick={retryExamAutomation} disabled={isRetryingAutomation}>{isRetryingAutomation ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} 실패 단계 재시도</button>}
@@ -1691,13 +1688,13 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
     {state.failureReason && <div className="workspace-alert error automation-detail-failure"><strong>{phase.label}</strong><span>{localizeAutomationFailure(state.failureReason)}</span></div>}
     <div className="exam-automation-actions">
       <button className="primary-button" type="button" onClick={openAutomationConfirm} disabled={!canStart || isStartingAutomation}>
-        {isStartingAutomation ? <LoaderCircle className="spin" size={16} /> : <CheckSquare size={16} />} 문제 작성 완료 및 자동 운영 시작
+        {isStartingAutomation ? <LoaderCircle className="spin" size={16} /> : <CheckSquare size={16} />} 자동 시험 운영 시작
       </button>
       <span className="exam-automation-action-hint">
         {!questionCount
           ? "문제를 1개 이상 저장해야 자동 운영을 시작할 수 있습니다."
           : !eligibleCount
-            ? "운영 가능한 응시자가 있어야 자동 운영을 시작할 수 있습니다."
+            ? "초대 가능한 응시자가 있어야 자동 운영을 시작할 수 있습니다."
             : state.managedByAgent && !canRetry
               ? "자동 운영이 이미 시작되어 현재 상태를 추적 중입니다."
               : "수동 초대 운영은 응시자 운영 탭에서 그대로 사용할 수 있습니다."}
@@ -1719,7 +1716,7 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answe
     <div className="section-title-row">
       <div>
         <h3>모범 답안</h3>
-        <p className="form-hint">편집 폼을 수정한 경우 답안을 다시 생성해 주세요.</p>
+        <p className="form-hint">문제 내용을 수정한 경우 답안을 다시 생성해 주세요.</p>
       </div>
       <span className={`ai-validation-status ${answerState.status.toLowerCase()}`}>{statusLabels[answerState.status] ?? "생성 전"}</span>
     </div>
@@ -1731,9 +1728,8 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answe
     </div>
     {answerOutdated && <div className="ai-reference-feasibility-warning caution" role="alert"><strong>문제에 수정사항이 있습니다.</strong><p>현재 모범 답안이 수정된 문제와 다를 수 있습니다. 내용을 확인한 뒤 모범 답안을 다시 생성해 주세요.</p></div>}
     {answerState.status === "BLOCKED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>현재 조건으로 모범 답안을 생성할 수 없습니다.</strong><p>{answerState.feasibilityMessage}</p>{answerState.warnings.length > 0 && <ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</div>}
-    {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>{answerState.errorMessage || "모범 답안 생성에 실패했습니다."}</strong>{answerState.errorDetail && <p>상세 원인: {answerState.errorDetail}</p>}{(answerState.provider || answerState.model) && <small>연결: {[answerState.provider, answerState.model].filter(Boolean).join(" / ")}</small>}{(answerState.providerStatus || answerState.errorCode) && <small>오류 식별: {[answerState.providerStatus && `HTTP ${answerState.providerStatus}`, answerState.errorCode].filter(Boolean).join(" / ")}</small>}{!answerState.errorDetail && <p>서버에서 상세 실패 사유를 받지 못했습니다. 관리자 AI API 키와 모델 설정, 백엔드 로그를 확인해주세요.</p>}</div>}
+    {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>{answerState.errorMessage || "모범 답안 생성에 실패했습니다."}</strong>{answerState.errorDetail && <p>상세 원인: {answerState.errorDetail}</p>}{(answerState.providerStatus || answerState.errorCode) && <small>오류 코드: {[answerState.providerStatus && `HTTP ${answerState.providerStatus}`, answerState.errorCode].filter(Boolean).join(" / ")}</small>}{!answerState.errorDetail && <p>잠시 후 다시 시도해 주세요. 문제가 계속되면 시스템 관리자에게 문의해 주세요.</p>}</div>}
     {answerState.status === "GENERATED" && answerState.warnings.length > 0 && <div className="ai-reference-feasibility-warning caution"><strong>생성 전제 확인</strong><ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
-    {answerState.provider && <p className="form-hint">관리자 중앙 AI 설정: {answerState.provider} · {answerState.model}</p>}
     {hasGeneratedAnswer ? <div className="ai-generated-answer-list">
       {languages.map((language) => {
         const source = String(questionForm.referenceSolutions?.[language] ?? "").trim();

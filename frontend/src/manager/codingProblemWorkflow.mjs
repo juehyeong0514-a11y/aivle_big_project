@@ -30,16 +30,16 @@ export function hasMeaningfulCodingDraft(form) {
 
 export function validateCodingProblem(form) {
   const errors = {};
-  if (!text(form?.title)) errors.title = "문제 제목을 입력해주세요.";
+  if (!text(form?.title)) errors.title = "문제 제목을 입력해 주세요.";
   if (!Array.isArray(form?.languages) || form.languages.length === 0) errors.languages = "사용 언어를 하나 이상 선택해주세요.";
-  if (!text(form?.description)) errors.description = "문제 설명을 입력해주세요.";
-  if (!text(form?.inputFormat)) errors.inputFormat = "입력 형식을 입력해주세요.";
-  if (!text(form?.outputFormat)) errors.outputFormat = "출력 형식을 입력해주세요.";
-  if (!text(form?.constraints)) errors.constraints = "제한을 입력해주세요.";
-  if (!completeCases(form?.publicExamples)) errors.publicExamples = "모든 공개 예제의 입력과 기대 출력을 입력해주세요.";
-  if (!completeCases(form?.hiddenTestCases)) errors.hiddenTestCases = "모든 비공개 채점 케이스의 입력과 기대 출력을 입력해주세요.";
-  if (form?.judgeMode === "NUMERIC_TOLERANCE" && (form.numericTolerance === "" || Number(form.numericTolerance) < 0 || Number.isNaN(Number(form.numericTolerance)))) errors.numericTolerance = "0 이상의 허용 오차를 입력해주세요.";
-  if (form?.judgeMode === "CUSTOM" && !text(form.customJudgeCode)) errors.customJudgeCode = "별도 채점 코드를 입력해주세요.";
+  if (!text(form?.description)) errors.description = "문제 설명을 입력해 주세요.";
+  if (!text(form?.inputFormat)) errors.inputFormat = "입력 형식을 입력해 주세요.";
+  if (!text(form?.outputFormat)) errors.outputFormat = "출력 형식을 입력해 주세요.";
+  if (!text(form?.constraints)) errors.constraints = "제한을 입력해 주세요.";
+  if (!completeCases(form?.publicExamples)) errors.publicExamples = "모든 공개 예제의 입력과 기대 출력을 입력해 주세요.";
+  if (!completeCases(form?.hiddenTestCases)) errors.hiddenTestCases = "모든 비공개 채점 케이스의 입력과 기대 출력을 입력해 주세요.";
+  if (form?.judgeMode === "NUMERIC_TOLERANCE" && (form.numericTolerance === "" || Number(form.numericTolerance) < 0 || Number.isNaN(Number(form.numericTolerance)))) errors.numericTolerance = "0 이상의 허용 오차를 입력해 주세요.";
+  if (form?.judgeMode === "CUSTOM" && !text(form.customJudgeCode)) errors.customJudgeCode = "별도 채점 코드를 입력해 주세요.";
   return errors;
 }
 

@@ -96,11 +96,11 @@ export default function SupervisorExamDashboard() {
     const date = formatScheduleForApi(`${formData.get('date')}T${formData.get('hour')}:${formData.get('minute')}`);
     const duration = String(formData.get('duration') ?? '').trim();
     if (!date || !editingExam) {
-      setError('시험 시작 일시를 올바르게 입력해주세요.');
+      setError('시험 시작 일시를 올바르게 입력해 주세요.');
       return;
     }
     if (!/^\d+$/.test(duration) || Number(duration) < 1) {
-      setError('시험 제한 시간은 1분 이상 입력해주세요.');
+      setError('시험 시간은 1분 이상 입력해 주세요.');
       return;
     }
     setSavingDate(true);
@@ -110,7 +110,7 @@ export default function SupervisorExamDashboard() {
       const { data: refreshedExams } = await api.get('/manager/exams', { headers: authHeaders() });
       setExams(refreshedExams);
       setEditingExam(null);
-      setMessage('시험 일정과 제한 시간, 연결된 초대 링크 만료 시각이 함께 수정되었습니다.');
+      setMessage('시험 일정과 시험 시간을 수정했습니다. 초대 링크 만료 시각도 변경되었습니다.');
     } catch (reason) {
       setError(apiErrorMessage(reason, '시험 일정을 수정하지 못했습니다.'));
     } finally {
@@ -128,7 +128,7 @@ export default function SupervisorExamDashboard() {
     try {
       await api.delete(`/manager/exams/${examToDelete.id}`, { headers: authHeaders() });
       setExams((current) => current.filter((exam) => exam.id !== examToDelete.id));
-      setMessage(`'${examToDelete.title}' 시험과 연결된 관리 데이터가 삭제되었습니다.`);
+      setMessage(`‘${examToDelete.title}’ 시험을 삭제했습니다.`);
       setExamToDelete(null);
     } catch (reason) {
       setError(apiErrorMessage(reason, '시험을 삭제하지 못했습니다.'));
@@ -139,15 +139,15 @@ export default function SupervisorExamDashboard() {
 
   return <section className="workspace-shell supervisor-exam-dashboard">
     <div className="workspace-heading">
-      <div><span className="workspace-eyebrow">EXAM MANAGEMENT</span><h1>시험 관리</h1><p>담당 조직의 시험을 조회하고 생성하며 운영 정보를 관리합니다.</p></div>
+      <div><h1>시험 관리</h1><p>담당 조직의 시험을 만들고 운영합니다.</p></div>
       <button className="primary-button" type="button" onClick={() => navigate('/manager/exams/new')}><Plus size={17} /> 시험 생성</button>
     </div>
     {message && <div className="workspace-alert">{message}</div>}
     {error && <div className="workspace-alert error">{error}</div>}
     <section className="data-panel exam-dashboard-panel">
       <div className="exam-dashboard-toolbar">
-        <div className="exam-search-area"><label htmlFor="exam-search">시험 찾기</label><div className="exam-search-input"><Search size={20} aria-hidden="true" /><input id="exam-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="시험명, 조직명 또는 평가 유형을 입력하세요" autoComplete="off" />{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={17} /></button>}</div><small>시험명·조직명·평가 유형으로 검색할 수 있습니다.</small></div>
-        <div className="exam-filter-controls"><label>조직<select aria-label="조직 필터" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)}><option value="ALL">전체 조직</option>{organizations.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>상태<select aria-label="상태 필터" value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">전체 상태</option>{statusOptions.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label><label className="exam-sort-control"><span><ArrowUpDown size={15} /> 정렬</span><select aria-label="정렬" value={sort} onChange={(event) => setSort(event.target.value)}><option value="date-nearest">일정 가장 빠른순</option><option value="date-desc">일정 최신순</option><option value="date-asc">일정 오래된순</option><option value="title-asc">시험명 가나다순</option><option value="questions-desc">문제 수 많은순</option></select></label></div>
+        <div className="exam-search-area"><label htmlFor="exam-search">시험 찾기</label><div className="exam-search-input"><Search size={20} aria-hidden="true" /><input id="exam-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="시험명 또는 조직명 검색" autoComplete="off" />{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={17} /></button>}</div></div>
+        <div className="exam-filter-controls"><label>조직<select aria-label="조직 필터" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)}><option value="ALL">전체 조직</option>{organizations.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>상태<select aria-label="상태 필터" value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">전체 상태</option>{statusOptions.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label><label className="exam-sort-control"><span><ArrowUpDown size={15} /> 정렬</span><select aria-label="정렬" value={sort} onChange={(event) => setSort(event.target.value)}><option value="date-nearest">시험 일정 임박순</option><option value="date-desc">시험 일정 늦은순</option><option value="date-asc">시험 일정 이른순</option><option value="title-asc">시험명 가나다순</option><option value="questions-desc">문제 수 많은순</option></select></label></div>
       </div>
       <div className="exam-dashboard-summary"><ClipboardList size={16} /> {query ? <><strong>“{query}”</strong> 검색 결과</> : '표시 중인 시험'} <strong>{visibleExams.length}</strong>개</div>
       <div className="exam-card-grid">
@@ -159,12 +159,12 @@ export default function SupervisorExamDashboard() {
               <button className="exam-card-menu-danger" type="button" role="menuitem" onClick={() => { setExamToDelete(exam); setOpenMenuId(null); }}><Trash2 size={15} /> 시험 삭제</button>
             </div>}
           </div>
-          <button className="exam-summary-card-main" type="button" onClick={() => navigate(`/manager/exams/${exam.id}`)} aria-label={`${exam.title} 상세 관리`}>
+          <button className="exam-summary-card-main" type="button" onClick={() => navigate(`/manager/exams/${exam.id}`)} aria-label={`${exam.title} 시험 관리`}>
             <div className="exam-card-heading"><span className="exam-card-org">{exam.organizationName}</span><span className={`status-badge ${statusClass(exam.displayStatus)}`}>{statusLabel(exam.displayStatus)}</span></div>
             <h2>{exam.title}</h2><p>{exam.category ?? '정규 평가'}</p>
             <div className="exam-card-metrics"><span><CalendarDays size={15} /> {exam.date}</span><span><BookOpen size={15} /> 문제 {exam.questionCount ?? 0}개</span><span><Users size={15} /> 응시자 {exam.examineeCount ?? 0}명</span><span className="exam-card-duration">{exam.duration}</span></div>
           </button>
-          <footer><button className="text-button" type="button" onClick={() => navigate(`/manager/exams/${exam.id}`)}>상세 관리</button></footer>
+          <footer><button className="text-button" type="button" onClick={() => navigate(`/manager/exams/${exam.id}`)}>시험 관리</button></footer>
         </article>)}
       </div>
       {!visibleExams.length && <p className="empty-state">조건에 맞는 시험이 없습니다. 필터를 조정하거나 새 시험을 생성하세요.</p>}
@@ -173,6 +173,7 @@ export default function SupervisorExamDashboard() {
       <button className="exam-date-modal-backdrop" type="button" aria-label="시험 일정 수정 닫기" onClick={() => setEditingExam(null)} />
       <form className="exam-date-panel" onSubmit={saveExamDate}>
         <div className="exam-date-heading"><div><span className="workspace-eyebrow"><CalendarClock size={14} /> 시험 일정 수정</span><h2 id="exam-date-editor-title">{editingExam.title}</h2><p>시작 일시나 제한 시간을 바꾸면 자동 종료 시각과 기존 초대 링크 만료 시각도 함께 갱신됩니다.</p></div><button className="icon-button" type="button" aria-label="시험 일정 수정 닫기" onClick={() => setEditingExam(null)}><X size={18} /></button></div>
+        {error && <div className="workspace-alert error" role="alert">{error}</div>}
         <div className="schedule-picker-row exam-edit-schedule-row">
           <label>날짜<input name="date" type="date" value={editSchedule.date} onChange={(event) => setEditSchedule({ ...editSchedule, date: event.target.value })} required /></label>
           <label>시<select name="hour" value={editSchedule.hour} onChange={(event) => setEditSchedule({ ...editSchedule, hour: event.target.value })}>{hourOptions.map((hour) => <option value={hour} key={hour}>{hour}</option>)}</select></label>
@@ -185,7 +186,7 @@ export default function SupervisorExamDashboard() {
     </div>}
     {examToDelete && <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="exam-delete-title">
       <button className="confirm-modal-backdrop" type="button" aria-label="시험 삭제 확인 닫기" onClick={() => setExamToDelete(null)} />
-      <div className="confirm-modal-panel"><h2 id="exam-delete-title">시험을 삭제할까요?</h2><p><strong>{examToDelete.title}</strong> 시험과 문제, 응시자 배정, 초대 링크, 응시 결과가 함께 삭제됩니다. 조직에 등록된 응시자 정보는 유지됩니다.</p><div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setExamToDelete(null)}>취소</button><button className="danger-button" type="button" disabled={deletingExamId === examToDelete.id} onClick={deleteExam}>{deletingExamId === examToDelete.id ? '삭제 중...' : '시험 삭제'}</button></div></div>
+      <div className="confirm-modal-panel"><h2 id="exam-delete-title">시험을 삭제할까요?</h2><p><strong>{examToDelete.title}</strong> 시험과 문제, 응시자 배정, 초대 링크, 응시 결과가 함께 삭제됩니다. 조직에 등록된 응시자 정보는 유지됩니다.</p>{error && <div className="workspace-alert error" role="alert">{error}</div>}<div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setExamToDelete(null)}>취소</button><button className="danger-button" type="button" disabled={deletingExamId === examToDelete.id} onClick={deleteExam}>{deletingExamId === examToDelete.id ? '삭제 중...' : '시험 삭제'}</button></div></div>
     </div>}
   </section>;
 }
