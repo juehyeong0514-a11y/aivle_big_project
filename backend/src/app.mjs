@@ -1169,6 +1169,7 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const runOperationsInvitationStep = async (exam, now) => {
     const state = store.examAutomationStates.find((item) => item.examId === exam.id);
     if (!state?.managedByAgent) return undefined;
+    if (state.paused) return state;
     const startsAt = scheduledExamStartsAt(exam);
     const cutoffAt = scheduledExamEndsAt(exam);
     if (!startsAt || !cutoffAt) {
@@ -1221,6 +1222,8 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
   const runExamAutomation = async (examOrId, now = automationClock()) => {
     const exam = typeof examOrId === "string" ? store.exams.find((item) => item.id === examOrId) : examOrId;
     if (!exam) return undefined;
+    const pausedState = store.examAutomationStates.find((item) => item.examId === exam.id && item.paused);
+    if (pausedState) return pausedState;
     const cutoffAt = scheduledExamEndsAt(exam);
     if (!cutoffAt) return { examId: exam.id, status: "UNSCHEDULED", cutoffAt: null };
     const cutoffMs = Date.parse(cutoffAt);
@@ -3347,12 +3350,16 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
       if (scheduleChanged && store.examAutomationStates.some((state) => state.examId === exam.id)) {
         await store.updateExamAutomationState(exam.id, { status: "PENDING", cutoffAt: expiresAt, completedAt: null, processingLeaseId: null, processingLeaseUntil: null, lastError: "" });
       }
-      const activeState = store.examAutomationStates.find((state) => state.examId === exam.id && state.managedByAgent && !["WAITING_EXAM", "FINALIZING", "GRADING", "REPORTING", "EMAIL_SENDING", "COMPLETED"].includes(state.phase));
+      const managedState = store.examAutomationStates.find((state) => state.examId === exam.id && state.managedByAgent);
+      const activeState = managedState && !["WAITING_EXAM", "FINALIZING", "GRADING", "REPORTING", "EMAIL_SENDING", "COMPLETED"].includes(managedState.phase) ? managedState : null;
       if (activeState) {
         const startsAt = scheduledExamStartsAt(updated);
         const invitationScheduledAt = computeInvitationScheduledAt({ startsAt, leadMinutes: inviteLeadMinutes, now: automationClock() });
         await store.updateExamAutomationState(exam.id, { inviteLeadMinutes, invitationScheduledAt, phase: phaseForInviteSchedule({ scheduledAt: invitationScheduledAt, now: automationClock() }), status: "PENDING", lastError: "" });
         void runExamAutomation(updated, automationClock()).catch((error) => console.error("automation invitation reschedule failed", error));
+      } else if (scheduleChanged && managedState && !managedState.paused && Date.parse(expiresAt) <= automationClock()) {
+        await store.updateExamAutomationState(exam.id, { status: "PROCESSING", phase: "FINALIZING", cutoffAt: expiresAt, lastRunAt: automationTimestamp(), lastError: "" });
+        void runExamAutomation(updated, automationClock()).catch((error) => console.error("automation cutoff reschedule failed", error));
       }
       return response.json({ ...updated, invitationExpiresAt: expiresAt });
     } catch (error) {
@@ -3794,6 +3801,10 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
           excludedCandidates: preview.excludedCandidates,
           createdAssignmentCount: createdAssignments.length,
           retryCount: 0,
+          paused: false,
+          pausedAt: null,
+          resumedAt: null,
+          cancelledAt: null,
           lastError: ""
         });
         const run = await runOperationsInvitationStep(access.exam, now);
@@ -3811,6 +3822,59 @@ export const createApp = async ({ databasePath = resolve("data/database.json"), 
     if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 처리 상태를 조회할 권한이 없습니다." });
     triggerAutomationCatchUp(access.exam);
     return response.json(automationProjection(request.params.examId));
+  });
+  app.post("/api/manager/exams/:examId/automation/pause", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const access = automationAccess(request, request.params.examId);
+      if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 운영을 일시정지할 권한이 없습니다." });
+      const state = store.examAutomationStates.find((item) => item.examId === access.exam.id && item.managedByAgent);
+      if (!state) return response.status(409).json({ message: "먼저 자동 시험 운영을 시작해 주세요." });
+      if (state.phase === "COMPLETED") return response.status(409).json({ message: "완료된 자동 시험 운영은 일시정지할 수 없습니다." });
+      if (!state.paused) await store.updateExamAutomationState(access.exam.id, { paused: true, pausedAt: automationTimestamp(), resumedAt: null });
+      return response.json(automationProjection(access.exam.id));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/manager/exams/:examId/automation/resume", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const access = automationAccess(request, request.params.examId);
+      if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 운영을 재개할 권한이 없습니다." });
+      const state = store.examAutomationStates.find((item) => item.examId === access.exam.id && item.managedByAgent);
+      if (!state) return response.status(409).json({ message: "먼저 자동 시험 운영을 시작해 주세요." });
+      if (!state.paused) return response.status(409).json({ message: "현재 자동 시험 운영은 일시정지 상태가 아닙니다." });
+      await store.updateExamAutomationState(access.exam.id, { paused: false, pausedAt: null, resumedAt: automationTimestamp(), lastRunAt: automationTimestamp() });
+      await runExamAutomation(access.exam, automationClock());
+      return response.json(automationProjection(access.exam.id));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/manager/exams/:examId/automation/cancel", authenticate, requireManager, async (request, response, next) => {
+    try {
+      const access = automationAccess(request, request.params.examId);
+      if (!access.exam) return response.status(404).json({ message: "시험을 찾을 수 없습니다." });
+      if (!access.allowed) return response.status(403).json({ message: "해당 시험 자동 운영을 취소할 권한이 없습니다." });
+      const state = store.examAutomationStates.find((item) => item.examId === access.exam.id && item.managedByAgent);
+      if (!state) return response.status(409).json({ message: "현재 실행 중인 자동 시험 운영이 없습니다." });
+      if (state.phase === "COMPLETED") return response.status(409).json({ message: "완료된 자동 시험 운영은 취소할 수 없습니다." });
+      await store.updateExamAutomationState(access.exam.id, {
+        managedByAgent: false,
+        status: "CANCELLED",
+        phase: "CANCELLED",
+        paused: false,
+        pausedAt: null,
+        processingLeaseId: null,
+        processingLeaseUntil: null,
+        cancelledAt: automationTimestamp(),
+        lastError: ""
+      });
+      return response.json(automationProjection(access.exam.id));
+    } catch (error) {
+      return next(error);
+    }
   });
   app.get("/api/admin/exams/:examId/automation-status", authenticate, requireRole("ADMIN"), (request, response) => {
     const exam = store.exams.find((item) => item.id === request.params.examId);

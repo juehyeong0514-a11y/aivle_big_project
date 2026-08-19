@@ -21,12 +21,14 @@ const statusLabels = {
   FAILED: '자동 처리 실패',
   ABSENT: '결시·제외',
   EXCLUDED: '강제 종료·제외',
+  PAUSED: '자동 운영 일시정지',
+  CANCELLED: '자동 운영 취소',
 };
 
 const automationPhaseStatuses = new Set([
   'ASSIGNING', 'WAITING_INVITATION', 'INVITING', 'WAITING_EXAM',
   'FINALIZING', 'GRADING', 'REPORTING', 'EMAIL_SENDING', 'COMPLETED',
-  'REVIEW_REQUIRED', 'INVITATION_FAILED', 'GRADING_FAILED', 'EMAIL_FAILED',
+  'REVIEW_REQUIRED', 'INVITATION_FAILED', 'GRADING_FAILED', 'EMAIL_FAILED', 'PAUSED', 'CANCELLED',
 ]);
 
 const UNKNOWN_AUTOMATION_LABEL = '자동 처리 상태 확인 필요';
@@ -83,7 +85,8 @@ export const localizeAutomationExclusionReason = (value) => {
 
 const parseAutomationDate = (value) => {
   if (!value) return NaN;
-  const timestamp = Date.parse(String(value).replace(/\./g, '-'));
+  const normalized = String(value).trim().replace(/^(\d{4})\.(\d{1,2})\.(\d{1,2})(?=[T\s])/, '$1-$2-$3');
+  const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? timestamp : NaN;
 };
 

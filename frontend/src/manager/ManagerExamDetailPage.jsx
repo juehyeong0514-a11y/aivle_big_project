@@ -27,12 +27,16 @@ import { automationPhaseFor, formatAutomationLeadTime, formatAutomationScheduled
 import { getExamCandidateScope } from "./candidateScope.mjs";
 import {
   codingDraftKey,
+  hasMeaningfulAssistantRequirements,
   hasMeaningfulCodingDraft,
   parseCodingDraft,
   serializeCodingDraft,
   validateCodingProblem,
 } from "./codingProblemWorkflow.mjs";
 import ProblemCreationChatbot from "./ProblemCreationChatbot.jsx";
+import { candidateToProblem } from "./problemChatbotWorkflow.mjs";
+import { generateProblemCandidates } from "./problemCandidateService.mjs";
+import { formatScheduleForApi } from "./examSchedule.mjs";
 
 const initialCodingProblem = () => ({
   title: "",
@@ -257,10 +261,25 @@ const normalizeInviteLeadDraft = (value) => {
 };
 
 const computeExpectedInvitationAt = (startsAt, leadMinutes) => {
-  const startAtMs = Date.parse(String(startsAt ?? "").replace(/\./g, "-"));
-  const leadMinutesValue = Number(leadMinutes);
+  const rawStart = String(startsAt ?? "").trim();
+  const localStart = rawStart.match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})[T\s](\d{1,2}):(\d{2})$/);
+  const startAtMs = localStart
+    ? new Date(Number(localStart[1]), Number(localStart[2]) - 1, Number(localStart[3]), Number(localStart[4]), Number(localStart[5])).getTime()
+    : Date.parse(rawStart);
+  const leadMinutesValue = Number(String(leadMinutes ?? "").replace(/[^\d.-]/g, ""));
   if (!Number.isFinite(startAtMs) || !Number.isFinite(leadMinutesValue)) return null;
-  return new Date(Math.max(Date.now(), startAtMs - Math.max(0, leadMinutesValue) * 60_000)).toISOString();
+  return new Date(startAtMs - Math.max(0, leadMinutesValue) * 60_000).toISOString();
+};
+
+const scheduleInputValue = (value) => {
+  const rawValue = String(value ?? "").trim();
+  const localValue = rawValue.match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})[T\s](\d{1,2}):(\d{2})/);
+  if (localValue) return `${localValue[1]}-${localValue[2].padStart(2, "0")}-${localValue[3].padStart(2, "0")}T${localValue[4].padStart(2, "0")}:${localValue[5]}`;
+  const timestamp = Date.parse(rawValue);
+  if (!Number.isFinite(timestamp)) return "";
+  const date = new Date(timestamp);
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 export default function ManagerExamDetailPage() {
@@ -288,12 +307,18 @@ export default function ManagerExamDetailPage() {
   const [reviewingIdentityRequestId, setReviewingIdentityRequestId] = useState("");
   const [copiedEntryLink, setCopiedEntryLink] = useState("");
   const [automationStatus, setAutomationStatus] = useState(null);
-  const [inviteLeadDraft, setInviteLeadDraft] = useState("60");
+  const [inviteLeadDraft, setInviteLeadDraft] = useState("");
+  const inviteLeadDirtyRef = useRef(false);
   const [isSavingInviteLead, setIsSavingInviteLead] = useState(false);
+  const [examScheduleDraft, setExamScheduleDraft] = useState("");
+  const [isSavingExamSchedule, setIsSavingExamSchedule] = useState(false);
   const [isStartingAutomation, setIsStartingAutomation] = useState(false);
   const [isRetryingAutomation, setIsRetryingAutomation] = useState(false);
+  const [isUpdatingAutomationControl, setIsUpdatingAutomationControl] = useState(false);
+  const [automationControlMessage, setAutomationControlMessage] = useState(null);
   const [automationConfirmOpen, setAutomationConfirmOpen] = useState(false);
-  const [activeManagementPanel, setActiveManagementPanel] = useState("questions");
+  const [activeManagementPanel, setActiveManagementPanel] = useState("automation");
+  const initializedManagementPanelExamId = useRef("");
   const [isExamPreviewOpen, setIsExamPreviewOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -310,8 +335,8 @@ export default function ManagerExamDetailPage() {
   const applyAutomationStatus = useCallback((payload, fallbackExam = null) => {
     const nextStatus = payload && typeof payload === "object" ? payload : null;
     setAutomationStatus(nextStatus);
-    const nextLeadMinutes = nextStatus?.state?.inviteLeadMinutes ?? nextStatus?.exam?.inviteLeadMinutes ?? fallbackExam?.inviteLeadMinutes ?? 60;
-    setInviteLeadDraft(String(nextLeadMinutes));
+    const nextLeadMinutes = nextStatus?.state?.inviteLeadMinutes ?? nextStatus?.exam?.inviteLeadMinutes ?? fallbackExam?.inviteLeadMinutes;
+    if (!inviteLeadDirtyRef.current && nextLeadMinutes !== undefined && nextLeadMinutes !== null) setInviteLeadDraft(String(nextLeadMinutes));
     if (fallbackExam || nextStatus?.exam) {
       setExam((current) => ({ ...(current ?? {}), ...(fallbackExam ?? {}), ...(nextStatus?.exam ?? {}) }));
     }
@@ -333,6 +358,10 @@ export default function ManagerExamDetailPage() {
     setCandidates(examCandidateResponse.data);
     setOrganizationCandidates(candidateResponse.data);
     setQuestions(questionResponse.data);
+    if (initializedManagementPanelExamId.current !== examId) {
+      initializedManagementPanelExamId.current = examId;
+      setActiveManagementPanel(questionResponse.data.length === 0 ? "questions" : "automation");
+    }
     setIdentityVerificationRequests(identityRequestResponse.data);
     applyAutomationStatus(automationResponse.data, selectedExam);
     setAssignedCandidateIds(
@@ -359,6 +388,16 @@ export default function ManagerExamDetailPage() {
     setMessageType(type);
   };
 
+  const showAutomationMessage = (text, type = "info") => {
+    setMessage("");
+    setAutomationControlMessage({ type, text });
+  };
+
+  const changeInviteLeadDraft = (value) => {
+    inviteLeadDirtyRef.current = true;
+    setInviteLeadDraft(value);
+  };
+
   const saveInviteLeadMinutes = async (options = {}) => {
     const { silent = false } = options;
     setIsSavingInviteLead(true);
@@ -366,24 +405,46 @@ export default function ManagerExamDetailPage() {
       const value = normalizeInviteLeadDraft(inviteLeadDraft);
       const { data } = await api.patch(`/manager/exams/${examId}`, { inviteLeadMinutes: value }, headers);
       const automationResponse = await api.get(`/manager/exams/${examId}/automation-status`, headers).catch(() => ({ data: null }));
+      inviteLeadDirtyRef.current = false;
       applyAutomationStatus(automationResponse.data, data);
-      if (!silent) showMessage("초대 링크 발송 시점을 저장했습니다.");
+      if (!silent) showAutomationMessage("초대 링크 발송 시점을 저장했습니다.");
       return value;
     } catch (reason) {
       const errorMessage = reason instanceof Error && !reason.response
         ? reason.message
         : apiErrorMessage(reason, "초대 링크 발송 시점을 저장하지 못했습니다.");
-      showMessage(errorMessage, "error");
+      showAutomationMessage(errorMessage, "error");
       throw reason;
     } finally {
       setIsSavingInviteLead(false);
     }
   };
 
+  useEffect(() => {
+    const nextSchedule = scheduleInputValue(exam?.date || automationStatus?.exam?.startsAt);
+    if (nextSchedule) setExamScheduleDraft((current) => current || nextSchedule);
+  }, [automationStatus?.exam?.startsAt, exam?.date]);
+
+  const saveExamSchedule = async () => {
+    const date = formatScheduleForApi(examScheduleDraft);
+    if (!date) return showAutomationMessage("시험 시작 일시를 올바르게 입력해 주세요.", "error");
+    setIsSavingExamSchedule(true);
+    try {
+      const { data } = await api.patch(`/manager/exams/${examId}`, { date }, headers);
+      const automationResponse = await api.get(`/manager/exams/${examId}/automation-status`, headers).catch(() => ({ data: null }));
+      applyAutomationStatus(automationResponse.data, data);
+      showAutomationMessage("시험 시작 일시를 저장했습니다.");
+    } catch (reason) {
+      showAutomationMessage(apiErrorMessage(reason, "시험 시작 일시를 저장하지 못했습니다."), "error");
+    } finally {
+      setIsSavingExamSchedule(false);
+    }
+  };
+
   const startExamAutomation = async () => {
     setIsStartingAutomation(true);
     try {
-      const currentLeadMinutes = Number(automationStatus?.state?.inviteLeadMinutes ?? automationStatus?.exam?.inviteLeadMinutes ?? exam?.inviteLeadMinutes ?? 60);
+      const currentLeadMinutes = Number(automationStatus?.state?.inviteLeadMinutes ?? automationStatus?.exam?.inviteLeadMinutes ?? exam?.inviteLeadMinutes);
       const nextLeadMinutes = normalizeInviteLeadDraft(inviteLeadDraft);
       if (!automationStatus?.preview?.invitationLocked && !AUTOMATION_LOCKED_PHASES.has(String(automationStatus?.state?.phase ?? automationStatus?.state?.status ?? "").toUpperCase()) && currentLeadMinutes !== nextLeadMinutes) {
         await saveInviteLeadMinutes({ silent: true });
@@ -391,9 +452,9 @@ export default function ManagerExamDetailPage() {
       const { data } = await api.post(`/manager/exams/${examId}/automation/start`, {}, headers);
       applyAutomationStatus(data);
       setAutomationConfirmOpen(false);
-      showMessage("자동 시험 운영을 시작했습니다.");
+      showAutomationMessage("자동 시험 운영을 시작했습니다.");
     } catch (reason) {
-      showMessage(apiErrorMessage(reason, "자동 시험 운영을 시작하지 못했습니다."), "error");
+      showAutomationMessage(apiErrorMessage(reason, "자동 시험 운영을 시작하지 못했습니다."), "error");
     } finally {
       setIsStartingAutomation(false);
     }
@@ -404,12 +465,30 @@ export default function ManagerExamDetailPage() {
     try {
       const { data } = await api.post(`/manager/exams/${examId}/automation/retry`, {}, headers);
       applyAutomationStatus(data);
-      showMessage("실패한 자동화 단계를 다시 실행했습니다.");
+      showAutomationMessage("실패한 자동화 단계를 다시 실행했습니다.");
     } catch (reason) {
-      showMessage(apiErrorMessage(reason, "자동화 재시도를 실행하지 못했습니다."), "error");
+      showAutomationMessage(apiErrorMessage(reason, "자동화 재시도를 실행하지 못했습니다."), "error");
     } finally {
       setIsRetryingAutomation(false);
     }
+  };
+
+  const updateAutomationControl = async (action) => {
+    setIsUpdatingAutomationControl(true);
+    try {
+      const { data } = await api.post(`/manager/exams/${examId}/automation/${action}`, {}, headers);
+      applyAutomationStatus(data);
+      showAutomationMessage({ pause: "자동 시험 운영을 일시정지했습니다.", resume: "자동 시험 운영을 재개했습니다.", cancel: "자동 시험 운영을 취소했습니다." }[action]);
+    } catch (reason) {
+      showAutomationMessage(apiErrorMessage(reason, { pause: "자동 시험 운영을 일시정지하지 못했습니다.", resume: "자동 시험 운영을 재개하지 못했습니다.", cancel: "자동 시험 운영을 취소하지 못했습니다." }[action]), "error");
+    } finally {
+      setIsUpdatingAutomationControl(false);
+    }
+  };
+
+  const cancelExamAutomation = () => {
+    if (!window.confirm("자동 시험 운영을 취소할까요? 이미 완료된 배정이나 발송 작업은 되돌아가지 않습니다.")) return;
+    updateAutomationControl("cancel");
   };
 
   const startEditingExamTitle = () => {
@@ -468,6 +547,20 @@ export default function ManagerExamDetailPage() {
       window.clearInterval(timer);
     };
   }, [activeManagementPanel, examId, headers]);
+
+  useEffect(() => {
+    if (activeManagementPanel !== "automation") return undefined;
+    let active = true;
+    const refreshAutomationStatus = () => api.get(`/manager/exams/${examId}/automation-status`, headers)
+      .then(({ data }) => { if (active) applyAutomationStatus(data); })
+      .catch(() => {});
+    refreshAutomationStatus();
+    const timer = window.setInterval(refreshAutomationStatus, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeManagementPanel, applyAutomationStatus, examId, headers]);
 
   const examCandidateScope = useMemo(
     () => getExamCandidateScope({
@@ -597,6 +690,23 @@ export default function ManagerExamDetailPage() {
       showMessage(apiErrorMessage(reason, "문제 등록에 실패했습니다."), "error");
       return false;
     }
+  };
+
+  const registerQueuedQuestion = async (form, onStage, signal) => {
+    onStage("answer");
+    const { data } = await api.post(`/manager/exams/${examId}/ai-reference-answer`, {
+      question: { ...form, type: "CODING", numericTolerance: Number(form.numericTolerance) },
+    }, { ...headers, signal });
+    if (data.feasible === false) throw new Error(data.feasibilityMessage || "모범 답안을 생성할 수 없는 문제입니다.");
+    onStage("registering");
+    await api.post(`/manager/exams/${examId}/questions`, {
+      ...form,
+      type: "CODING",
+      numericTolerance: Number(form.numericTolerance),
+      referenceSolutions: { ...form.referenceSolutions, ...(data.answers ?? {}) },
+      aiAnalysis: { ...form.aiAnalysis, authoringSource: "AI_ASSISTANT", referenceAnswer: { status: "GENERATED", generatedAt: data.generatedAt ?? "", warnings: data.warnings ?? [], provider: data.provider ?? "", model: data.model ?? "" } },
+    }, { ...headers, signal });
+    await load();
   };
 
   const updateTestCase = (collection, index, field, value) =>
@@ -956,62 +1066,67 @@ export default function ManagerExamDetailPage() {
         </div>
       </div>
       {message && activeManagementPanel !== "questions" && <div className={`workspace-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
-      <nav className="exam-detail-tabs" aria-label="시험 운영">
-        <button
-          className={`exam-detail-tab ${activeManagementPanel === "questions" ? "active" : ""}`}
-          type="button"
-          aria-pressed={activeManagementPanel === "questions"}
-          onClick={() => { setActiveManagementPanel("questions"); setMessage(""); }}
-        >
-          <span className="exam-detail-tab-label"><BookOpen size={19} /> 문제 생성 및 미리보기</span>
-          <span className="exam-detail-tab-count">문제 {questions.length}개</span>
-        </button>
-        <button
-          className={`exam-detail-tab ${activeManagementPanel === "automation" ? "active" : ""}`}
-          type="button"
-          aria-pressed={activeManagementPanel === "automation"}
-          onClick={() => { setActiveManagementPanel("automation"); setMessage(""); }}
-        >
-          <span className="exam-detail-tab-label"><Clock size={19} /> 자동 시험 운영</span>
-        </button>
-        <button
-          className={`exam-detail-tab ${activeManagementPanel === "candidates" ? "active" : ""}`}
-          type="button"
-          aria-pressed={activeManagementPanel === "candidates"}
-          onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}
-        >
-          <span className="exam-detail-tab-label"><Users size={19} /> 응시자 운영</span>
-          <span className="exam-detail-tab-count">등록 {examCandidateScope.count} · 초대 {invitedCandidateIds.length} · 신원확인 대기 {identityVerificationRequests.filter((item) => item.status === "PENDING").length}</span>
-        </button>
-      </nav>
+      <div className="exam-agent-toolbar" aria-label="시험 관리 도구">
+        <div><strong>자동 시험 운영 에이전트</strong><span>시험 준비부터 초대·채점·결과 안내까지 관리합니다.</span></div>
+        <div className="exam-agent-manual-tools">
+          <button className="exam-agent-tool-button" type="button" onClick={() => { setActiveManagementPanel("questions"); setMessage(""); }}>
+            <span className="exam-agent-tool-icon"><BookOpen size={22} /></span>
+            <span className="exam-agent-tool-copy"><strong>문제 관리</strong><small>문제 작성 및 시험지 확인</small></span>
+            <span className="exam-agent-tool-count">{questions.length}</span>
+          </button>
+          <button className="exam-agent-tool-button" type="button" onClick={() => { setActiveManagementPanel("candidates"); setMessage(""); }}>
+            <span className="exam-agent-tool-icon"><Users size={22} /></span>
+            <span className="exam-agent-tool-copy"><strong>응시자 운영</strong><small>응시자 등록 및 신원확인</small></span>
+            <span className="exam-agent-tool-count">{examCandidateScope.count}</span>
+          </button>
+        </div>
+      </div>
 
-      {activeManagementPanel === "questions" && <QuestionManagement
+      <div className="confirm-modal management-workspace-modal" role="dialog" aria-modal="true" aria-label="문제 관리" hidden={activeManagementPanel !== "questions"}>
+        <button className="confirm-modal-backdrop" type="button" aria-label="문제 관리 닫기" onClick={() => setActiveManagementPanel("automation")} />
+        <section className="confirm-modal-panel management-workspace-modal-panel">
+          <div className="management-workspace-modal-heading"><div><h2>문제 관리</h2><p>시험 문제를 만들고 미리 확인합니다.</p></div><button className="icon-button" type="button" aria-label="문제 관리 닫기" onClick={() => setActiveManagementPanel("automation")}><X size={20} /></button></div>
+          <QuestionManagement
         examId={examId}
         message={message} messageType={messageType}
         questionType={questionType} setQuestionType={setQuestionType} questionForm={questionForm} setQuestionForm={setQuestionForm}
         editingQuestionId={editingQuestionId} createQuestion={createQuestion}
         addTestCase={addTestCase} removeTestCase={removeTestCase} updateTestCase={updateTestCase} toggleLanguage={toggleLanguage}
         cancelQuestionEdit={cancelQuestionEdit} questions={questions} editQuestion={editQuestion} setQuestionToDelete={setQuestionToDelete}
-        openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer}
-      />}
+        openPreview={() => setIsExamPreviewOpen(true)} requestAiReferenceAnswer={requestAiReferenceAnswer} registerQueuedQuestion={registerQueuedQuestion}
+          />
+        </section>
+      </div>
 
-      {activeManagementPanel === "automation" && (
-        <ExamAutomationPanel
+      <ExamAutomationPanel
           questions={questions}
           automationStatus={automationStatus}
           inviteLeadDraft={inviteLeadDraft}
-          setInviteLeadDraft={setInviteLeadDraft}
+          setInviteLeadDraft={changeInviteLeadDraft}
           isSavingInviteLead={isSavingInviteLead}
           saveInviteLeadMinutes={saveInviteLeadMinutes}
+          examScheduleDraft={examScheduleDraft}
+          setExamScheduleDraft={setExamScheduleDraft}
+          isSavingExamSchedule={isSavingExamSchedule}
+          saveExamSchedule={saveExamSchedule}
           isStartingAutomation={isStartingAutomation}
           isRetryingAutomation={isRetryingAutomation}
           retryExamAutomation={retryExamAutomation}
+          isUpdatingAutomationControl={isUpdatingAutomationControl}
+          pauseExamAutomation={() => updateAutomationControl("pause")}
+          resumeExamAutomation={() => updateAutomationControl("resume")}
+          cancelExamAutomation={cancelExamAutomation}
+          automationControlMessage={automationControlMessage}
           openAutomationConfirm={() => { setMessage(""); setMessageType("info"); setAutomationConfirmOpen(true); }}
-        />
-      )}
+      />
 
       {activeManagementPanel === "candidates" && (
-        <>
+        <div className="confirm-modal management-workspace-modal" role="dialog" aria-modal="true" aria-label="응시자 운영">
+        <button className="confirm-modal-backdrop" type="button" aria-label="응시자 운영 닫기" onClick={() => setActiveManagementPanel("automation")} />
+        <section className="confirm-modal-panel management-workspace-modal-panel">
+        <div className="management-workspace-modal-heading"><div><h2>응시자 운영</h2><p>응시자 등록, 초대 및 대체 신원확인 요청을 관리합니다.</p></div><button className="icon-button" type="button" aria-label="응시자 운영 닫기" onClick={() => setActiveManagementPanel("automation")}><X size={20} /></button></div>
+        <div className="candidate-management-popup-content">
+        {message && <div className={`workspace-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
         <section id="identity-management" className="data-panel detail-management-panel">
           <div className="panel-heading">
             <div>
@@ -1258,7 +1373,9 @@ export default function ManagerExamDetailPage() {
         )}
       </div>
       </div>
-        </>
+        </div>
+        </section>
+        </div>
       )}
 
       {automationConfirmOpen && (
@@ -1341,7 +1458,7 @@ export default function ManagerExamDetailPage() {
         </div>
       )}
       {questionToDelete && (
-        <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-question-title">
+        <div className="confirm-modal question-delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-question-title">
           <button className="confirm-modal-backdrop" type="button" aria-label="삭제 취소" onClick={() => setQuestionToDelete(null)} />
           <section className="confirm-modal-panel"><h2 id="delete-question-title">문제를 삭제할까요?</h2><p><strong>{questionToDelete.type === "CODING" ? questionToDelete.title : questionToDelete.prompt}</strong>은(는) 되돌릴 수 없습니다. 초대 발송 후에는 문제를 삭제할 수 없습니다.</p><div className="confirm-modal-actions"><button className="secondary-button" type="button" onClick={() => setQuestionToDelete(null)}>취소</button><button className="danger-button" type="button" onClick={confirmQuestionDelete}><Trash2 size={16} /> 삭제</button></div></section>
         </div>
@@ -1351,7 +1468,7 @@ export default function ManagerExamDetailPage() {
 }
 
 const CODING_EDITOR_TABS = [
-  { id: "problem", label: "문제 작성", fields: ["title", "languages", "description", "inputFormat", "outputFormat", "constraints"] },
+  { id: "problem", label: "문제 검토 및 수정", fields: ["title", "languages", "description", "inputFormat", "outputFormat", "constraints"] },
   { id: "tests", label: "테스트 및 채점", fields: ["publicExamples", "hiddenTestCases", "numericTolerance", "customJudgeCode"] },
 ];
 
@@ -1372,7 +1489,7 @@ const referenceAnswerSignature = (form) => JSON.stringify({
 });
 
 
-function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
+function QuestionManagement({ examId, message, messageType, questionType, setQuestionType, questionForm, setQuestionForm, editingQuestionId, createQuestion, registerQueuedQuestion, addTestCase, removeTestCase, updateTestCase, toggleLanguage, cancelQuestionEdit, questions, editQuestion, setQuestionToDelete, openPreview, requestAiReferenceAnswer }) {
   const isCoding = questionType === "CODING";
   const updateForm = (field, value) => {
     setQuestionForm((current) => ({ ...current, [field]: value }));
@@ -1392,6 +1509,12 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   const [aiDraftApplyNonce, setAiDraftApplyNonce] = useState(0);
   const [aiAuthoringComplete, setAiAuthoringComplete] = useState(false);
   const [aiAuthoringResetNonce, setAiAuthoringResetNonce] = useState(0);
+  const [assistantRequirements, setAssistantRequirements] = useState(null);
+  const [assistantRestoreNonce, setAssistantRestoreNonce] = useState(0);
+  const [autoRegistrationState, setAutoRegistrationState] = useState("idle");
+  const [generationQueue, setGenerationQueue] = useState([]);
+  const generationWorkerActive = useRef(false);
+  const generationAbortRef = useRef(null);
   const [generatedAnswerSignature, setGeneratedAnswerSignature] = useState("");
   const generatedAnswerSignatureRef = useRef("");
   const draftKey = codingDraftKey(examId, editingQuestionId);
@@ -1401,6 +1524,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
   currentQuestionForm.current = questionForm;
   const requestAiReferenceAnswerRef = useRef(requestAiReferenceAnswer);
   requestAiReferenceAnswerRef.current = requestAiReferenceAnswer;
+  const submitQuestionRef = useRef(null);
   const activeAnswerRequestSignature = useRef("");
   const handledAiDraftApplyNonce = useRef(0);
   const allErrors = validateCodingProblem(questionForm);
@@ -1415,6 +1539,34 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     && generatedAnswerSignature === currentAnswerSignature
     && questionForm.languages.every((language) => String(questionForm.referenceSolutions?.[language] ?? "").trim());
   useEffect(() => {
+    if (generationWorkerActive.current) return;
+    const nextJob = generationQueue.find((job) => job.status === "queued");
+    if (!nextJob) return;
+    generationWorkerActive.current = true;
+    const controller = new AbortController();
+    generationAbortRef.current = { jobId: nextJob.id, controller };
+    const updateJob = (changes) => setGenerationQueue((current) => current.map((job) => job.id === nextJob.id ? { ...job, ...changes } : job));
+    updateJob({ status: "running", stage: "generating" });
+    generateProblemCandidates(examId, nextJob.requirements, (step) => updateJob({ activity: step }), controller.signal)
+      .then((result) => {
+        const candidate = result.candidates?.[0];
+        if (!candidate) throw new Error("생성된 문제 시안이 없습니다.");
+        const form = candidateToProblem(candidate).form;
+        updateJob({ title: form.title || nextJob.title, stage: "answer" });
+        return registerQueuedQuestion(form, (stage) => updateJob({ stage }), controller.signal);
+      })
+      .then(() => updateJob({ status: "complete", stage: "complete" }))
+      .catch((reason) => {
+        if (controller.signal.aborted) updateJob({ status: "cancelled", activity: "작업을 중단했습니다." });
+        else updateJob({ status: "failed", error: apiErrorMessage(reason, "문제를 자동 등록하지 못했습니다.") });
+      })
+      .finally(() => {
+        if (generationAbortRef.current?.jobId === nextJob.id) generationAbortRef.current = null;
+        generationWorkerActive.current = false;
+        setGenerationQueue((current) => [...current]);
+      });
+  }, [examId, generationQueue, registerQueuedQuestion]);
+  useEffect(() => {
     if (editingQuestionId) setIsAuthoringOpen(true);
   }, [editingQuestionId]);
 
@@ -1422,6 +1574,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     setVisibleErrors({});
     setEditorTab("problem");
     setAiAuthoringComplete(false);
+    setAssistantRequirements(null);
     setDraftOffer(null);
     const form = currentQuestionForm.current;
     const existingSignature = form.aiAnalysis.referenceAnswer?.status === "GENERATED"
@@ -1431,7 +1584,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     generatedAnswerSignatureRef.current = existingSignature;
     setGeneratedAnswerSignature(existingSignature);
     activeAnswerRequestSignature.current = "";
-    draftBaselines.current.set(draftKey, JSON.stringify(currentQuestionForm.current));
+    draftBaselines.current.set(draftKey, JSON.stringify({ form: currentQuestionForm.current, assistantRequirements: null }));
     const parsed = parseCodingDraft(localStorage.getItem(draftKey));
     if (parsed && hasMeaningfulCodingDraft(parsed.form)) {
       blockedDraftKeys.current.add(draftKey);
@@ -1476,8 +1629,9 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   useEffect(() => {
     if (!isCoding || blockedDraftKeys.current.has(draftKey)) return undefined;
-    if (draftBaselines.current.get(draftKey) === JSON.stringify(questionForm)) return undefined;
-    if (!hasMeaningfulCodingDraft(questionForm)) {
+    const draftSnapshot = { form: questionForm, assistantRequirements };
+    if (draftBaselines.current.get(draftKey) === JSON.stringify(draftSnapshot)) return undefined;
+    if (!hasMeaningfulCodingDraft(questionForm) && !hasMeaningfulAssistantRequirements(assistantRequirements)) {
       localStorage.removeItem(draftKey);
       setDraftSavedAt("");
       setDraftStatus("idle");
@@ -1486,7 +1640,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     setDraftStatus("saving");
     const timer = window.setTimeout(() => {
       try {
-        const serialized = serializeCodingDraft(questionForm);
+        const serialized = serializeCodingDraft(questionForm, new Date().toISOString(), assistantRequirements);
         localStorage.setItem(draftKey, serialized);
         const parsed = parseCodingDraft(serialized);
         setDraftSavedAt(parsed.savedAt);
@@ -1496,10 +1650,12 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [draftKey, isCoding, questionForm]);
+  }, [assistantRequirements, draftKey, isCoding, questionForm]);
 
   const restoreDraft = () => {
     setQuestionForm(questionToForm(draftOffer.form));
+    setAssistantRequirements(draftOffer.assistantRequirements ?? null);
+    setAssistantRestoreNonce((current) => current + 1);
     setAiAuthoringComplete(
       draftOffer.form.aiAnalysis?.authoringSource === "AI_ASSISTANT"
       || draftOffer.form.aiAnalysis?.referenceAnswer?.status === "GENERATED"
@@ -1515,6 +1671,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     setDraftOffer(null);
     setDraftSavedAt("");
     setDraftStatus("idle");
+    setAssistantRequirements(null);
   };
   const toggleCodingLanguage = (language) => {
     toggleLanguage(language);
@@ -1539,7 +1696,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     setEditorTab(editorTabForField(field));
     window.setTimeout(() => document.getElementById(`coding-field-${field}`)?.focus(), 0);
   };
-  const submitQuestion = async (event) => {
+  const submitQuestion = async (event, { keepOpen = false } = {}) => {
     if (!isCoding) return createQuestion(event);
     event.preventDefault();
     const errors = validateCodingProblem(questionForm);
@@ -1558,12 +1715,33 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
       generatedAnswerSignatureRef.current = "";
       setGeneratedAnswerSignature("");
       setAiAuthoringComplete(false);
+      setAssistantRequirements(null);
       setAiAuthoringResetNonce((current) => current + 1);
       activeAnswerRequestSignature.current = "";
-      setIsAuthoringOpen(false);
+      if (!keepOpen) setIsAuthoringOpen(false);
     }
     return saved;
   };
+  submitQuestionRef.current = submitQuestion;
+  useEffect(() => {
+    if (autoRegistrationState !== "answer" || !referenceAnswerReady) return;
+    setAutoRegistrationState("registering");
+    submitQuestionRef.current({ preventDefault: () => {} }, { keepOpen: true }).then((saved) => {
+      setAutoRegistrationState(saved ? "complete" : "registration-failed");
+    });
+  }, [autoRegistrationState, referenceAnswerReady]);
+  useEffect(() => {
+    if (autoRegistrationState !== "answer") return;
+    if (answerState.status === "FAILED" || answerState.status === "BLOCKED") setAutoRegistrationState("answer-failed");
+  }, [answerState.status, autoRegistrationState]);
+  useEffect(() => {
+    if (autoRegistrationState !== "complete") return undefined;
+    const timer = window.setTimeout(() => {
+      setAutoRegistrationState("idle");
+      setIsAuthoringOpen(false);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [autoRegistrationState]);
   const errorFor = (field) => visibleErrors[field] ? <span className="coding-field-error" id={`coding-error-${field}`} role="alert">{visibleErrors[field]}</span> : null;
   const requiredLabel = (label, field) => <span className="coding-field-label"><span>{label}</span>{visibleErrors[field] && <span className="required-mark">필수</span>}</span>;
   const tabStatus = (tab) => {
@@ -1572,6 +1750,7 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
     return "";
   };
   const retryReferenceAnswer = async () => {
+    if (autoRegistrationState === "answer-failed") setAutoRegistrationState("answer");
     activeAnswerRequestSignature.current = currentAnswerSignature;
     const succeeded = await requestAiReferenceAnswer(
       currentQuestionForm.current,
@@ -1586,19 +1765,47 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
 
   const openNewQuestion = () => {
     cancelQuestionEdit();
+    setAutoRegistrationState("idle");
+    setAssistantRequirements(null);
+    setAiAuthoringComplete(false);
+    setAiAuthoringResetNonce((current) => current + 1);
     setIsAuthoringOpen(true);
+    window.setTimeout(() => document.getElementById("question-authoring-inline")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
-  const closeAuthoring = () => setIsAuthoringOpen(false);
+  const openQuestionEditor = (question) => {
+    setAutoRegistrationState("idle");
+    editQuestion(question);
+    setIsAuthoringOpen(true);
+    window.setTimeout(() => document.getElementById("question-authoring-inline")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
+  const enqueueQuestion = (requirements) => {
+    const id = globalThis.crypto?.randomUUID?.() ?? `question-job-${Date.now()}-${Math.random()}`;
+    const title = String(requirements.scope ?? "").trim().split("\n")[0] || "새 자동 생성 문제";
+    setGenerationQueue((current) => [...current, { id, title, requirements, status: "queued", stage: "queued", activity: "앞선 작업이 끝나면 자동으로 시작됩니다." }]);
+    setAssistantRequirements(null);
+    setIsAuthoringOpen(false);
+  };
+  const cancelGenerationJob = (id) => {
+    if (generationAbortRef.current?.jobId === id) generationAbortRef.current.controller.abort();
+    setGenerationQueue((current) => current.map((job) => job.id === id ? { ...job, status: "cancelled", activity: "작업을 중단했습니다." } : job));
+  };
+  const retryGenerationJob = (id) => setGenerationQueue((current) => current.map((job) => job.id === id ? { ...job, status: "queued", stage: "queued", activity: "대기열에 다시 추가했습니다.", error: "" } : job));
+  const deleteGenerationJob = (id) => {
+    if (generationAbortRef.current?.jobId === id) generationAbortRef.current.controller.abort();
+    setGenerationQueue((current) => current.filter((job) => job.id !== id));
+  };
+  const closeAuthoring = () => { setAutoRegistrationState("idle"); setIsAuthoringOpen(false); };
 
   return <section id="question-management" className="data-panel form-panel coding-problem-form detail-management-panel">
     <div className="panel-heading"><div><h2>문제 관리</h2></div><div className="question-panel-actions"><button className="primary-button compact-button" type="button" onClick={openNewQuestion}><Plus size={16} /> 새 문제 만들기</button><button className="secondary-button compact-button" type="button" onClick={openPreview}><Eye size={16} /> 시험지 미리보기</button><BookOpen size={20} /></div></div>
     {message && <div className={`workspace-alert question-management-alert ${messageType === "error" ? "error" : ""}`}>{message}</div>}
-    <div className="question-list"><div className="section-title-row"><h3>문제 목록</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => { editQuestion(question); setIsAuthoringOpen(true); }}><Pencil size={14} /> 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>)}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다. 새 문제 만들기 버튼으로 출제를 시작하세요.</p>}</div>
-    {isAuthoringOpen && <div className="confirm-modal question-authoring-modal" role="dialog" aria-modal="true" aria-labelledby="question-authoring-title">
-      <button className="confirm-modal-backdrop" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring} />
-      <section className="confirm-modal-panel question-authoring-modal-panel">
-        <div className="question-authoring-modal-heading"><div><h2 id="question-authoring-title">{editingQuestionId ? "문제 수정" : "새 문제 만들기"}</h2><p>출제 도우미로 초안을 만들거나 문제 정보를 직접 작성하세요.</p></div><button className="icon-button" type="button" aria-label="문제 작성 팝업 닫기" onClick={closeAuthoring}><X size={20} /></button></div>
-        {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
+    {generationQueue.length > 0 && <QuestionGenerationQueue jobs={generationQueue} onCancel={cancelGenerationJob} onRetry={retryGenerationJob} onDelete={deleteGenerationJob} />}
+    {!isAuthoringOpen && autoRegistrationState !== "idle" && <AutoRegistrationProgress state={autoRegistrationState} onRetryGeneration={() => { setAutoRegistrationState("idle"); setIsAuthoringOpen(true); }} onRetryAnswer={retryReferenceAnswer} onRetryRegistration={() => setAutoRegistrationState("answer")} />}
+    <div className="question-list"><div className="section-title-row"><h3>문제 목록</h3><span className="text-muted">{questions.length}개</span></div>{questions.map((question, index) => { const aiAuthored = question.aiAnalysis?.authoringSource === "AI_ASSISTANT"; return <article className={`question-list-row ${editingQuestionId === question.id ? "selected" : ""}`} key={question.id}><div><strong>{index + 1}. {question.type === "CODING" ? question.title : question.prompt}</strong><span>{aiAuthored && <em className="question-ai-source">AI 자동 생성</em>}{question.type === "CODING" ? `코딩 · 비공개 채점 케이스 ${question.hiddenTestCases?.length ?? 0}개` : `객관식 · 선택지 ${question.options?.length ?? 0}개`}</span></div><div className="question-row-actions">{question.type === "CODING" && <button className="secondary-button compact-button" type="button" onClick={() => openQuestionEditor(question)}><Pencil size={14} /> 문제 수정</button>}<button className="danger-button compact-button" type="button" onClick={() => setQuestionToDelete(question)}><Trash2 size={14} /> 삭제</button></div></article>; })}{!questions.length && <p className="empty-state">아직 등록된 문제가 없습니다. 새 문제 만들기 버튼으로 출제를 시작하세요.</p>}</div>
+    {isAuthoringOpen && <section id="question-authoring-inline" className="question-authoring-inline-panel" aria-labelledby="question-authoring-title">
+        <div className="question-authoring-inline-heading"><div><h2 id="question-authoring-title">{editingQuestionId ? "문제 수정" : "새 문제 만들기"}</h2><p>{editingQuestionId ? "문제 내용과 채점 조건을 검토하고 수정하세요." : "출제 도우미로 초안을 만든 뒤 문제 내용을 검토하고 수정하세요."}</p></div><button className="icon-button" type="button" aria-label="문제 작성 영역 닫기" onClick={closeAuthoring}><X size={20} /></button></div>
+        {autoRegistrationState !== "idle" && <AutoRegistrationProgress state={autoRegistrationState} onRetryAnswer={retryReferenceAnswer} onRetryRegistration={() => { setAutoRegistrationState("answer"); }} />}
+        {draftOffer && isCoding && <div className="coding-draft-offer" role="status"><div><strong>저장된 초안이 있습니다.</strong><span>{new Date(draftOffer.savedAt).toLocaleString("ko-KR")} 저장{draftOffer.assistantRequirements ? " · 출제 도우미 설정 포함" : ""}{draftOffer.omittedFileCount ? ` · 첨부 파일 ${draftOffer.omittedFileCount}개는 다시 첨부해야 합니다.` : ""}</span></div><div><button className="secondary-button compact-button" type="button" onClick={discardDraft}>버리기</button><button className="primary-button compact-button" type="button" onClick={restoreDraft}>복구</button></div></div>}
         <form onSubmit={submitQuestion} noValidate={isCoding}>
       <div className="coding-authoring-layout">
         <main className="coding-editor-column">
@@ -1611,23 +1818,68 @@ function QuestionManagement({ examId, message, messageType, questionType, setQue
           </div>
         </main>
         <aside className="coding-ai-workspace" aria-label="출제 도우미">
-          <header><h3>출제 도우미</h3><p>조건을 입력하면 문제 시안과 모범 답안을 생성합니다.</p></header>
-          {!editingQuestionId && <ProblemCreationChatbot codingOnly examId={examId} completed={aiAuthoringComplete} resetKey={aiAuthoringResetNonce} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
+          <header><h3>{editingQuestionId ? "출제 도우미" : "출제 도우미로 문제 만들기"}</h3><p>{editingQuestionId ? "수정된 문제를 기준으로 모범 답안을 관리합니다." : "조건을 입력하면 문제와 모범 답안을 생성하고 시험에 자동 등록합니다."}</p></header>
+          {!editingQuestionId && <ProblemCreationChatbot codingOnly autoFocus examId={examId} completed={aiAuthoringComplete} resetKey={aiAuthoringResetNonce} restoreKey={assistantRestoreNonce} restoredRequirements={assistantRequirements} onRequirementsChange={setAssistantRequirements} onEnqueue={enqueueQuestion} onApplyCoding={(form) => { setQuestionType("CODING"); setQuestionForm((current) => ({ ...current, ...form, aiAnalysis: { ...current.aiAnalysis, ...form.aiAnalysis, authoringSource: "AI_ASSISTANT" } })); setAiAuthoringComplete(true); setAutoRegistrationState("answer"); setEditorTab("problem"); setAiDraftApplyNonce((current) => current + 1); }} />}
           {editingQuestionId && <div className="coding-ai-edit-note">수정한 내용이 저장되면 최신 기준으로 답안을 다시 준비합니다.</div>}
           <AiReferenceAnswerEditor questionForm={questionForm} requestAiReferenceAnswer={retryReferenceAnswer} answerOutdated={answerOutdated} />
         </aside>
       </div>
       <div className="coding-form-actions coding-sticky-actions">{message && <div className={`coding-action-message ${messageType === "error" ? "error" : ""}`} role={messageType === "error" ? "alert" : "status"}>{message}</div>}<div className="coding-action-row"><div className="coding-bottom-statuses"><span className={`coding-draft-status ${draftStatus}`}>{draftStatus === "saving" ? "초안 저장 중…" : draftStatus === "saved" && draftSavedAt ? `${new Date(draftSavedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 초안 저장됨` : draftStatus === "failed" ? "초안 저장 실패" : "브라우저에 자동 저장"}</span><span className={`coding-answer-status ${referenceAnswerReady ? "ready" : answerState.status.toLowerCase()}`}>{answerState.status === "PROCESSING" ? "답안 준비 중" : referenceAnswerReady ? "답안 준비 완료" : answerOutdated ? "답안 다시 생성 필요" : answerState.status === "FAILED" || answerState.status === "BLOCKED" ? "답안 확인 필요" : "답안 준비 대기"}</span></div><div><button className="primary-button" type="submit" disabled={!hasValidationErrors && (!referenceAnswerReady || answerState.status === "PROCESSING")}><Save size={16} /> {editingQuestionId ? "수정 사항 저장" : "시험 문제 등록"}</button></div></div></div>
         </form>
-      </section>
-    </div>}
+    </section>}
   </section>;
 }
 
-function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, setInviteLeadDraft, isSavingInviteLead, saveInviteLeadMinutes, isStartingAutomation, isRetryingAutomation, retryExamAutomation, openAutomationConfirm }) {
+function QuestionGenerationQueue({ jobs, onCancel, onRetry, onDelete }) {
+  const runningCount = jobs.filter((job) => job.status === "running").length;
+  const queuedCount = jobs.filter((job) => job.status === "queued").length;
+  return <section className="question-generation-queue" aria-label="문제 자동 생성 대기열">
+    <div className="section-title-row"><div><h3>문제 자동 생성 대기열</h3><p className="form-hint">각 요청을 한 건씩 순서대로 생성하고 자동 등록합니다.</p></div><span>{runningCount ? "1건 처리 중" : queuedCount ? `${queuedCount}건 대기` : "처리 완료"}</span></div>
+    <div className="question-generation-jobs">{jobs.map((job, jobIndex) => {
+      const generatingDone = ["answer", "registering", "complete"].includes(job.stage);
+      const answerDone = ["registering", "complete"].includes(job.stage);
+      const steps = [
+        { label: "문제 자동 생성", status: generatingDone ? "complete" : job.stage === "generating" ? (job.status === "failed" ? "error" : job.status === "cancelled" ? "stopped" : "active") : "upcoming" },
+        { label: "모범 답안 생성", status: answerDone ? "complete" : job.stage === "answer" ? (job.status === "failed" ? "error" : job.status === "cancelled" ? "stopped" : "active") : "upcoming" },
+        { label: "시험 문제 자동 등록", status: job.stage === "complete" ? "complete" : job.stage === "registering" ? (job.status === "failed" ? "error" : job.status === "cancelled" ? "stopped" : "active") : "upcoming" },
+      ];
+      return <article className={`question-generation-job ${job.status}`} key={job.id}>
+        <header><div><small>요청 {jobIndex + 1}</small><strong>{job.title}</strong><span>{job.status === "queued" ? "대기열에 추가됨" : job.status === "complete" ? "문제 목록에 등록 완료" : job.status === "failed" ? job.error : job.status === "cancelled" ? "작업이 중단되었습니다." : job.activity || "자동 생성 중"}</span></div><div className="question-generation-job-actions">{job.status === "running" && <button className="secondary-button compact-button" type="button" onClick={() => onCancel(job.id)}><X size={14} /> 중단</button>}{["failed", "cancelled"].includes(job.status) && <button className="secondary-button compact-button" type="button" onClick={() => onRetry(job.id)}><RotateCcw size={14} /> 재시도</button>}<button className="danger-button compact-button" type="button" onClick={() => onDelete(job.id)}><Trash2 size={14} /> 삭제</button></div></header>
+        <ol>{steps.map((step, index) => <li className={step.status} key={step.label}><span>{step.status === "complete" ? <Check size={14} /> : step.status === "active" ? <LoaderCircle className="spin" size={14} /> : step.status === "error" || step.status === "stopped" ? <X size={14} /> : index + 1}</span><strong>{step.label}</strong></li>)}</ol>
+      </article>;
+    })}</div>
+  </section>;
+}
+
+function AutoRegistrationProgress({ state, onRetryGeneration, onRetryAnswer, onRetryRegistration }) {
+  const generationFailed = state === "generation-failed";
+  const answerFailed = state === "answer-failed";
+  const registrationFailed = state === "registration-failed";
+  const generationComplete = !["generating", "generation-failed"].includes(state);
+  const answerComplete = ["registering", "complete", "registration-failed"].includes(state);
+  const registrationComplete = state === "complete";
+  const steps = [
+    { label: "문제 자동 생성", detail: generationFailed ? "문제를 생성하지 못했습니다. 입력 조건을 확인해 주세요." : generationComplete ? "생성한 문제를 작성란에 자동 적용했습니다." : "출제 조건을 분석하고 문제를 생성하고 있습니다.", status: generationFailed ? "error" : generationComplete ? "complete" : "active" },
+    { label: "모범 답안 생성", detail: answerFailed ? "답안을 생성하지 못했습니다. 입력 내용은 그대로 보존됩니다." : answerComplete ? "언어별 모범 답안을 생성했습니다." : state === "answer" ? "AI가 문제를 분석하고 언어별 답안을 만들고 있습니다." : "문제 생성이 끝나면 자동으로 시작됩니다.", status: answerFailed ? "error" : answerComplete ? "complete" : state === "answer" ? "active" : "upcoming" },
+    { label: "시험 문제 자동 등록", detail: registrationFailed ? "등록하지 못했습니다. 잠시 후 다시 시도해 주세요." : registrationComplete ? "시험 문제 목록에 등록했습니다." : state === "registering" ? "생성된 문제와 답안을 시험에 등록하고 있습니다." : "모범 답안이 준비되면 자동으로 등록됩니다.", status: registrationFailed ? "error" : registrationComplete ? "complete" : state === "registering" ? "active" : "upcoming" },
+  ];
+  return <section className={`auto-registration-progress ${state}`} role="status" aria-live="polite">
+    <div className="auto-registration-progress-heading">
+      <div><strong>{registrationComplete ? "문제 등록을 완료했습니다." : generationFailed || answerFailed || registrationFailed ? "자동 등록을 계속하려면 확인이 필요합니다." : "문제를 자동으로 등록하고 있습니다."}</strong><span>{registrationComplete ? "문제 목록에 새 문제가 추가되었습니다." : "다른 작업을 하더라도 생성과 등록은 계속 진행됩니다."}</span></div>
+      {!generationFailed && !answerFailed && !registrationFailed && !registrationComplete && <LoaderCircle className="spin" size={22} />}
+    </div>
+    <ol>{steps.map((step, index) => <li className={step.status} key={step.label}><span className="auto-registration-step-icon">{step.status === "complete" ? <Check size={15} /> : step.status === "active" ? <LoaderCircle className="spin" size={15} /> : step.status === "error" ? <X size={15} /> : index + 1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></li>)}</ol>
+    {generationFailed && <button className="secondary-button compact-button" type="button" onClick={onRetryGeneration}><RotateCcw size={14} /> 작성 화면 다시 열기</button>}
+    {answerFailed && <button className="secondary-button compact-button" type="button" onClick={onRetryAnswer}><RotateCcw size={14} /> 답안 생성 다시 시도</button>}
+    {registrationFailed && <button className="secondary-button compact-button" type="button" onClick={onRetryRegistration}><RotateCcw size={14} /> 문제 등록 다시 시도</button>}
+  </section>;
+}
+
+function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, setInviteLeadDraft, isSavingInviteLead, saveInviteLeadMinutes, examScheduleDraft, setExamScheduleDraft, isSavingExamSchedule, saveExamSchedule, isStartingAutomation, isRetryingAutomation, retryExamAutomation, isUpdatingAutomationControl, pauseExamAutomation, resumeExamAutomation, cancelExamAutomation, automationControlMessage, openAutomationConfirm }) {
   const state = automationStatus?.state ?? {};
   const preview = automationStatus?.preview ?? {};
-  const phase = automationPhaseFor({ phase: state.phase ?? state.status });
+  const isPaused = Boolean(state.paused);
+  const phase = automationPhaseFor({ phase: isPaused ? "PAUSED" : (state.phase ?? state.status) });
   const phaseKey = String(state.phase ?? state.status ?? "").trim().toUpperCase();
   const questionCount = Number(preview.questionCount ?? automationStatus?.exam?.questionCount ?? questions.length) || 0;
   const registeredCount = Number(state.totalCandidateCount ?? preview.totalCandidateCount ?? 0) || 0;
@@ -1640,23 +1892,57 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
   const excluded = Array.isArray(state.excludedCandidates) && state.excludedCandidates.length
     ? state.excludedCandidates
     : (Array.isArray(preview.excludedCandidates) ? preview.excludedCandidates : []);
-  const expectedInvitationAt = computeExpectedInvitationAt(automationStatus?.exam?.startsAt ?? state.startsAt, inviteLeadDraft)
+  const expectedInvitationAt = computeExpectedInvitationAt(examScheduleDraft || automationStatus?.exam?.startsAt || state.startsAt, inviteLeadDraft)
     ?? state.invitationScheduledAt
     ?? null;
-  const progressText = [
-    `자동 배정 ${assignedCount}/${eligibleCount}명`,
-    Array.isArray(automationStatus?.deliveries) && automationStatus.deliveries.length
-      ? `결과 메일 ${automationStatus.deliveries.filter((delivery) => String(delivery.status ?? "").toUpperCase() === "SENT").length}건 완료`
-      : null,
-  ].filter(Boolean).join(" · ");
+  const executionLogs = automationExecutionLogs(automationStatus);
+  const workflowStages = [
+    ["prepare", "대상 배정"], ["invite", "초대 발송"], ["exam", "시험 진행"],
+    ["finalize", "응시 마감"], ["grade", "자동 채점"], ["result", "결과 안내"],
+  ];
+  const phaseStageIndexes = {
+    ASSIGNING: 0, WAITING_INVITATION: 1, INVITING: 1, INVITATION_FAILED: 1,
+    WAITING_EXAM: 2, FINALIZING: 3, GRADING: 4, GRADING_FAILED: 4, REPORTING: 4,
+    EMAIL_PENDING: 5, EMAIL_SENDING: 5, EMAIL_FAILED: 5, COMPLETED: 6,
+  };
+  const currentStageIndex = state.managedByAgent ? (phaseStageIndexes[phaseKey] ?? 0) : -1;
+  const activityDescriptions = {
+    ASSIGNING: "초대 가능한 응시자를 확인하고 시험 대상자로 배정하고 있습니다.",
+    WAITING_INVITATION: `설정한 시각까지 대기한 뒤 ${eligibleCount}명에게 초대를 발송합니다.`,
+    INVITING: `${eligibleCount}명의 초대 링크와 안내 메일을 만들고 있습니다.`,
+    WAITING_EXAM: "초대 발송을 마쳤습니다. 시험 시작과 응시 상태를 기다리고 있습니다.",
+    FINALIZING: "시험 종료 시각을 기준으로 제출과 결시 상태를 확정하고 있습니다.",
+    GRADING: "제출된 답안을 채점하고 응시자별 결과를 만들고 있습니다.",
+    REPORTING: "채점 결과를 바탕으로 결과 안내를 준비하고 있습니다.",
+    EMAIL_SENDING: "확정된 결과를 응시자에게 발송하고 있습니다.",
+    COMPLETED: "배정부터 결과 안내까지 모든 자동 운영 작업을 마쳤습니다.",
+  };
+  const currentActivity = isPaused
+    ? "진행 중인 단계가 보존되어 있습니다. 운영 재개를 누르면 현재 단계부터 이어갑니다."
+    : state.failureReason
+      ? localizeAutomationFailure(state.failureReason)
+      : activityDescriptions[phaseKey] ?? (state.managedByAgent ? "다음 자동 운영 작업을 확인하고 있습니다." : "문제와 응시자를 확인한 뒤 자동 운영을 시작할 수 있습니다.");
   return <section className="exam-automation-panel" aria-labelledby="exam-automation-title">
     <div className="section-title-row exam-automation-heading">
       <div>
         <h3 id="exam-automation-title">자동 시험 운영</h3>
         <p className="form-hint">문제 작성 후 초대 가능한 응시자를 자동 배정하고 초대·채점·결과 안내를 처리합니다.</p>
       </div>
-      <span className={`ai-request-status automation-${phase.status.toLowerCase()}`}>{phase.label}</span>
+      <div className="exam-automation-heading-actions">
+        {!state.managedByAgent && <button className="primary-button compact-button" type="button" onClick={openAutomationConfirm} disabled={!canStart || isStartingAutomation}>{isStartingAutomation ? <LoaderCircle className="spin" size={14} /> : <CheckSquare size={14} />} 자동 시험 운영 시작</button>}
+        {state.managedByAgent && phaseKey !== "COMPLETED" && <>{isPaused ? <button className="primary-button compact-button" type="button" onClick={resumeExamAutomation} disabled={isUpdatingAutomationControl}>{isUpdatingAutomationControl ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 운영 재개</button> : <button className="secondary-button compact-button" type="button" onClick={pauseExamAutomation} disabled={isUpdatingAutomationControl}>{isUpdatingAutomationControl ? <LoaderCircle className="spin" size={14} /> : <Clock size={14} />} 일시정지</button>}<button className="danger-button compact-button" type="button" onClick={cancelExamAutomation} disabled={isUpdatingAutomationControl}><X size={14} /> 운영 취소</button></>}
+      </div>
     </div>
+    {automationControlMessage && <div className={`workspace-alert automation-control-message ${automationControlMessage.type === "error" ? "error" : ""}`} role={automationControlMessage.type === "error" ? "alert" : "status"}>{automationControlMessage.text}</div>}
+    <section className={`automation-agent-overview${isPaused ? " paused" : ""}`} aria-label="자동 운영 현재 작업">
+      <div className="automation-agent-current">
+        <span className="automation-agent-pulse" aria-hidden="true" />
+        <div><small>{isPaused ? "AGENT PAUSED" : state.managedByAgent ? "AGENT RUNNING" : "AGENT READY"}</small><h4>{isPaused ? "운영 일시정지" : phase.label}</h4><p>{currentActivity}</p></div>
+      </div>
+      <ol className="automation-workflow-steps">
+        {workflowStages.map(([id, label], index) => <li key={id} className={index < currentStageIndex ? "complete" : index === currentStageIndex ? "current" : "upcoming"}><span>{index < currentStageIndex ? <Check size={13} /> : index + 1}</span><strong>{label}</strong></li>)}
+      </ol>
+    </section>
     <div className="exam-automation-metrics">
       <AutomationMetric label="저장된 문제" value={`${questionCount}개`} />
       <AutomationMetric label="등록 응시자" value={`${registeredCount}명`} />
@@ -1664,43 +1950,85 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
       <AutomationMetric label="자동 배정" value={`${assignedCount}명`} />
       <AutomationMetric label="제외 대상" value={`${excludedCount}명`} tone={excludedCount ? "warning" : ""} />
     </div>
-    <div className="exam-automation-controls">
-      <label>초대 발송 시점
-        <span className="invite-lead-control"><input type="number" min="0" max="10080" step="1" value={inviteLeadDraft} onChange={(event) => setInviteLeadDraft(event.target.value)} disabled={locked || isSavingInviteLead} /><span>분 전</span></span>
-        <small className="form-hint">{locked ? "초대가 생성된 뒤에는 발송 시점을 수정할 수 없습니다." : "0분부터 10,080분(7일)까지 설정할 수 있습니다."}</small>
-      </label>
-      <div className="automation-schedule-summary">
-        <strong>{formatAutomationScheduledAt(expectedInvitationAt)}</strong>
-        <span>{expectedInvitationAt ? formatAutomationLeadTime(expectedInvitationAt) : "시간 미정"}</span>
+    <div className="automation-operation-row">
+      <div className="exam-schedule-control-panel">
+        <div><strong>시험 시작 일시</strong><span>자동 배정과 초대 발송의 기준 시간입니다.</span></div>
+        <div className="exam-schedule-control-row"><input type="datetime-local" aria-label="시험 시작 일시" value={examScheduleDraft} onChange={(event) => setExamScheduleDraft(event.target.value)} disabled={isSavingExamSchedule} /><button className="secondary-button compact-button" type="button" onClick={saveExamSchedule} disabled={!examScheduleDraft || isSavingExamSchedule}>{isSavingExamSchedule ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 일정 저장</button></div>
       </div>
-      <button className="secondary-button compact-button" type="button" onClick={() => saveInviteLeadMinutes().catch(() => {})} disabled={locked || isSavingInviteLead}>
-        {isSavingInviteLead ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 발송 시점 저장
-      </button>
-    </div>
-    <div className="exam-automation-status-row">
-      <div>
-        <strong>{progressText || "아직 자동 운영을 시작하지 않았습니다."}</strong>
-        <p>{automationStatus?.exam?.startsAt ? `예정 시험 시작: ${formatAutomationScheduledAt(automationStatus.exam.startsAt)}` : "시험 시작 시각을 확인해 주세요."}</p>
+      <div className="exam-automation-controls">
+        <label className="invite-lead-field"><span className="automation-control-label">초대 발송 시점</span>
+          <span className="invite-lead-control"><span className="invite-lead-stepper"><button type="button" aria-label="초대 발송 시점 10분 줄이기" onClick={() => setInviteLeadDraft(String(Math.max(0, (Number(inviteLeadDraft) || 0) - 10)))} disabled={locked || isSavingInviteLead}>−</button><input type="number" inputMode="numeric" aria-label="시험 시작 전 초대 발송 시간(분)" min="0" max="10080" step="1" value={inviteLeadDraft} onChange={(event) => setInviteLeadDraft(event.target.value)} disabled={locked || isSavingInviteLead} /><button type="button" aria-label="초대 발송 시점 10분 늘리기" onClick={() => setInviteLeadDraft(String(Math.min(10080, (Number(inviteLeadDraft) || 0) + 10)))} disabled={locked || isSavingInviteLead}>+</button></span><span>분 전</span></span>
+        </label>
+        <div className="automation-schedule-summary">
+          <span className="automation-control-label">예상 발송 시각</span>
+          <span className="automation-schedule-value"><strong>{formatAutomationScheduledAt(expectedInvitationAt)}</strong><small>{expectedInvitationAt ? formatAutomationLeadTime(expectedInvitationAt) : "시간 미정"}</small></span>
+        </div>
+        <div className="invite-lead-save">
+          <span className="automation-control-label">설정 적용</span>
+          <button className="secondary-button compact-button" type="button" onClick={() => saveInviteLeadMinutes().catch(() => {})} disabled={locked || isSavingInviteLead}>
+            {isSavingInviteLead ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 발송 시점 저장
+          </button>
+        </div>
+        <small className="form-hint invite-lead-hint">{locked ? "초대가 생성된 뒤에는 발송 시점을 수정할 수 없습니다." : "0분부터 10,080분(7일)까지 설정할 수 있습니다."}</small>
       </div>
-      {canRetry && <button className="secondary-button" type="button" onClick={retryExamAutomation} disabled={isRetryingAutomation}>{isRetryingAutomation ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} 실패 단계 재시도</button>}
     </div>
-    {excluded.length > 0 && <details className="automation-exclusion-list"><summary>제외 대상 {excluded.length}명과 사유</summary>{excluded.map((item, index) => <div key={`${item.candidateId || item.candidateName || item.candidateNumber}-${index}`}><strong>{item.candidateName || item.candidateNumber || "응시자"}</strong><span>{(Array.isArray(item.reasons) ? item.reasons : [item.reason]).filter(Boolean).map(localizePreviewExclusionReason).join(" · ")}</span></div>)}</details>}
+    <section className="automation-assignment-overview" aria-label="자동 배정 및 제외 대상 현황">
+      <div className="automation-assignment-overview-heading">
+        <div><h4>운영 대상 현황</h4><p>{automationStatus?.exam?.startsAt ? `예정 시험 시작: ${formatAutomationScheduledAt(automationStatus.exam.startsAt)}` : "예정 시험 시작: 일정 미정"}</p></div>
+        <div className="automation-assignment-summary"><span><small>자동 배정</small><strong>{assignedCount}/{eligibleCount}명</strong></span><span className={excludedCount ? "warning" : ""}><small>제외 대상</small><strong>{excludedCount}명</strong></span>{canRetry && <button className="secondary-button compact-button" type="button" onClick={retryExamAutomation} disabled={isRetryingAutomation}>{isRetryingAutomation ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} 실패 단계 재시도</button>}</div>
+      </div>
+      <div className="automation-exclusion-section"><h5>제외 대상과 사유</h5><div className="automation-exclusion-scroll">{excluded.length ? excluded.map((item, index) => <div className="automation-exclusion-item" key={`${item.candidateId || item.candidateName || item.candidateNumber}-${index}`}><strong>{item.candidateName || item.candidateNumber || "응시자"}</strong><span>{(Array.isArray(item.reasons) ? item.reasons : [item.reason]).filter(Boolean).map(localizePreviewExclusionReason).join(" · ")}</span></div>) : <p>현재 제외 대상이 없습니다.</p>}</div></div>
+    </section>
     {state.failureReason && <div className="workspace-alert error automation-detail-failure"><strong>{phase.label}</strong><span>{localizeAutomationFailure(state.failureReason)}</span></div>}
-    <div className="exam-automation-actions">
-      <button className="primary-button" type="button" onClick={openAutomationConfirm} disabled={!canStart || isStartingAutomation}>
-        {isStartingAutomation ? <LoaderCircle className="spin" size={16} /> : <CheckSquare size={16} />} 자동 시험 운영 시작
-      </button>
+    <section className="automation-execution-log" aria-labelledby="automation-execution-log-title">
+      <div className="section-title-row">
+        <div><h4 id="automation-execution-log-title">실행 로그</h4><p className="form-hint">자동 운영 단계가 3초마다 갱신됩니다.</p></div>
+        <span>{executionLogs.length}건</span>
+      </div>
+      {executionLogs.length ? <ol>{executionLogs.map((log, index) => <li key={log.id} className={`${log.tone}${index === 0 ? " latest" : ""}`}><span className="automation-log-marker" aria-hidden="true" /><time dateTime={log.at}>{index === 0 && <b>최근 활동</b>}{new Date(log.at).toLocaleString("ko-KR")}</time><div><strong>{log.title}</strong>{log.detail && <span>{log.detail}</span>}</div></li>)}</ol> : <p className="empty-state">아직 실행 기록이 없습니다.</p>}
+    </section>
+    {!state.managedByAgent && !canStart && <div className="exam-automation-actions">
       <span className="exam-automation-action-hint">
         {!questionCount
           ? "문제를 1개 이상 저장해야 자동 운영을 시작할 수 있습니다."
           : !eligibleCount
             ? "초대 가능한 응시자가 있어야 자동 운영을 시작할 수 있습니다."
-            : state.managedByAgent && !canRetry
-              ? "자동 운영이 이미 시작되어 현재 상태를 추적 중입니다."
-              : "수동 초대 운영은 응시자 운영 탭에서 그대로 사용할 수 있습니다."}
+            : "자동 운영 시작 조건을 확인해 주세요."}
       </span>
-    </div>
+    </div>}
   </section>;
+}
+
+function automationExecutionLogs(automationStatus) {
+  const state = automationStatus?.state ?? {};
+  const candidateStatusLabels = {
+    PENDING: "처리 대기", GRADING: "자동 채점 중", GRADING_FAILED: "자동 채점 실패",
+    REVIEW_REQUIRED: "관리자 검토 필요", EMAIL_PENDING: "결과 메일 대기", EMAIL_FAILED: "결과 메일 실패",
+    COMPLETED: "처리 완료", FINALIZED: "시험 종료 처리", ABSENT: "결시 처리", EXCLUDED: "자동 운영 제외",
+  };
+  const logs = [];
+  const add = (id, at, title, detail = "", tone = "") => {
+    if (!at || Number.isNaN(Date.parse(at))) return;
+    logs.push({ id, at, title, detail, tone });
+  };
+  add("started", state.startedAt, "자동 시험 운영 시작", `${Number(state.eligibleCandidateCount ?? 0)}명 처리 대상`);
+  add("paused", state.pausedAt, "자동 시험 운영 일시정지");
+  add("resumed", state.resumedAt, "자동 시험 운영 재개");
+  add("cancelled", state.cancelledAt, "자동 시험 운영 취소", "이후 자동 처리를 중단했습니다.", "error");
+  add("invitation-scheduled", state.startedAt, "초대 발송 예약", `${formatAutomationScheduledAt(state.invitationScheduledAt)} · 시험 시작 ${Number(state.inviteLeadMinutes ?? 0)}분 전`, "scheduled");
+  add("invitation-sent", state.invitationSentAt, "초대 발송 처리", `${Number(state.invitationCreatedCount ?? 0)}건 생성 · ${Number(state.invitationReusedCount ?? 0)}건 재사용`);
+  add("last-run", state.lastRunAt, "자동 운영 단계 실행", automationPhaseFor({ phase: state.phase ?? state.status }).label);
+  add("failed", state.lastFailureAt, "자동 운영 오류", localizeAutomationFailure(state.failureReason ?? state.failureCode), "error");
+  add("completed", state.completedAt, "자동 시험 운영 완료", `${Number(state.finalizedCount ?? 0)}명 처리 완료`, "success");
+  for (const candidate of Array.isArray(automationStatus?.candidates) ? automationStatus.candidates : []) {
+    const name = candidate.candidateName || candidate.candidateEmail || "응시자";
+    add(`candidate-queued-${candidate.candidateId}`, candidate.queuedAt, `${name} 처리 대기`);
+    add(`candidate-finalized-${candidate.candidateId}`, candidate.finalizedAt, `${name} 처리`, candidate.failureReason || candidateStatusLabels[candidate.status] || "처리 완료", candidate.failureReason ? "error" : "");
+  }
+  for (const delivery of Array.isArray(automationStatus?.deliveries) ? automationStatus.deliveries : []) {
+    add(`delivery-${delivery.id}`, delivery.sentAt, `${delivery.candidateName || "응시자"} 결과 메일 발송`, "발송 완료", "success");
+  }
+  return logs.sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 100);
 }
 
 function AutomationMetric({ label, value, tone = "" }) {
@@ -1731,10 +2059,11 @@ function AiReferenceAnswerEditor({ questionForm, requestAiReferenceAnswer, answe
     {answerState.status === "FAILED" && <div className="ai-reference-feasibility-warning" role="alert"><strong>{answerState.errorMessage || "모범 답안 생성에 실패했습니다."}</strong>{answerState.errorDetail && <p>상세 원인: {answerState.errorDetail}</p>}{(answerState.providerStatus || answerState.errorCode) && <small>오류 코드: {[answerState.providerStatus && `HTTP ${answerState.providerStatus}`, answerState.errorCode].filter(Boolean).join(" / ")}</small>}{!answerState.errorDetail && <p>잠시 후 다시 시도해 주세요. 문제가 계속되면 시스템 관리자에게 문의해 주세요.</p>}</div>}
     {answerState.status === "GENERATED" && answerState.warnings.length > 0 && <div className="ai-reference-feasibility-warning caution"><strong>생성 전제 확인</strong><ul>{answerState.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
     {hasGeneratedAnswer ? <div className="ai-generated-answer-list">
+      <div className="ai-generated-answer-heading"><strong>생성된 답안 확인</strong><span>언어별 카드를 눌러 답안 내용을 확인하세요.</span></div>
       {languages.map((language) => {
         const source = String(questionForm.referenceSolutions?.[language] ?? "").trim();
         return source ? <details className="ai-generated-answer" key={language}>
-          <summary><strong>{language}</strong><span className="ai-language-success"><Check size={14} /> 생성 완료</span></summary>
+          <summary><strong>{language}</strong><span className="ai-generated-answer-controls"><span className="ai-language-success"><Check size={14} /> 생성 완료</span><span className="ai-answer-toggle-label"><Eye size={14} /><b className="when-closed">답안 보기</b><b className="when-open">답안 닫기</b></span></span></summary>
           <pre>{source}</pre>
         </details> : null;
       })}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codingDraftKey, getCodingStepStates, hasMeaningfulCodingDraft, parseCodingDraft, serializeCodingDraft, stepForError, validateCodingProblem } from "./codingProblemWorkflow.mjs";
+import { codingDraftKey, getCodingStepStates, hasMeaningfulAssistantRequirements, hasMeaningfulCodingDraft, parseCodingDraft, serializeCodingDraft, stepForError, validateCodingProblem } from "./codingProblemWorkflow.mjs";
 
 const completeForm = () => ({
   title: "두 수의 합", languages: ["Python"], description: "두 수를 더합니다.", inputFormat: "두 정수", outputFormat: "합", constraints: "1 이상",
@@ -28,10 +28,18 @@ test("단계별 완료와 선택 상태를 계산한다", () => {
 
 test("초안 키를 분리하고 첨부 파일 본문은 저장하지 않는다", () => {
   assert.notEqual(codingDraftKey("exam-1"), codingDraftKey("exam-1", "question-1"));
-  const parsed = parseCodingDraft(serializeCodingDraft(completeForm(), "2026-08-04T00:00:00.000Z"));
+  const assistantRequirements = { difficulty: "중급", type: "CODING", scope: "문자열 문제", languages: ["Python"], authoringConditions: {} };
+  const parsed = parseCodingDraft(serializeCodingDraft(completeForm(), "2026-08-04T00:00:00.000Z", assistantRequirements));
   assert.equal(parsed.omittedFileCount, 1);
   assert.deepEqual(parsed.form.aiAnalysis.referenceMaterials, []);
+  assert.deepEqual(parsed.assistantRequirements, assistantRequirements);
   assert.equal(parseCodingDraft("broken"), null);
+});
+
+test("출제 도우미 설정만 입력한 경우에도 복구할 초안으로 판단한다", () => {
+  assert.equal(hasMeaningfulAssistantRequirements({ type: "CODING", languages: [], authoringConditions: {} }), false);
+  assert.equal(hasMeaningfulAssistantRequirements({ difficulty: "중급", type: "CODING", languages: [], authoringConditions: {} }), true);
+  assert.equal(hasMeaningfulAssistantRequirements({ type: "CODING", scope: "배열 문제", languages: [], authoringConditions: {} }), true);
 });
 
 test("공백과 기본값만 있는 초안은 복구 대상으로 보지 않는다", () => {

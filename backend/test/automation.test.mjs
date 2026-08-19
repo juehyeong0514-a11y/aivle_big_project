@@ -250,12 +250,33 @@ test("manager operations agent start enforces scope, prerequisites, due-now invi
   assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
   assert.equal(store.assignments.some((item) => item.examId === exam.id && item.candidateId === "agent-test-candidate"), false);
 
+  const pausedResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/pause`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(pausedResponse.status, 200);
+  assert.equal((await pausedResponse.json()).state.paused, true);
+  await app.locals.automation.runNow();
+  assert.equal(store.examAutomationStates.find((item) => item.examId === exam.id).paused, true);
+  const resumedResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/resume`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(resumedResponse.status, 200);
+  assert.equal((await resumedResponse.json()).state.paused, false);
+
+  const cancelledResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/cancel`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(cancelledResponse.status, 200);
+  const cancelled = await cancelledResponse.json();
+  assert.equal(cancelled.state.managedByAgent, false);
+  assert.equal(cancelled.state.phase, "CANCELLED");
+  const restartedResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
+  assert.equal(restartedResponse.status, 202);
+
   await app.locals.automation.runNow();
   await app.locals.automation.runNow();
   assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
   const repeatedStart = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/start`, { method: "POST", headers, body: JSON.stringify({}) });
   assert.equal(repeatedStart.status, 202);
   assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
+
+  const endedSchedule = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ date: "2099.02.01 08:00", duration: "30분" }) });
+  assert.equal(endedSchedule.status, 200);
+  assert.notEqual(store.examAutomationStates.find((item) => item.examId === exam.id).phase, "WAITING_EXAM");
 
   const lockedLead = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ inviteLeadMinutes: 30 }) });
   assert.equal(lockedLead.status, 409);

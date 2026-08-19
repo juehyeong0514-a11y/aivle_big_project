@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { automationRecoveryActionsFor, automationStateFor, deriveAutomationSummary, filterInvocationLogs, invocationLogView, localizeAutomationFailure, paginateInvocationLogs, selectAutomationScope, sortAutomationExams, automationPhaseFor, automationDeliveryStatusFor, formatAutomationScheduledAt, formatAutomationLeadTime, localizeAutomationExclusionReason } from './automationUi.mjs';
 
 test('automation panel exposes every lifecycle phase and safe unknown fallback', () => {
-  const phases = ['ASSIGNING', 'WAITING_INVITATION', 'INVITING', 'WAITING_EXAM', 'FINALIZING', 'GRADING', 'REPORTING', 'EMAIL_SENDING', 'COMPLETED'];
+  const phases = ['ASSIGNING', 'WAITING_INVITATION', 'INVITING', 'WAITING_EXAM', 'FINALIZING', 'GRADING', 'REPORTING', 'EMAIL_SENDING', 'COMPLETED', 'PAUSED', 'CANCELLED'];
   assert.deepEqual(phases.map((phase) => automationPhaseFor({ automationStatus: phase }).status), phases);
   assert.equal(automationPhaseFor({ automationStatus: 'NOT_A_REAL_PHASE' }).label, '자동 처리 상태 확인 필요');
   assert.equal(automationPhaseFor(null).status, 'UNKNOWN');
@@ -25,7 +25,10 @@ test('automation helpers localize exclusion reasons and format schedule/lead tim
   assert.equal(localizeAutomationExclusionReason('MISSING_BIRTH_DATE'), '생년월일 누락');
   assert.equal(localizeAutomationExclusionReason('future-code'), '제외 사유를 확인해 주세요.');
   assert.match(formatAutomationScheduledAt('2026-08-18T09:30:00+09:00'), /2026/);
+  assert.match(formatAutomationScheduledAt('2026-08-19T04:40:00.000Z'), /2026/);
+  assert.match(formatAutomationScheduledAt('2026.08.19 13:40'), /2026/);
   assert.equal(formatAutomationScheduledAt('bad-date'), '일정 미정');
+  assert.equal(formatAutomationLeadTime('2026-08-19T04:40:00.000Z', '2026-08-19T04:00:00.000Z'), '40분 전');
   assert.equal(formatAutomationLeadTime('2026-08-18T09:00:00Z', '2026-08-18T08:30:00Z'), '30분 전');
   assert.equal(formatAutomationLeadTime('bad-date', Date.now()), '시간 미정');
 });

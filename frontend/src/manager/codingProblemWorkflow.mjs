@@ -28,6 +28,20 @@ export function hasMeaningfulCodingDraft(form) {
   );
 }
 
+export function hasMeaningfulAssistantRequirements(requirements) {
+  const conditions = requirements?.authoringConditions ?? {};
+  return Boolean(
+    text(requirements?.difficulty)
+    || text(requirements?.scope)
+    || (requirements?.languages?.length ?? 0)
+    || (conditions.algorithmRequirements?.length ?? 0)
+    || text(conditions.expectedTimeComplexity)
+    || text(conditions.expectedSpaceComplexity)
+    || text(conditions.solutionRequirements)
+    || text(conditions.prohibitedApproaches),
+  );
+}
+
 export function validateCodingProblem(form) {
   const errors = {};
   if (!text(form?.title)) errors.title = "문제 제목을 입력해 주세요.";
@@ -76,11 +90,12 @@ export function codingDraftKey(examId, editingQuestionId = "") {
   return `coding-problem-draft:v${CODING_DRAFT_VERSION}:${examId}:${editingQuestionId || "new"}`;
 }
 
-export function serializeCodingDraft(form, savedAt = new Date().toISOString()) {
+export function serializeCodingDraft(form, savedAt = new Date().toISOString(), assistantRequirements = null) {
   const safeForm = JSON.parse(JSON.stringify(form));
+  const safeAssistantRequirements = assistantRequirements ? JSON.parse(JSON.stringify(assistantRequirements)) : null;
   const omittedFileCount = safeForm.aiAnalysis?.referenceMaterials?.length ?? 0;
   if (safeForm.aiAnalysis) safeForm.aiAnalysis.referenceMaterials = [];
-  return JSON.stringify({ version: CODING_DRAFT_VERSION, savedAt, omittedFileCount, form: safeForm });
+  return JSON.stringify({ version: CODING_DRAFT_VERSION, savedAt, omittedFileCount, form: safeForm, assistantRequirements: safeAssistantRequirements });
 }
 
 export function parseCodingDraft(value) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Check, Plus, Users, UserPlus, X } from 'lucide-react';
+import { Building2, Check, Pencil, Plus, Save, Search, Trash2, Users, UserPlus, X } from 'lucide-react';
 import { api, apiErrorMessage, authHeaders } from '../api/client';
 
 export default function ManagerWorkspaceTab() {
@@ -7,17 +7,27 @@ export default function ManagerWorkspaceTab() {
   const [organizationForm, setOrganizationForm] = useState({ name: '' });
   const [joinCode, setJoinCode] = useState('');
   const [joinRequests, setJoinRequests] = useState([]);
+  const [candidates, setCandidates] = useState([]);
+  const [candidateOrganizationId, setCandidateOrganizationId] = useState('');
+  const [candidateQuery, setCandidateQuery] = useState('');
+  const [candidateForm, setCandidateForm] = useState({ name: '', email: '', birthDate: '' });
+  const [editingCandidateId, setEditingCandidateId] = useState('');
+  const [savingCandidate, setSavingCandidate] = useState(false);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('apply');
 
   const load = async () => {
     const headers = { headers: authHeaders() };
-    const [orgs, requests] = await Promise.all([
+    const [orgs, requests, candidateResponse] = await Promise.all([
       api.get('/manager/organizations', headers),
       api.get('/manager/organization-join-requests', headers),
+      api.get('/manager/candidates', headers),
     ]);
     setOrganizations(orgs.data);
     setJoinRequests(requests.data);
+    setCandidates(candidateResponse.data);
+    const manageable = orgs.data.filter((organization) => organization.status === 'APPROVED' && organization.canManage);
+    setCandidateOrganizationId((current) => manageable.some((organization) => organization.id === current) ? current : (manageable[0]?.id || ''));
   };
 
   const joinOrganization = async (event) => {
@@ -58,10 +68,52 @@ export default function ManagerWorkspaceTab() {
     }
   };
 
+  const resetCandidateForm = () => {
+    setCandidateForm({ name: '', email: '', birthDate: '' });
+    setEditingCandidateId('');
+  };
+
+  const saveCandidate = async (event) => {
+    event.preventDefault();
+    if (!candidateOrganizationId) return;
+    setSavingCandidate(true);
+    try {
+      if (editingCandidateId) await api.patch(`/manager/candidates/${editingCandidateId}`, candidateForm, { headers: authHeaders() });
+      else await api.post('/manager/candidates', { ...candidateForm, organizationId: candidateOrganizationId }, { headers: authHeaders() });
+      setMessage(editingCandidateId ? '조직 응시자 정보를 수정했습니다.' : '조직 응시자를 추가했습니다.');
+      resetCandidateForm();
+      await load();
+    } catch (error) {
+      setMessage(apiErrorMessage(error, editingCandidateId ? '조직 응시자 정보를 수정하지 못했습니다.' : '조직 응시자를 추가하지 못했습니다.'));
+    } finally {
+      setSavingCandidate(false);
+    }
+  };
+
+  const editCandidate = (candidate) => {
+    setCandidateOrganizationId(candidate.organizationId);
+    setCandidateForm({ name: candidate.name || '', email: candidate.email || '', birthDate: candidate.birthDate || '' });
+    setEditingCandidateId(candidate.id);
+  };
+
+  const removeCandidate = async (candidate) => {
+    if (!window.confirm(`${candidate.name} 응시자를 조직에서 제거할까요? 시험 배정 정보도 함께 제거됩니다.`)) return;
+    try {
+      await api.delete(`/manager/candidates/${candidate.id}`, { headers: authHeaders() });
+      if (editingCandidateId === candidate.id) resetCandidateForm();
+      setMessage('조직 응시자를 제거했습니다.');
+      await load();
+    } catch (error) {
+      setMessage(apiErrorMessage(error, '조직 응시자를 제거하지 못했습니다.'));
+    }
+  };
+
   const approvedOrganizations = organizations.filter((organization) => organization.status === 'APPROVED' && organization.canManage);
   const pendingOrganizations = organizations.filter((organization) => organization.status === 'PENDING');
   const inactiveOrganizations = organizations.filter((organization) => ['REJECTED', 'SUSPENDED'].includes(organization.status));
   const pendingActionableRequests = joinRequests.filter((request) => request.status === 'PENDING' && request.canApprove).length;
+  const visibleCandidates = candidates.filter((candidate) => candidate.organizationId === candidateOrganizationId)
+    .filter((candidate) => `${candidate.name} ${candidate.email} ${candidate.candidateNumber || ''}`.toLowerCase().includes(candidateQuery.trim().toLowerCase()));
 
   return (
     <section className="workspace-shell">
@@ -127,6 +179,23 @@ export default function ManagerWorkspaceTab() {
           </div>}
         </div>
       </div>
+
+      <section className="data-panel organization-candidate-panel">
+        <div className="panel-heading organization-candidate-heading">
+          <div><h2>조직 응시자 관리</h2><p>자동 시험 운영에서 사용할 조직 공용 응시자 명단을 추가·수정·제거합니다.</p></div>
+          <div className="organization-candidate-tools"><select aria-label="응시자 관리 조직" value={candidateOrganizationId} onChange={(event) => { setCandidateOrganizationId(event.target.value); resetCandidateForm(); }}>{approvedOrganizations.map((organization) => <option value={organization.id} key={organization.id}>{organization.name}</option>)}</select><label><Search size={15} /><input aria-label="조직 응시자 검색" value={candidateQuery} onChange={(event) => setCandidateQuery(event.target.value)} placeholder="이름·이메일·응시번호 검색" /></label></div>
+        </div>
+        {!approvedOrganizations.length ? <p className="empty-state">관리할 수 있는 승인 조직이 없습니다.</p> : <div className="organization-candidate-layout">
+          <form className="organization-candidate-form" onSubmit={saveCandidate}>
+            <div><strong>{editingCandidateId ? '응시자 정보 수정' : '새 응시자 추가'}</strong>{editingCandidateId && <button className="text-button" type="button" onClick={resetCandidateForm}>수정 취소</button>}</div>
+            <label>이름<input value={candidateForm.name} onChange={(event) => setCandidateForm({ ...candidateForm, name: event.target.value })} required /></label>
+            <label>이메일<input type="email" value={candidateForm.email} onChange={(event) => setCandidateForm({ ...candidateForm, email: event.target.value })} required /></label>
+            <label>생년월일<input type="date" value={candidateForm.birthDate} onChange={(event) => setCandidateForm({ ...candidateForm, birthDate: event.target.value })} required /></label>
+            <button className="primary-button" type="submit" disabled={savingCandidate}>{editingCandidateId ? <Save size={16} /> : <UserPlus size={16} />} {savingCandidate ? '저장 중...' : editingCandidateId ? '수정 사항 저장' : '응시자 추가'}</button>
+          </form>
+          <div className="organization-candidate-list"><div className="organization-candidate-list-heading"><strong>등록된 응시자</strong><span>{visibleCandidates.length}명</span></div>{visibleCandidates.map((candidate) => <article className="organization-candidate-row" key={candidate.id}><div><strong>{candidate.name}</strong><span>{candidate.email}</span><small>{candidate.candidateNumber || '응시번호 미발급'} · {candidate.birthDate}</small></div><div><button className="secondary-button compact-button" type="button" onClick={() => editCandidate(candidate)}><Pencil size={14} /> 수정</button><button className="danger-button compact-button" type="button" onClick={() => removeCandidate(candidate)}><Trash2 size={14} /> 제거</button></div></article>)}{!visibleCandidates.length && <p className="empty-state">조건에 맞는 조직 응시자가 없습니다.</p>}</div>
+        </div>}
+      </section>
 
       <div className="data-panel workspace-next-step">
         <strong>시험 운영이 필요하신가요?</strong>
