@@ -64,13 +64,16 @@ test("updates an exam schedule across invitations and removes the exam graph", a
   const emptyTitle = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ title: "   " }) });
   assert.equal(emptyTitle.status, 400);
   const invitationPreviewInfo = await fetch(`${baseUrl}/api/invitations/${token}`);
-  assert.equal(invitationPreviewInfo.status, 200);
-  assert.equal((await invitationPreviewInfo.json()).schedule, "2099.10.11 12:00");
+  assert.equal(invitationPreviewInfo.status, 410);
+  const resent = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers, body: JSON.stringify({ candidateIds: ["candidate-1"] }) });
+  assert.equal(resent.status, 201);
+  const resentInvitation = await resent.json();
+  const resentToken = new URL(resentInvitation.mailPreviews[0].entryLink).searchParams.get("token");
   const managerInvitations = await fetch(`${baseUrl}/api/manager/invitations`, { headers: { Authorization: `Bearer ${manager.token}` } });
-  const refreshedInvitation = (await managerInvitations.json()).find((item) => item.examId === exam.id);
+  const refreshedInvitation = (await managerInvitations.json()).find((item) => item.examId === exam.id && !item.revokedAt);
   assert.equal(Date.parse(refreshedInvitation.expiresAt), new Date(2099, 9, 11, 13, 30).getTime());
 
-  const verified = await fetch(`${baseUrl}/api/invitations/${token}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: "AIVLE-1001" }) });
+  const verified = await fetch(`${baseUrl}/api/invitations/${resentToken}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateNumber: "AIVLE-1001" }) });
   assert.equal(verified.status, 200);
   const applicant = await verified.json();
   const applicantHeaders = { Authorization: `Bearer ${applicant.accessToken}` };
@@ -523,7 +526,7 @@ test("governs organization approval, manager scope, and invitations reusable bef
   const invitationResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/invitations/send`, { method: "POST", headers: managerHeaders, body: JSON.stringify({ candidateIds: [candidate.id], expiresInHours: 1 }) });
   const invitation = await invitationResponse.json();
   assert.equal(invitation.count, 1);
-  assert.equal(invitation.deliveryStatus, "PREVIEW");
+  assert.equal(invitation.deliveryStatus, "SENT");
   assert.equal(invitation.mailPreviews[0].oneTimeToken, undefined);
   assert.ok(Date.parse(invitation.mailPreviews[0].expiresAt) > Date.now());
   const entryUrl = new URL(invitation.mailPreviews[0].entryLink);

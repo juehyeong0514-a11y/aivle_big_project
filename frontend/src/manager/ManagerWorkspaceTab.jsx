@@ -21,7 +21,7 @@ export default function ManagerWorkspaceTab() {
     const [orgs, requests, candidateResponse] = await Promise.all([
       api.get('/manager/organizations', headers),
       api.get('/manager/organization-join-requests', headers),
-      api.get('/manager/candidates', headers),
+      api.get('/manager/candidates?scope=ORGANIZATION', headers),
     ]);
     setOrganizations(orgs.data);
     setJoinRequests(requests.data);
@@ -79,7 +79,7 @@ export default function ManagerWorkspaceTab() {
     setSavingCandidate(true);
     try {
       if (editingCandidateId) await api.patch(`/manager/candidates/${editingCandidateId}`, candidateForm, { headers: authHeaders() });
-      else await api.post('/manager/candidates', { ...candidateForm, organizationId: candidateOrganizationId }, { headers: authHeaders() });
+      else await api.post('/manager/candidates', { ...candidateForm, organizationId: candidateOrganizationId, scope: 'ORGANIZATION' }, { headers: authHeaders() });
       setMessage(editingCandidateId ? '조직 응시자 정보를 수정했습니다.' : '조직 응시자를 추가했습니다.');
       resetCandidateForm();
       await load();

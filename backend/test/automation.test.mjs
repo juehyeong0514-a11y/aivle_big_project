@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createApp, isExamStartBypassEnabled, scheduledExamEndsAt, scheduledExamStartsAt, shouldWaitForExamStart } from "../src/app.mjs";
+import { createApp, isExamStartBypassEnabled, isTemporaryCandidateEmail, scheduledExamEndsAt, scheduledExamStartsAt, shouldWaitForExamStart } from "../src/app.mjs";
 
 const fixture = async (options = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "aivle-automation-"));
@@ -14,6 +14,13 @@ const fixture = async (options = {}) => {
 test("parses the scheduled exam start in Asia/Seoul time", () => {
   assert.equal(scheduledExamStartsAt({ date: "2099.01.01 10:30" }), "2099-01-01T01:30:00.000Z");
   assert.equal(scheduledExamStartsAt({ date: "invalid" }), undefined);
+});
+
+test("recognizes candidate email domains that bypass external delivery", () => {
+  assert.equal(isTemporaryCandidateEmail("person@example.com"), true);
+  assert.equal(isTemporaryCandidateEmail("PERSON@TEMP.COM"), true);
+  assert.equal(isTemporaryCandidateEmail("person@example.org"), false);
+  assert.equal(isTemporaryCandidateEmail("person@sub.example.com"), false);
 });
 
 test("waits before the exam for regular candidates but lets test candidates enter", () => {
@@ -98,17 +105,26 @@ test("cutoff finalization marks never-started invitations ABSENT and grades star
   await store.addAssignment({ id: "assignment-absent", examId: exam.id, candidateId: absentCandidate.id, status: "INVITED" });
   await store.addInvitation({ id: "invitation-absent", examId: exam.id, candidateId: absentCandidate.id, organizationId: exam.organizationId, candidateNumber: absentCandidate.candidateNumber, expiresAt: "2099-01-02T02:00:00.000Z" });
   const startedCandidate = store.candidates.find((item) => item.id === "candidate-1");
-  await store.addInvitation({ id: "invitation-started", examId: exam.id, candidateId: startedCandidate.id, organizationId: exam.organizationId, candidateNumber: startedCandidate.candidateNumber, verifiedAt: "2099-01-02T01:30:00.000Z", expiresAt: "2099-01-02T02:00:00.000Z" });
+  await store.updateCandidate(startedCandidate.id, { email: "started@temp.com" });
+  await store.addInvitation({ id: "invitation-started-old", examId: exam.id, candidateId: startedCandidate.id, organizationId: exam.organizationId, candidateNumber: startedCandidate.candidateNumber, sentAt: "2099-01-01T23:00:00.000Z", revokedAt: "2099-01-02T00:00:00.000Z", expiresAt: "2099-01-02T02:00:00.000Z" });
+  await store.addInvitation({ id: "invitation-started", examId: exam.id, candidateId: startedCandidate.id, organizationId: exam.organizationId, candidateNumber: startedCandidate.candidateNumber, sentAt: "2099-01-02T00:30:00.000Z", verifiedAt: "2099-01-02T01:30:00.000Z", expiresAt: "2099-01-02T02:00:00.000Z" });
   await store.saveCodingSubmission({ id: "submission-started", examId: exam.id, organizationId: exam.organizationId, candidateId: startedCandidate.id, answers: { "coding-example-1": { language: "JavaScript", source: "console.log(5)" } }, runResults: {}, status: "DRAFT", submittedAt: null, updatedAt: "2099-01-02T01:40:00.000Z" });
   await app.locals.automation.runNow();
   assert.equal(store.assignments.find((item) => item.id === "assignment-absent").resultStatus, "ABSENT");
   assert.equal(store.candidateAutomationStates.find((item) => item.candidateId === absentCandidate.id).status, "ABSENT");
   assert.equal(store.assignments.find((item) => item.candidateId === startedCandidate.id && item.examId === exam.id).status, "SUBMITTED");
   assert.equal(calls.length, 1);
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 0);
+  assert.equal(store.examAutomationStates.find((item) => item.examId === exam.id).candidateCount, 2);
   await app.locals.automation.runNow();
   assert.equal(calls.length, 1);
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 0);
+  const completedState = store.examAutomationStates.find((item) => item.examId === exam.id);
+  assert.equal(completedState.phase, "COMPLETED");
+  const completedLastRunAt = completedState.lastRunAt;
+  await app.locals.automation.runNow();
+  assert.equal(store.examAutomationStates.find((item) => item.examId === exam.id).phase, "COMPLETED");
+  assert.equal(store.examAutomationStates.find((item) => item.examId === exam.id).lastRunAt, completedLastRunAt);
   if (previousApiKey === undefined) delete process.env.AI_API_KEY;
   else process.env.AI_API_KEY = previousApiKey;
   app.locals.automation.stop();
@@ -249,6 +265,10 @@ test("manager operations agent start enforces scope, prerequisites, due-now invi
   assert.equal(started.state.invitationDeliveryStatus, "PREVIEW");
   assert.equal(store.invitations.filter((item) => item.examId === exam.id && !item.revokedAt).length, 1);
   assert.equal(store.assignments.some((item) => item.examId === exam.id && item.candidateId === "agent-test-candidate"), false);
+  const managerInvitations = await (await fetch(`${baseUrl}/api/manager/invitations`, { headers })).json();
+  const automatedInvitation = managerInvitations.find((item) => item.examId === exam.id && !item.revokedAt);
+  assert.match(automatedInvitation.entryLink, /\/exam\/enter\?token=/);
+  assert.equal(Object.hasOwn(automatedInvitation, "token"), false);
 
   const pausedResponse = await fetch(`${baseUrl}/api/manager/exams/${exam.id}/automation/pause`, { method: "POST", headers, body: JSON.stringify({}) });
   assert.equal(pausedResponse.status, 200);
@@ -278,8 +298,8 @@ test("manager operations agent start enforces scope, prerequisites, due-now invi
   assert.equal(endedSchedule.status, 200);
   assert.notEqual(store.examAutomationStates.find((item) => item.examId === exam.id).phase, "WAITING_EXAM");
 
-  const lockedLead = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ inviteLeadMinutes: 30 }) });
-  assert.equal(lockedLead.status, 409);
+  const updatedLead = await fetch(`${baseUrl}/api/manager/exams/${exam.id}`, { method: "PATCH", headers, body: JSON.stringify({ inviteLeadMinutes: 30 }) });
+  assert.equal(updatedLead.status, 200);
 
   await store.updateCandidate("candidate-1", { status: "SUSPENDED" });
   await store.addExam({ id: "agent-no-eligible", title: "No eligible", duration: "30분", date: "2099.02.01 10:00", status: "AVAILABLE", organizationId: "org-aivle-cs", inviteLeadMinutes: 60 });

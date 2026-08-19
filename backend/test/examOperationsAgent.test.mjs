@@ -45,10 +45,12 @@ test("previews eligible organization candidates and redacted exclusion reasons",
     { id: "missing-birth", name: "Missing Birth", email: "birth@example.com", birthDate: "", organizationId: "org-a", status: "REGISTERED" },
     { id: "paused", name: "Paused", email: "paused@example.com", birthDate: "2000-01-01", organizationId: "org-a", status: "SUSPENDED" },
     { id: "duplicate", name: "Duplicate", email: "ok@example.com", birthDate: "2000-01-01", organizationId: "org-a", status: "REGISTERED" },
+    { id: "this-exam", name: "This exam", email: "this-exam@example.com", birthDate: "2000-01-01", organizationId: "org-a", status: "REGISTERED", scope: "EXAM", examId: "exam" },
+    { id: "other-exam", name: "Other exam", email: "other-exam@example.com", birthDate: "2000-01-01", organizationId: "org-a", status: "REGISTERED", scope: "EXAM", examId: "exam-2" },
   ];
   const preview = previewExamOperationsCandidates({ exam, candidates, now: Date.parse("2099-01-01T00:00:00.000Z") });
-  assert.deepEqual(preview.eligibleCandidates.map((candidate) => candidate.id), ["eligible"]);
-  assert.equal(preview.totalCandidateCount, 6);
+  assert.deepEqual(preview.eligibleCandidates.map((candidate) => candidate.id), ["eligible", "this-exam"]);
+  assert.equal(preview.totalCandidateCount, 7);
   assert.equal(preview.excludedCandidateCount, 5);
   assert.deepEqual(Object.fromEntries(preview.excludedCandidates.map((item) => [item.candidateId, item.reasons])), {
     test: ["TEST_CANDIDATE"],
@@ -58,6 +60,7 @@ test("previews eligible organization candidates and redacted exclusion reasons",
     duplicate: ["DUPLICATE_EMAIL"],
   });
   assert.equal(preview.excludedCandidates.some((item) => item.candidateId === "other-org"), false);
+  assert.equal(preview.eligibleCandidates.some((item) => item.id === "other-exam"), false);
   assert.equal(JSON.stringify(preview.excludedCandidates).includes("@example.com"), false);
 });
 

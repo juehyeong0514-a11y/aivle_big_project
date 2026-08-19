@@ -222,12 +222,10 @@ const parseCandidateCsv = (source) => {
 
 const AUTOMATION_LOCKED_PHASES = new Set([
   "INVITING",
-  "WAITING_EXAM",
   "FINALIZING",
   "GRADING",
   "REPORTING",
   "EMAIL_SENDING",
-  "COMPLETED",
 ]);
 
 const AUTOMATION_RETRYABLE_PHASES = new Set([
@@ -346,7 +344,7 @@ export default function ManagerExamDetailPage() {
     const [examResponse, candidateResponse, examCandidateResponse, questionResponse, invitationResponse, identityRequestResponse, automationResponse] =
       await Promise.all([
         api.get("/manager/exams", headers),
-        api.get("/manager/candidates", headers),
+        api.get("/manager/candidates?scope=ORGANIZATION", headers),
         api.get(`/manager/exams/${examId}/candidates`, headers),
         api.get(`/manager/exams/${examId}/questions`, headers),
         api.get("/manager/invitations", headers),
@@ -374,6 +372,16 @@ export default function ManagerExamDetailPage() {
           .map((invitation) => invitation.candidateId),
       ),
     ]);
+    setMailPreviews(invitationResponse.data
+      .filter((invitation) => invitation.examId === examId && !invitation.revokedAt && invitation.entryLink)
+      .map((invitation) => {
+        const candidate = examCandidateResponse.data.find((item) => item.id === invitation.candidateId);
+        return {
+          entryLink: invitation.entryLink,
+          to: candidate?.email ?? "이메일 미등록",
+          candidateNumber: invitation.candidateNumber ?? candidate?.candidateNumber ?? "",
+        };
+      }));
     setSelectedCandidateIds((current) =>
       current.filter((candidateId) =>
         examCandidateResponse.data.some(
@@ -446,7 +454,7 @@ export default function ManagerExamDetailPage() {
     try {
       const currentLeadMinutes = Number(automationStatus?.state?.inviteLeadMinutes ?? automationStatus?.exam?.inviteLeadMinutes ?? exam?.inviteLeadMinutes);
       const nextLeadMinutes = normalizeInviteLeadDraft(inviteLeadDraft);
-      if (!automationStatus?.preview?.invitationLocked && !AUTOMATION_LOCKED_PHASES.has(String(automationStatus?.state?.phase ?? automationStatus?.state?.status ?? "").toUpperCase()) && currentLeadMinutes !== nextLeadMinutes) {
+      if (!AUTOMATION_LOCKED_PHASES.has(String(automationStatus?.state?.phase ?? automationStatus?.state?.status ?? "").toUpperCase()) && currentLeadMinutes !== nextLeadMinutes) {
         await saveInviteLeadMinutes({ silent: true });
       }
       const { data } = await api.post(`/manager/exams/${examId}/automation/start`, {}, headers);
@@ -537,16 +545,34 @@ export default function ManagerExamDetailPage() {
   useEffect(() => {
     if (activeManagementPanel !== "candidates") return undefined;
     let active = true;
-    const refreshIdentityRequests = () => api.get(`/manager/exams/${examId}/identity-verification-requests`, headers)
-      .then(({ data }) => { if (active) setIdentityVerificationRequests(data); })
+    const refreshCandidateOperations = () => Promise.all([
+      api.get(`/manager/exams/${examId}/identity-verification-requests`, headers),
+      api.get("/manager/invitations", headers),
+    ])
+      .then(([identityResponse, invitationResponse]) => {
+        if (!active) return;
+        setIdentityVerificationRequests(identityResponse.data);
+        const activeInvitations = invitationResponse.data.filter((invitation) => invitation.examId === examId && !invitation.revokedAt);
+        setInvitedCandidateIds([...new Set(activeInvitations.map((invitation) => invitation.candidateId))]);
+        setMailPreviews(activeInvitations
+          .filter((invitation) => invitation.entryLink)
+          .map((invitation) => {
+            const candidate = candidates.find((item) => item.id === invitation.candidateId);
+            return {
+              entryLink: invitation.entryLink,
+              to: candidate?.email ?? "이메일 미등록",
+              candidateNumber: invitation.candidateNumber ?? candidate?.candidateNumber ?? "",
+            };
+          }));
+      })
       .catch(() => {});
-    refreshIdentityRequests();
-    const timer = window.setInterval(refreshIdentityRequests, 3000);
+    refreshCandidateOperations();
+    const timer = window.setInterval(refreshCandidateOperations, 3000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [activeManagementPanel, examId, headers]);
+  }, [activeManagementPanel, candidates, examId, headers]);
 
   useEffect(() => {
     if (activeManagementPanel !== "automation") return undefined;
@@ -789,7 +815,7 @@ export default function ManagerExamDetailPage() {
       }
       const candidateId = (await api.post(
         "/manager/candidates",
-        { ...candidateForm, email: normalizedEmail, organizationId: exam.organizationId },
+        { ...candidateForm, email: normalizedEmail, organizationId: exam.organizationId, scope: "EXAM", examId },
         headers,
       )).data.id;
       await api.post(
@@ -854,6 +880,8 @@ export default function ManagerExamDetailPage() {
         "/manager/candidates/bulk",
         {
           organizationId: exam.organizationId,
+          scope: "EXAM",
+          examId,
           candidates: uploadableCandidates.map(({ name, email, birthDate }) => ({ name, email, birthDate })),
         },
         headers,
@@ -1324,7 +1352,7 @@ export default function ManagerExamDetailPage() {
         </div>
         {mailPreviews.length > 0 && (
           <div className="mail-preview">
-            <strong>방금 생성한 초대 링크</strong>
+            <strong>응시자 초대 링크</strong>
             <p className="form-hint">
               테스트용 링크입니다. 링크를 복사해 새 시크릿 창에서 응시자 입장
               화면을 확인할 수 있습니다.
@@ -1886,7 +1914,7 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
   const eligibleCount = Number(state.eligibleCandidateCount ?? preview.eligibleCandidateCount ?? 0) || 0;
   const assignedCount = Number(state.assignedCandidateCount ?? preview.assignedCandidateCount ?? 0) || 0;
   const excludedCount = Number(state.excludedCandidateCount ?? preview.excludedCandidateCount ?? 0) || 0;
-  const locked = Boolean(preview.invitationLocked) || AUTOMATION_LOCKED_PHASES.has(phaseKey);
+  const locked = AUTOMATION_LOCKED_PHASES.has(phaseKey);
   const canStart = questionCount > 0 && eligibleCount > 0 && !(state.managedByAgent && !AUTOMATION_RETRYABLE_PHASES.has(phaseKey));
   const canRetry = AUTOMATION_RETRYABLE_PHASES.has(phaseKey);
   const excluded = Array.isArray(state.excludedCandidates) && state.excludedCandidates.length
@@ -1969,7 +1997,7 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
             {isSavingInviteLead ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 발송 시점 저장
           </button>
         </div>
-        <small className="form-hint invite-lead-hint">{locked ? "초대가 생성된 뒤에는 발송 시점을 수정할 수 없습니다." : "0분부터 10,080분(7일)까지 설정할 수 있습니다."}</small>
+        <small className="form-hint invite-lead-hint">{locked ? "현재 자동 운영 단계를 마친 뒤 수정할 수 있습니다." : "변경하면 기존 초대는 폐기되고 새 일정에 맞춰 다시 발송됩니다."}</small>
       </div>
     </div>
     <section className="automation-assignment-overview" aria-label="자동 배정 및 제외 대상 현황">
@@ -2001,8 +2029,9 @@ function ExamAutomationPanel({ questions, automationStatus, inviteLeadDraft, set
 
 function automationExecutionLogs(automationStatus) {
   const state = automationStatus?.state ?? {};
+  const candidateStates = Array.isArray(automationStatus?.candidates) ? automationStatus.candidates : [];
   const candidateStatusLabels = {
-    PENDING: "처리 대기", GRADING: "자동 채점 중", GRADING_FAILED: "자동 채점 실패",
+    PENDING: "마감 처리 대기", FINALIZING: "응시 상태 확인 중", GRADING: "AI 답안 채점 중", GRADING_FAILED: "자동 채점 실패",
     REVIEW_REQUIRED: "관리자 검토 필요", EMAIL_PENDING: "결과 메일 대기", EMAIL_FAILED: "결과 메일 실패",
     COMPLETED: "처리 완료", FINALIZED: "시험 종료 처리", ABSENT: "결시 처리", EXCLUDED: "자동 운영 제외",
   };
@@ -2017,13 +2046,35 @@ function automationExecutionLogs(automationStatus) {
   add("cancelled", state.cancelledAt, "자동 시험 운영 취소", "이후 자동 처리를 중단했습니다.", "error");
   add("invitation-scheduled", state.startedAt, "초대 발송 예약", `${formatAutomationScheduledAt(state.invitationScheduledAt)} · 시험 시작 ${Number(state.inviteLeadMinutes ?? 0)}분 전`, "scheduled");
   add("invitation-sent", state.invitationSentAt, "초대 발송 처리", `${Number(state.invitationCreatedCount ?? 0)}건 생성 · ${Number(state.invitationReusedCount ?? 0)}건 재사용`);
-  add("last-run", state.lastRunAt, "자동 운영 단계 실행", automationPhaseFor({ phase: state.phase ?? state.status }).label);
+  const phaseKey = String(state.phase ?? state.status ?? "").toUpperCase();
+  const finishedStatuses = new Set(["COMPLETED", "FINALIZED", "ABSENT", "EXCLUDED", "REVIEW_REQUIRED", "GRADING_FAILED", "EMAIL_FAILED"]);
+  const finishedCount = candidateStates.filter((candidate) => finishedStatuses.has(candidate.status)).length;
+  const activeCandidate = candidateStates.find((candidate) => ["FINALIZING", "GRADING", "EMAIL_PENDING"].includes(candidate.status));
+  const phaseDetail = phaseKey === "FINALIZING"
+    ? `${finishedCount}/${Number(state.candidateCount ?? candidateStates.length)}명 완료${activeCandidate ? ` · 현재 ${activeCandidate.candidateName || "응시자"} 처리 중` : " · 마감 대상 확인 중"}`
+    : automationPhaseFor({ phase: state.phase ?? state.status }).label;
+  const completedAtMs = Date.parse(state.completedAt ?? "");
+  const lastRunAtMs = Date.parse(state.lastRunAt ?? "");
+  const hasPostCompletionRun = Number.isFinite(completedAtMs) && Number.isFinite(lastRunAtMs) && lastRunAtMs > completedAtMs;
+  if (!(state.status === "COMPLETED" && hasPostCompletionRun)) {
+    add("last-run", state.lastRunAt, "자동 운영 단계 실행", phaseDetail);
+  }
   add("failed", state.lastFailureAt, "자동 운영 오류", localizeAutomationFailure(state.failureReason ?? state.failureCode), "error");
   add("completed", state.completedAt, "자동 시험 운영 완료", `${Number(state.finalizedCount ?? 0)}명 처리 완료`, "success");
-  for (const candidate of Array.isArray(automationStatus?.candidates) ? automationStatus.candidates : []) {
+  for (const candidate of candidateStates) {
     const name = candidate.candidateName || candidate.candidateEmail || "응시자";
     add(`candidate-queued-${candidate.candidateId}`, candidate.queuedAt, `${name} 처리 대기`);
-    add(`candidate-finalized-${candidate.candidateId}`, candidate.finalizedAt, `${name} 처리`, candidate.failureReason || candidateStatusLabels[candidate.status] || "처리 완료", candidate.failureReason ? "error" : "");
+    const activeDetails = {
+      CHECKING_ATTENDANCE: "접속·제출 여부와 결시 처리 조건을 확인하고 있습니다.",
+      SUBMITTING_ANSWERS: "제출되지 않은 답안을 마감 시각 기준으로 확정하고 있습니다.",
+      AI_GRADING: "코딩 답안을 AI로 채점하고 있습니다. 공급자 응답은 1회 최대 60초까지 기다립니다.",
+      EMAIL_PENDING: "채점 결과 메일 발송 순서를 기다리고 있습니다.",
+    };
+    if (["PENDING", "FINALIZING", "GRADING", "EMAIL_PENDING"].includes(candidate.status)) {
+      add(`candidate-active-${candidate.candidateId}`, candidate.updatedAt ?? candidate.processingStartedAt ?? state.lastRunAt, `${name}: ${candidateStatusLabels[candidate.status]}`, activeDetails[candidate.processingStep] ?? "이 응시자의 다음 처리 단계를 준비하고 있습니다.", "scheduled");
+    } else {
+      add(`candidate-finalized-${candidate.candidateId}`, candidate.finalizedAt ?? candidate.updatedAt, `${name} 처리`, candidate.failureReason || candidateStatusLabels[candidate.status] || "처리 완료", candidate.failureReason ? "error" : "");
+    }
   }
   for (const delivery of Array.isArray(automationStatus?.deliveries) ? automationStatus.deliveries : []) {
     add(`delivery-${delivery.id}`, delivery.sentAt, `${delivery.candidateName || "응시자"} 결과 메일 발송`, "발송 완료", "success");

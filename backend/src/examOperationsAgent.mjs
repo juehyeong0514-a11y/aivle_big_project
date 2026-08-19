@@ -52,7 +52,11 @@ export const previewExamOperationsCandidates = ({ exam, candidates = [], now = D
   const excluded = [];
   const seenIds = new Set();
   const seenEmails = new Set();
-  const sameOrganizationCandidates = candidates.filter((candidate) => candidate?.organizationId === exam?.organizationId);
+  const sameOrganizationCandidates = candidates.filter((candidate) => {
+    if (candidate?.organizationId !== exam?.organizationId) return false;
+    const scope = candidate?.scope ?? "ORGANIZATION";
+    return scope === "ORGANIZATION" || (scope === "EXAM" && candidate?.examId === exam?.id);
+  });
 
   for (const candidate of sameOrganizationCandidates) {
     const reasons = [];
