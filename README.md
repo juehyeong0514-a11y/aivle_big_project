@@ -43,7 +43,7 @@ AI 기반 온라인 역량 평가·감독 플랫폼입니다. 조직별 시험 �
 
 ### 1. 초기 운영 설정
 
-관리자가 조직과 매니저를 승인하고 중앙 AI 연결, 조직별 AI 사용 한도, 초대 보안 정책을 설정합니다. 실제 메일과 AI 감독을 사용하려면 SendGrid 및 AI 감독 서비스 환경 변수도 등록해야 합니다.
+관리자가 조직과 매니저를 승인하고 중앙 AI 연결, 조직별 AI 사용 한도, 초대 보안 정책을 설정합니다. 메일과 AI 감독 기능은 실행 환경에 연결된 SendGrid 및 AI 감독 서비스를 사용합니다.
 
 ### 2. 문제와 모범 답안 생성
 
@@ -60,8 +60,6 @@ AI 기반 온라인 역량 평가·감독 플랫폼입니다. 조직별 시험 �
 2. 자동 운영 에이전트가 중복 이메일, 잘못된 정보, 조직 범위와 등록 상태를 검사합니다.
 3. 유효한 응시자를 시험에 배정하고 설정된 시험 시작 전 시각에 일회용 링크와 응시번호를 메일로 발송합니다.
 4. 발송 실패 대상과 제외 사유는 자동 운영 현황에서 확인하고 재시도할 수 있습니다.
-
-SendGrid가 없는 로컬 환경에서는 실제 메일 대신 `PREVIEW` 상태와 입장 정보를 화면에서 확인합니다.
 
 ### 4. 본인 확인과 시험 응시
 
@@ -97,15 +95,15 @@ AI 경고는 감독자의 판단을 돕는 신호이며 단독으로 응시자�
 
 현재 매니저가 작성하는 `검토 메모`는 내부 운영 기록으로 저장되며 결과 메일 본문에는 포함되지 않습니다. 메일에는 AI가 생성한 피드백이 포함됩니다. 리포팅은 웹 화면에서 제공하며 PDF·Excel 파일 내보내기는 지원하지 않습니다.
 
-### 전체 플로우 사용 조건
+### 전체 플로우 연동 지점
 
-| 기능 | 필요한 설정 |
+| 기능 | 연동 대상 |
 | --- | --- |
-| AI 문제·모범 답안 생성과 코딩 채점 | 관리자 AI 연결 등록, `AI_SETTINGS_ENCRYPTION_KEY`, 조직별 AI 사용 허용·한도 |
-| 실제 초대·결과 메일 | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `PUBLIC_WEB_ORIGIN` |
-| PC·모바일 AI 감독 | 실행 중인 AI 감독 서비스와 `AI_PROCTOR_URL`, 필요 시 `AI_MOBILE_PROCTOR_URL` |
-| 신분증 OCR | 실행 중인 OCR 서비스와 `ID_CARD_OCR_URL` |
-| Python·Java·C 실행 | Judge0 호환 서버와 운영 환경의 허용 호스트 설정 |
+| AI 문제·모범 답안 생성과 코딩 채점 | 관리자 AI 연결, 조직별 AI 정책 |
+| 초대·결과 메일 | SendGrid, 공개 프런트엔드 주소 |
+| PC·모바일 AI 감독 | AI 감독 서비스 |
+| 신분증 OCR | 신분증 OCR 서비스 |
+| Python·Java·C 실행 | Judge0 호환 서버 |
 
 애플리케이션 내부 흐름과 실패·재시도 처리는 자동 테스트로 검증되어 있습니다. 다만 실제 AI 공급자, SendGrid, Judge0, 카메라·네트워크를 포함한 운영 환경은 배포 환경의 키와 권한에 영향을 받으므로 출시 전 스테이징 환경에서 전체 시나리오를 한 번 확인하는 것을 권장합니다.
 
@@ -206,38 +204,40 @@ npm run dev
 
 ## 환경 변수
 
+아래 목록은 소스코드가 참조하는 설정 이름입니다. 실제 로컬·배포 환경에 값이 등록되어 있는지를 나타내지는 않습니다.
+
 ### 백엔드
 
-| 변수 | 기본값 | 설명 |
-| --- | --- | --- |
-| `PORT` | `3000` | API 서버 포트 |
-| `DATABASE_URL` | 없음 | 설정 시 PostgreSQL의 `app_state` JSONB 저장소 사용, 미설정 시 `backend/data/database.json` 사용 |
-| `PUBLIC_WEB_ORIGIN` | `http://localhost:5173` | 초대·인증 메일에 포함할 공개 프런트엔드 주소 |
-| `ALLOWED_ORIGINS` | 로컬 Vite 주소 | 허용할 CORS Origin 목록(쉼표 구분) |
-| `SENDGRID_API_KEY` | 없음 | 가입 인증·초대·결과 메일 발송용 SendGrid 키 |
-| `SENDGRID_FROM_EMAIL` | 없음 | SendGrid에서 인증한 발신 주소 |
-| `SENDGRID_FROM_NAME` | 없음 | 메일 발신자 이름 |
-| `AI_SETTINGS_ENCRYPTION_KEY` | 없음 | 저장하는 AI API 키의 암호화 키. 미설정 시 관리자 화면에서 키 등록 불가 |
-| `AI_API_KEY` | 없음 | 기존 방식의 중앙 AI 키(관리자 화면 등록 방식 권장) |
-| `CODE_EXECUTION_API_URL` | `https://ce.judge0.com` | Judge0 호환 코드 실행 서버 |
-| `CODE_EXECUTION_API_KEY` | 없음 | 코드 실행 서버의 `X-Auth-Token` |
-| `CODE_EXECUTION_API_ALLOWED_HOSTS` | 없음 | 운영 환경에서 허용할 실행 서버 호스트 목록(쉼표 구분) |
-| `AI_PROCTOR_URL` | 없음 | PC 웹캠 AI 감독 서비스 주소 |
-| `AI_MOBILE_PROCTOR_URL` | `AI_PROCTOR_URL` | 모바일 보조 카메라 전용 AI 감독 주소 |
-| `AI_PROCTOR_API_KEY` | 없음 | AI 감독 서비스와 공유하는 Bearer 인증 키 |
-| `AI_PROCTOR_CONFIDENCE` | `0.55` | 탐지 이벤트의 최소 신뢰도 |
-| `AI_PROCTOR_CONSECUTIVE_HITS` | `2` | 경고 전 필요한 연속 감지 횟수 |
-| `AI_PROCTOR_WARNING_COOLDOWN_SECONDS` | `60` | 같은 유형의 경고 재발생 대기 시간 |
-| `AI_PROCTOR_BOOK_DETECTION_ENABLED` | `false` | 책 탐지 활성화 여부 |
-| `ID_CARD_OCR_URL` | 없음 | 신분증 OCR 서비스 주소 |
-| `ID_CARD_OCR_API_KEY` | 없음 | OCR 서비스의 `ID_CARD_SERVICE_TOKEN`과 같은 값 |
-| `EXAM_START_BYPASS_ENABLED` | `false` | 개발 시에만 사용하는 시험 시작 시각 우회 기능 |
+| 변수 | 설명 |
+| --- | --- |
+| `PORT` | API 서버 포트 |
+| `DATABASE_URL` | PostgreSQL 연결 주소 |
+| `PUBLIC_WEB_ORIGIN` | 초대·인증 메일에 포함할 공개 프런트엔드 주소 |
+| `ALLOWED_ORIGINS` | 허용할 CORS Origin 목록(쉼표 구분) |
+| `SENDGRID_API_KEY` | 가입 인증·초대·결과 메일 발송용 SendGrid 키 |
+| `SENDGRID_FROM_EMAIL` | SendGrid에서 인증한 발신 주소 |
+| `SENDGRID_FROM_NAME` | 메일 발신자 이름 |
+| `AI_SETTINGS_ENCRYPTION_KEY` | 저장하는 AI API 키의 암호화 키 |
+| `AI_API_KEY` | 기존 방식의 중앙 AI 키 |
+| `CODE_EXECUTION_API_URL` | Judge0 호환 코드 실행 서버 주소 |
+| `CODE_EXECUTION_API_KEY` | 코드 실행 서버의 `X-Auth-Token` |
+| `CODE_EXECUTION_API_ALLOWED_HOSTS` | 허용할 실행 서버 호스트 목록(쉼표 구분) |
+| `AI_PROCTOR_URL` | PC 웹캠 AI 감독 서비스 주소 |
+| `AI_MOBILE_PROCTOR_URL` | 모바일 보조 카메라 전용 AI 감독 주소 |
+| `AI_PROCTOR_API_KEY` | AI 감독 서비스와 공유하는 Bearer 인증 키 |
+| `AI_PROCTOR_CONFIDENCE` | 탐지 이벤트의 최소 신뢰도 |
+| `AI_PROCTOR_CONSECUTIVE_HITS` | 경고 전 필요한 연속 감지 횟수 |
+| `AI_PROCTOR_WARNING_COOLDOWN_SECONDS` | 같은 유형의 경고 재발생 대기 시간 |
+| `AI_PROCTOR_BOOK_DETECTION_ENABLED` | 책 탐지 활성화 여부 |
+| `ID_CARD_OCR_URL` | 신분증 OCR 서비스 주소 |
+| `ID_CARD_OCR_API_KEY` | OCR 서비스의 `ID_CARD_SERVICE_TOKEN`과 공유하는 인증 값 |
+| `EXAM_START_BYPASS_ENABLED` | 개발 시 사용하는 시험 시작 시각 우회 기능 |
 
 ### 프런트엔드
 
-| 변수 | 기본값 | 설명 |
-| --- | --- | --- |
-| `VITE_API_BASE_URL` | `/api` | 백엔드 API 기본 주소 |
+| 변수 | 설명 |
+| --- | --- |
+| `VITE_API_BASE_URL` | 백엔드 API 기본 주소 |
 
 ### Python 서비스
 
@@ -260,8 +260,6 @@ npm run dev
 3. 응시자는 `/invite/:token` 또는 `/exam/enter?token=...` 링크에서 응시번호를 확인받습니다.
 4. 사전 환경 점검과 신분증 확인을 마치고 시험에 입장합니다.
 5. 서버 마감 시각에 제출되지 않은 답안도 자동 마감 처리됩니다.
-
-SendGrid가 설정되지 않은 로컬 환경에서는 가입 인증과 초대를 `PREVIEW` 상태로 생성하여 화면에서 링크와 인증 정보를 확인할 수 있습니다.
 
 ### AI 감독
 
@@ -290,6 +288,150 @@ SendGrid가 설정되지 않은 로컬 환경에서는 가입 인증과 초대�
 - Python, Java, C 코드는 백엔드가 Judge0 호환 서버로 전달합니다.
 - 실행 요청에는 CPU 3초, 벽시계 5초, 메모리 256MB 및 응시자별 동시 실행 제한을 적용합니다.
 - 공개 Judge0 기본 주소는 개발·시연용이며 운영 환경에서는 전용 실행 서버와 허용 호스트를 설정하세요.
+
+## 프런트엔드와 백엔드 연결
+
+### 사용 프레임워크
+
+| 구분 | 기술 | 역할 |
+| --- | --- | --- |
+| 프런트엔드 | React 19 | 화면 상태와 사용자 이벤트 처리 |
+| 개발·빌드 | Vite 8 | 개발 서버, React 빌드, `/api` 프록시 |
+| HTTP 클라이언트 | Axios | REST API 요청과 JSON 응답 처리 |
+| 백엔드 | Node.js + Express 5 | API 라우팅, 인증·권한·조직 범위 검증, 데이터 저장 |
+| 실시간 영상 | WebRTC | 응시자 PC·모바일과 감독 화면 사이의 실시간 미디어 전송 |
+
+프런트엔드는 `frontend/src/api/client.js`에서 공통 Axios 인스턴스를 생성합니다.
+
+```js
+export const api = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
+});
+```
+
+로컬 개발에서는 Vite가 `/api` 요청을 `http://localhost:3000`으로 전달합니다. 예를 들어 프런트엔드의 `api.get('/manager/exams')`는 백엔드의 `GET http://localhost:3000/api/manager/exams`로 연결됩니다.
+
+```text
+React 컴포넌트
+  → Axios 요청: /api/...
+  → Vite 프록시(로컬) 또는 배포된 API 주소
+  → Express 라우트
+  → 인증·권한·입력값 검증
+  → 저장소 및 외부 서비스 처리
+  → JSON 응답
+  → React 상태 갱신
+```
+
+직원 로그인 토큰은 `accessToken`, 응시자 초대 인증 토큰은 `candidateAccessToken`으로 브라우저 `localStorage`에 구분해 보관합니다. 보호된 요청에는 공통 함수가 다음 헤더를 추가합니다.
+
+```http
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+Express는 최대 6MB의 JSON 요청을 파싱하고, CORS 허용 Origin과 역할별 접근 권한을 검사합니다. 일반 관리자·매니저 API는 직원 토큰을 사용하고 `/api/applicant/*` API는 초대 검증 후 발급된 응시자 토큰을 사용합니다.
+
+### HTTP 메서드 사용 기준
+
+| 메서드 | 사용 시점 | 이 프로젝트에서의 사용 예 |
+| --- | --- | --- |
+| `GET` | 서버 상태나 저장된 데이터를 조회할 때 | 시험·응시자·공지·경고·결과·자동화 상태 조회 |
+| `POST` | 새 리소스를 만들거나 제출·발송·실행처럼 하나의 동작을 요청할 때 | 로그인, 시험·문제 생성, 초대 발송, 코드 실행, 시험 제출, 경고 전송 |
+| `PUT` | 특정 리소스의 현재 상태 전체를 반복해서 같은 형태로 저장할 때 | 답안 진행 상태, 카메라 상태, PC·모바일 최신 스냅샷 갱신 |
+| `PATCH` | 기존 리소스의 일부 필드만 변경할 때 | 시험 일정, 문제, 응시자, 정책, 결과 검토 상태 수정 |
+| `DELETE` | 리소스나 연결 관계를 제거할 때 | 시험·문제·응시자 삭제, 시험 배정 해제 |
+
+### `GET`: 조회
+
+`GET`은 서버 데이터를 변경하지 않고 화면에 필요한 정보를 가져오는 데 사용합니다. 검색·조직·시험 범위는 쿼리 파라미터로 전달하고, 특정 항목은 URL 경로의 ID로 지정합니다.
+
+```js
+api.get('/manager/exams', { headers: authHeaders() });
+api.get(`/manager/results?organizationId=${organizationId}&examId=${examId}`, {
+  headers: authHeaders(),
+});
+api.get('/applicant/warnings', { headers: candidateAuthHeaders() });
+```
+
+주요 용도:
+
+- 매니저 시험·문제·응시자·결과 목록 조회
+- 응시자 시험 정보와 임시 저장 답안 불러오기
+- 감독 대상과 경고 기록 조회
+- 시험 운영 자동화 진행 상태 조회
+- WebRTC 연결 요청과 응답 상태 폴링
+
+실시간 감독 화면, 응시자 경고, 강제 종료 여부와 WebRTC 시그널링은 일정 주기로 `GET`하여 최신 상태를 반영합니다.
+
+### `POST`: 생성과 동작 실행
+
+`POST`는 새 데이터를 생성하거나 단순 데이터 수정이 아닌 업무 동작을 실행할 때 사용합니다.
+
+```js
+api.post('/auth/login', { email, password, role });
+api.post(`/manager/exams/${examId}/invitations/send`, { candidateIds }, {
+  headers: authHeaders(),
+});
+api.post('/applicant/exam/submit', { answers, runResults }, {
+  headers: candidateAuthHeaders(),
+});
+```
+
+주요 용도:
+
+- 회원가입·로그인·이메일 인증
+- 시험, 문제, 응시자, 공지와 커뮤니티 글 생성
+- AI 문제 시안·모범 답안 생성 및 코드 실행
+- 시험 배정, 초대 메일 발송과 결과 메일 재발송
+- 시험 최종 제출, 감독 경고, 강제 종료
+- 자동 운영 시작·일시정지·재개·취소·재시도
+- WebRTC offer/answer 시그널 교환
+
+`POST` 작업은 같은 요청을 반복하면 새 항목이나 추가 동작이 발생할 수 있으므로, 백엔드는 초대 재사용·자동화 시작 잠금·제출 여부 등의 중복 방지 검사를 함께 수행합니다.
+
+### `PUT`: 현재 상태 갱신
+
+`PUT`은 응시 중 계속 바뀌는 현재 상태를 동일한 주소에 덮어쓰는 용도로 제한해서 사용합니다. 같은 내용을 다시 보내도 리소스가 추가 생성되지 않습니다.
+
+| 엔드포인트 | 프런트엔드 전송 시점 | 저장 내용 |
+| --- | --- | --- |
+| `PUT /api/applicant/media-status` | 환경 점검 및 시험 중 약 10초 주기 | 웹캠·마이크·화면 공유·보조 카메라 연결 상태 |
+| `PUT /api/applicant/monitoring-snapshot` | PC 웹캠 감독 화면 갱신 주기 | 최신 PC 카메라 JPEG 스냅샷 |
+| `PUT /api/mobile-devices/:deviceToken/snapshot` | 모바일 감독 화면에서 약 3초 주기 | 최신 모바일 카메라 JPEG 스냅샷과 화면 비율 |
+| `PUT /api/applicant/exam/progress` | 응시자가 답안을 저장할 때 | 현재 답안 전체와 최근 코드 실행 결과 |
+
+스냅샷은 Base64 JPEG data URL로 전송하며 백엔드는 형식·크기·전송 간격을 검사합니다. 저장된 최신 스냅샷은 AI 감독 분석 대상으로 전달되고, 다음 스냅샷이 오면 현재 상태가 갱신됩니다.
+
+### `PATCH`와 `DELETE`
+
+`PATCH`는 전체 객체를 다시 보내지 않고 바뀐 값만 수정합니다.
+
+```js
+api.patch(`/manager/exams/${examId}`, { date, duration }, {
+  headers: authHeaders(),
+});
+api.patch(`/manager/exams/${examId}/results/${candidateId}/review`, {
+  reviewStatus,
+  reviewNote,
+}, { headers: authHeaders() });
+```
+
+`DELETE`는 시험·문제·응시자 같은 리소스 삭제와 응시자 배정 해제에 사용합니다. 백엔드는 조직 권한을 확인하고, 초대 발송 이력이 있는 문제처럼 삭제할 수 없는 상태에는 `409 Conflict`를 반환합니다.
+
+### 응답과 오류 처리
+
+- 조회·수정 성공: `200 OK`
+- 생성 성공: 주로 `201 Created`
+- 응답 본문 없는 스냅샷·시그널 처리 성공: `204 No Content`
+- 입력값 오류: `400 Bad Request`
+- 인증 실패: `401 Unauthorized`
+- 권한·조직 범위 위반: `403 Forbidden`
+- 대상 없음: `404 Not Found`
+- 현재 시험 상태와 충돌: `409 Conflict` 또는 `410 Gone`
+- 호출 횟수 제한: `429 Too Many Requests`
+- 외부 AI·메일·코드 실행 연동 실패: `5xx`
+
+프런트엔드는 Axios 오류의 `error.response.data.message`를 우선 사용해 백엔드가 전달한 한국어 오류 메시지를 화면에 표시합니다.
 
 ## API 개요
 
